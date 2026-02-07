@@ -14,9 +14,10 @@
 ## Key Flows
 
 1. **View Dashboard** - See total sales, commission due, and outstanding payments at a glance
-2. **Manage Clients** - Add new clients, view client list with region/type/location
-3. **Track Sales** - View orders by season (US/CA) with rental and retail breakdowns
-4. **Track Commission** - See what's owed, what's been paid, and what's outstanding
+2. **Manage Companies** - Add/edit companies with commission %, archive/restore, view per-company dashboards
+3. **Manage Clients** - Add new clients, view client list with region/type/location
+4. **Track Sales** - View orders by season (US/CA) with rental and retail breakdowns
+5. **Track Commission** - See what's owed, what's been paid, and what's outstanding
 
 ## Terminology
 
@@ -28,7 +29,8 @@
 | Retail | Retail/demo product orders |
 | Order Type | Rental or Retail classification |
 | Stage | Order status (Closed - Won, etc.) |
-| Commission | 5% of sales owed to the rep |
+| Company | A brand the rep earns commission from (e.g., Nitro, Union, 686) |
+| Commission | Percentage of sales owed to the rep (varies per company) |
 | Pay Status | Whether commission has been paid (Paid, Partial, Unpaid) |
 | Region | Geographic area (Rockies, PNW, Southeast, etc.) |
 | Account Type | Ski Shop (Off Site), Resort, Resort SARA Group, Chain |
@@ -40,4 +42,6 @@
 | Dashboard | Summary stats: total sales, rental/retail breakdown, commission due/paid |
 | Clients | Client list with add/edit, filterable by region and type |
 | Sales | Orders by season/country tab, rental and retail sections |
+| Companies | Company management with commission %, quick links in sidebar |
+| CompanyDetail | Per-company dashboard with sales/commission stats and orders by season |
 | Commission | Commission tracking with payment status per account |
