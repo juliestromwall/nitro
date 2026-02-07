@@ -1,15 +1,17 @@
 import { useState } from 'react'
-import { Pencil } from 'lucide-react'
+import { Pencil, Archive, ArchiveRestore } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from '@/components/ui/table'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { companies as initialCompanies, orders } from '@/data/mockData'
+import { orders } from '@/data/mockData'
+import { useCompanies } from '@/context/CompanyContext'
 
 const fmt = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v)
 
@@ -30,7 +32,7 @@ function getCompanyStats(companyId) {
 }
 
 function Companies() {
-  const [companyList, setCompanyList] = useState(initialCompanies)
+  const { companies, addCompany, updateCompany, toggleArchive } = useCompanies()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState({ name: '', commissionPercent: '' })
@@ -59,21 +61,18 @@ function Companies() {
     }
 
     if (editingId) {
-      setCompanyList((prev) =>
-        prev.map((c) => (c.id === editingId ? { ...c, ...data } : c))
-      )
+      updateCompany(editingId, data)
     } else {
-      const newCompany = {
-        id: Math.max(...companyList.map((c) => c.id), 0) + 1,
-        ...data,
-      }
-      setCompanyList((prev) => [...prev, newCompany])
+      addCompany(data)
     }
 
     setForm({ name: '', commissionPercent: '' })
     setEditingId(null)
     setDialogOpen(false)
   }
+
+  const active = companies.filter((c) => !c.archived)
+  const archived = companies.filter((c) => c.archived)
 
   return (
     <div className="px-6 py-8 space-y-6">
@@ -123,37 +122,96 @@ function Companies() {
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-14">Logo</TableHead>
             <TableHead>Company Name</TableHead>
             <TableHead className="text-right">Commission %</TableHead>
             <TableHead className="text-right">YTD Sales</TableHead>
             <TableHead className="text-right">All Time Sales</TableHead>
-            <TableHead className="w-12"></TableHead>
+            <TableHead className="w-24"></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {companyList.map((company) => {
+          {active.map((company) => {
             const { ytdSales, allTimeSales } = getCompanyStats(company.id)
             return (
               <TableRow key={company.id}>
+                <TableCell>
+                  {company.logo ? (
+                    <img src={company.logo} alt="" className="w-8 h-8 object-contain" />
+                  ) : (
+                    <div className="w-8 h-8 rounded bg-zinc-200 flex items-center justify-center text-zinc-600 text-sm font-bold">
+                      {company.name.charAt(0)}
+                    </div>
+                  )}
+                </TableCell>
                 <TableCell className="font-medium">{company.name}</TableCell>
                 <TableCell className="text-right">{company.commissionPercent}%</TableCell>
                 <TableCell className="text-right">{fmt(ytdSales)}</TableCell>
                 <TableCell className="text-right">{fmt(allTimeSales)}</TableCell>
                 <TableCell>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => openEdit(company)}
-                    title="Edit company"
-                  >
-                    <Pencil className="size-4" />
-                  </Button>
+                  <div className="flex gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => openEdit(company)}
+                      title="Edit company"
+                    >
+                      <Pencil className="size-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => toggleArchive(company.id)}
+                      title="Archive company"
+                    >
+                      <Archive className="size-4" />
+                    </Button>
+                  </div>
                 </TableCell>
               </TableRow>
             )
           })}
         </TableBody>
       </Table>
+
+      {archived.length > 0 && (
+        <>
+          <h2 className="text-lg font-semibold text-muted-foreground">Archived</h2>
+          <Table>
+            <TableBody>
+              {archived.map((company) => {
+                const { ytdSales, allTimeSales } = getCompanyStats(company.id)
+                return (
+                  <TableRow key={company.id} className="opacity-60">
+                    <TableCell>
+                      <div className="w-8 h-8 rounded bg-zinc-100 flex items-center justify-center text-zinc-400 text-sm font-bold">
+                        {company.name.charAt(0)}
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      {company.name}
+                      <Badge variant="secondary" className="ml-2">Archived</Badge>
+                    </TableCell>
+                    <TableCell className="text-right">{company.commissionPercent}%</TableCell>
+                    <TableCell className="text-right">{fmt(ytdSales)}</TableCell>
+                    <TableCell className="text-right">{fmt(allTimeSales)}</TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => toggleArchive(company.id)}
+                        title="Restore company"
+                      >
+                        <ArchiveRestore className="size-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )
+              })}
+            </TableBody>
+          </Table>
+        </>
+      )}
     </div>
   )
 }

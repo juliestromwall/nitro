@@ -1,7 +1,7 @@
 export const companies = [
-  { id: 1, name: "Nitro Snowboards", commissionPercent: 5 },
-  { id: 2, name: "Union Bindings", commissionPercent: 7 },
-  { id: 3, name: "686 Outerwear", commissionPercent: 10 },
+  { id: 1, name: "Nitro Snowboards", commissionPercent: 5, logo: "/nitro-icon.png", archived: false },
+  { id: 2, name: "Union Bindings", commissionPercent: 7, logo: null, archived: false },
+  { id: 3, name: "686 Outerwear", commissionPercent: 10, logo: null, archived: false },
 ];
 
 export const clients = [
