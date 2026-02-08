@@ -242,34 +242,36 @@ function CompanyCommission({ companyId }) {
   return (
     <div className="space-y-6">
       {/* Season tabs — with archive support */}
-      <div className="flex items-center gap-1 border-b overflow-x-auto">
-        {activeSeasons.map((season) => (
-          <div key={season.id} className="group relative">
-            <button
-              onClick={() => handleTabChange(season.id)}
-              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
-                activeTab === season.id
-                  ? 'border-b-2 border-zinc-900 text-zinc-900'
-                  : 'text-muted-foreground hover:text-zinc-700'
-              }`}
-            >
-              {season.label}
-            </button>
-            <button
-              onClick={() => openEditTab(season)}
-              className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-200 rounded-full p-0.5"
-              title="Edit tab"
-            >
-              <Pencil className="size-3" />
-            </button>
-          </div>
-        ))}
+      <div className="flex items-center gap-1 border-b">
+        <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
+          {activeSeasons.map((season) => (
+            <div key={season.id} className="group flex items-center">
+              <button
+                onClick={() => handleTabChange(season.id)}
+                className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                  activeTab === season.id
+                    ? 'border-b-2 border-zinc-900 text-zinc-900'
+                    : 'text-muted-foreground hover:text-zinc-700'
+                }`}
+              >
+                {season.label}
+              </button>
+              <button
+                onClick={() => openEditTab(season)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-zinc-700 -ml-2"
+                title="Edit tab"
+              >
+                <Pencil className="size-3" />
+              </button>
+            </div>
+          ))}
+        </div>
 
         {archivedSeasons.length > 0 && (
-          <div className="relative">
+          <div className="relative shrink-0">
             <button
               onClick={() => setShowArchived(!showArchived)}
-              className="px-3 py-2 text-sm text-muted-foreground hover:text-zinc-700 flex items-center gap-1"
+              className="px-3 py-2 text-sm text-muted-foreground hover:text-zinc-700 flex items-center gap-1 whitespace-nowrap"
             >
               <FolderArchive className="size-3.5" />
               Archived ({archivedSeasons.length})
@@ -278,21 +280,14 @@ function CompanyCommission({ companyId }) {
             {showArchived && (
               <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-10 min-w-48">
                 {archivedSeasons.map((season) => (
-                  <div key={season.id} className="flex items-center justify-between px-3 py-2 hover:bg-zinc-50">
-                    <button
-                      onClick={() => { setActiveTab(season.id); setShowArchived(false) }}
-                      className="text-sm text-muted-foreground hover:text-zinc-900 flex-1 text-left"
-                    >
-                      {season.label}
-                    </button>
-                    <button
-                      onClick={() => { openEditTab(season); setShowArchived(false) }}
-                      className="text-muted-foreground hover:text-zinc-700 ml-2"
-                      title="Edit tab"
-                    >
-                      <Pencil className="size-3.5" />
-                    </button>
-                  </div>
+                  <button
+                    key={season.id}
+                    onClick={() => { openEditTab(season); setShowArchived(false) }}
+                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-zinc-50 text-sm text-muted-foreground hover:text-zinc-900"
+                  >
+                    <span className="flex-1 text-left">{season.label}</span>
+                    <Pencil className="size-3.5 shrink-0" />
+                  </button>
                 ))}
               </div>
             )}
