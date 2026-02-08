@@ -1,5 +1,5 @@
 import { Routes, Route, NavLink, Link } from 'react-router-dom'
-import { Building2, Users, ShoppingCart, DollarSign } from 'lucide-react'
+import { Building2, Users, ShoppingCart, DollarSign, LayoutDashboard } from 'lucide-react'
 import { CompanyProvider, useCompanies } from './context/CompanyContext'
 import Dashboard from './pages/Dashboard'
 import Companies from './pages/Companies'
@@ -25,7 +25,7 @@ function CompanyIcons() {
           key={company.id}
           to={`/companies/${company.id}`}
           className={({ isActive }) =>
-            `flex items-center justify-center w-10 h-10 rounded-lg transition-colors overflow-hidden ${
+            `flex items-center justify-center w-11 h-11 rounded-lg transition-colors overflow-hidden ${
               isActive
                 ? 'ring-2 ring-white'
                 : 'opacity-70 hover:opacity-100'
@@ -37,10 +37,10 @@ function CompanyIcons() {
             <img
               src={company.logo}
               alt={company.name}
-              className="w-7 h-7 invert object-contain"
+              className="w-9 h-9 invert object-contain"
             />
           ) : (
-            <div className="w-10 h-10 rounded-lg bg-zinc-700 flex items-center justify-center text-white text-sm font-bold">
+            <div className="w-11 h-11 rounded-lg bg-zinc-700 flex items-center justify-center text-white text-sm font-bold">
               {company.name.charAt(0)}
             </div>
           )}
@@ -56,14 +56,26 @@ function App() {
       <div className="flex h-screen">
         {/* Sidebar */}
         <aside className="w-16 bg-zinc-900 flex flex-col items-center py-4 shrink-0">
-          <Link to="/" title="Dashboard">
-            <img
-              src="/nitro-icon.png"
-              alt="Nitro"
-              className="w-9 h-9 mb-6 invert"
-            />
-          </Link>
+          {/* Company quick links */}
+          <CompanyIcons />
+
+          <div className="w-8 border-t border-zinc-700 my-4" />
+
           <nav className="flex flex-col items-center gap-4">
+            <NavLink
+              to="/"
+              end
+              className={({ isActive }) =>
+                `flex items-center justify-center w-10 h-10 rounded-lg transition-colors ${
+                  isActive
+                    ? 'bg-white text-zinc-900'
+                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                }`
+              }
+              title="Dashboard"
+            >
+              <LayoutDashboard className="size-5" />
+            </NavLink>
             {navItems.map(({ to, icon: Icon, label }) => (
               <NavLink
                 key={to}
@@ -82,10 +94,6 @@ function App() {
               </NavLink>
             ))}
           </nav>
-
-          {/* Company quick links */}
-          <div className="w-8 border-t border-zinc-700 my-4" />
-          <CompanyIcons />
         </aside>
 
         {/* Main content */}

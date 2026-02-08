@@ -29,10 +29,19 @@ export function CompanyProvider({ children }) {
     )
   }
 
+  const reorderCompanies = (fromIndex, toIndex) => {
+    setCompanies((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      return next
+    })
+  }
+
   const activeCompanies = companies.filter((c) => !c.archived)
 
   return (
-    <CompanyContext.Provider value={{ companies, activeCompanies, addCompany, updateCompany, toggleArchive }}>
+    <CompanyContext.Provider value={{ companies, activeCompanies, addCompany, updateCompany, toggleArchive, reorderCompanies }}>
       {children}
     </CompanyContext.Provider>
   )
