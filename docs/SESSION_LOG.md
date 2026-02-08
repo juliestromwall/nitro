@@ -100,3 +100,25 @@
 **Open questions:**
 - Should commission pay status be editable inline?
 - Should there be a way to mark individual order commissions as paid vs. paying at the client level?
+
+## 2026-02-07 (session 5)
+
+**Worked on:** Commission page enhancements — search bar, archive tabs, inline pay status editing.
+
+**Changes made:**
+- Added search bar to Commission tab (filters by account name, order #, invoice #, total) — placed under the 3 summary cards
+- Added archive/restore season tabs to Commission (same pattern as Sales tab: hover to reveal archive button, archived dropdown with restore)
+- Added inline pay status editing: click Edit pencil on any row to edit pay status (dropdown), amount paid, and paid date
+- Commission overrides stored in local `commissionOverrides` state (keyed by order id)
+- Pay status options: Paid, Partial, Unpaid, Invoice Sent, Pending Invoice
+- Summary card totals update live after inline edits
+- Added 5 pay status badge styles (green=Paid, yellow=Partial, red=Unpaid, blue=Invoice Sent, zinc=Pending Invoice)
+
+**Next steps:**
+- Add edit/delete functionality for clients
+- Import more client data from the full spreadsheet
+- Consider cross-company dashboard aggregation
+- Minor styling/UI tweaks
+
+**Open questions:**
+- None at this time

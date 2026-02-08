@@ -1,6 +1,9 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
+import { Archive, ArchiveRestore, ChevronDown, Search, Check, X, Pencil } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from '@/components/ui/table'
@@ -14,6 +17,14 @@ const getClientName = (clientId) => {
   const client = clients.find((c) => c.id === clientId)
   return client ? client.name : 'Unknown'
 }
+
+const payStatusOptions = [
+  { value: 'paid', label: 'Paid' },
+  { value: 'partial', label: 'Partial' },
+  { value: 'unpaid', label: 'Unpaid' },
+  { value: 'invoice sent', label: 'Invoice Sent' },
+  { value: 'pending invoice', label: 'Pending Invoice' },
+]
 
 const statusBadge = (status) => {
   const styles = {
@@ -44,11 +55,23 @@ const rowHighlight = (status) => {
 }
 
 function CompanyCommission({ companyId }) {
-  const { activeSeasons, orders } = useSales()
+  const { activeSeasons, archivedSeasons, orders, toggleArchiveSeason } = useSales()
   const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
-  const [cardFilter, setCardFilter] = useState('all') // 'all' | 'paid' | 'outstanding'
+  const [cardFilter, setCardFilter] = useState('all')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
 
-  const currentSeason = activeSeasons.find((s) => s.id === activeTab) || activeSeasons[0]
+  // Inline editing state — keyed by order id
+  const [editingId, setEditingId] = useState(null)
+  const [editForm, setEditForm] = useState({ payStatus: '', amountPaid: '', paidDate: '' })
+
+  // Commission overrides — local state for pay status edits (since no backend)
+  const [commissionOverrides, setCommissionOverrides] = useState({})
+
+  const allVisibleSeasons = showArchived
+    ? [...activeSeasons, ...archivedSeasons]
+    : activeSeasons
+  const currentSeason = allVisibleSeasons.find((s) => s.id === activeTab) || activeSeasons[0]
   const company = companies.find((c) => c.id === companyId)
   const commissionPct = company?.commissionPercent || 0
 
@@ -63,17 +86,33 @@ function CompanyCommission({ companyId }) {
   const commissionRows = closedWonOrders.map((order) => {
     const commissionDue = order.total * (commissionPct / 100)
 
-    // Try to find matching commission entry for this client + season
+    // Check for local overrides first
+    const override = commissionOverrides[order.id]
+    if (override) {
+      const amountPaid = override.amountPaid
+      return {
+        id: order.id,
+        clientId: order.clientId,
+        orderNumber: order.orderNumber,
+        invoiceNumber: order.invoiceNumber,
+        orderTotal: order.total,
+        commissionDue,
+        payStatus: override.payStatus,
+        amountPaid,
+        paidDate: override.paidDate,
+        amountRemaining: Math.max(commissionDue - amountPaid, 0),
+      }
+    }
+
+    // Fall back to mock commission data
     const commEntry = commissions.find(
       (c) => c.clientId === order.clientId && c.seasonId === order.seasonId
     )
 
-    // Default pay status based on commission data, or 'pending invoice' if no entry
     const payStatus = commEntry?.payStatus || 'pending invoice'
-    const amountPaid = commEntry?.amountPaid || 0
     const paidDate = commEntry?.paidDate || null
-    // For amount remaining, calculate from this order's commission
-    const amountRemaining = Math.max(commissionDue - (commEntry ? (commEntry.amountPaid / commEntry.due) * commissionDue : 0), 0)
+    const amountPaid = commEntry ? Math.min((commEntry.amountPaid / commEntry.due) * commissionDue, commissionDue) : 0
+    const amountRemaining = Math.max(commissionDue - amountPaid, 0)
 
     return {
       id: order.id,
@@ -83,7 +122,7 @@ function CompanyCommission({ companyId }) {
       orderTotal: order.total,
       commissionDue,
       payStatus,
-      amountPaid: commEntry ? Math.min((commEntry.amountPaid / commEntry.due) * commissionDue, commissionDue) : 0,
+      amountPaid,
       paidDate,
       amountRemaining,
     }
@@ -94,35 +133,124 @@ function CompanyCommission({ companyId }) {
   const totalPaid = commissionRows.reduce((sum, r) => sum + r.amountPaid, 0)
   const totalOutstanding = commissionRows.reduce((sum, r) => sum + r.amountRemaining, 0)
 
-  // Apply card filter
-  const filteredRows = commissionRows.filter((row) => {
-    if (cardFilter === 'paid') return row.payStatus === 'paid' || row.payStatus === 'partial'
-    if (cardFilter === 'outstanding') return row.payStatus !== 'paid'
-    return true // 'all'
-  })
+  // Apply card filter + search
+  const filteredRows = useMemo(() => {
+    let result = commissionRows
+
+    // Card filter
+    if (cardFilter === 'paid') result = result.filter((r) => r.payStatus === 'paid' || r.payStatus === 'partial')
+    if (cardFilter === 'outstanding') result = result.filter((r) => r.payStatus !== 'paid')
+
+    // Search
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter((r) => {
+        const clientName = getClientName(r.clientId).toLowerCase()
+        const orderNum = (r.orderNumber || '').toLowerCase()
+        const invoiceNum = (r.invoiceNumber || '').toLowerCase()
+        const total = String(r.orderTotal)
+        return clientName.includes(q) || orderNum.includes(q) || invoiceNum.includes(q) || total.includes(q)
+      })
+    }
+
+    return result
+  }, [commissionRows, cardFilter, searchQuery])
 
   const handleTabChange = (seasonId) => {
     setActiveTab(seasonId)
     setCardFilter('all')
+    setSearchQuery('')
+  }
+
+  // Inline editing
+  const startEdit = (row) => {
+    setEditingId(row.id)
+    setEditForm({
+      payStatus: row.payStatus,
+      amountPaid: String(row.amountPaid ? row.amountPaid.toFixed(2) : '0'),
+      paidDate: row.paidDate || '',
+    })
+  }
+
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditForm({ payStatus: '', amountPaid: '', paidDate: '' })
+  }
+
+  const saveEdit = (row) => {
+    const amountPaid = parseFloat(editForm.amountPaid) || 0
+    setCommissionOverrides((prev) => ({
+      ...prev,
+      [row.id]: {
+        payStatus: editForm.payStatus,
+        amountPaid,
+        paidDate: editForm.paidDate || null,
+      },
+    }))
+    setEditingId(null)
+    setEditForm({ payStatus: '', amountPaid: '', paidDate: '' })
   }
 
   return (
     <div className="space-y-6">
-      {/* Season tabs - matching Sales tab style */}
+      {/* Season tabs — with archive support */}
       <div className="flex items-center gap-1 border-b overflow-x-auto">
         {activeSeasons.map((season) => (
-          <button
-            key={season.id}
-            onClick={() => handleTabChange(season.id)}
-            className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
-              activeTab === season.id
-                ? 'border-b-2 border-zinc-900 text-zinc-900'
-                : 'text-muted-foreground hover:text-zinc-700'
-            }`}
-          >
-            {season.label}
-          </button>
+          <div key={season.id} className="group relative">
+            <button
+              onClick={() => handleTabChange(season.id)}
+              className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                activeTab === season.id
+                  ? 'border-b-2 border-zinc-900 text-zinc-900'
+                  : 'text-muted-foreground hover:text-zinc-700'
+              }`}
+            >
+              {season.label}
+            </button>
+            {activeTab === season.id && (
+              <button
+                onClick={() => toggleArchiveSeason(season.id)}
+                className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-200 rounded-full p-0.5"
+                title="Archive tab"
+              >
+                <Archive className="size-3" />
+              </button>
+            )}
+          </div>
         ))}
+
+        {archivedSeasons.length > 0 && (
+          <div className="relative">
+            <button
+              onClick={() => setShowArchived(!showArchived)}
+              className="px-3 py-2 text-sm text-muted-foreground hover:text-zinc-700 flex items-center gap-1"
+            >
+              Archived ({archivedSeasons.length})
+              <ChevronDown className={`size-3 transition-transform ${showArchived ? 'rotate-180' : ''}`} />
+            </button>
+            {showArchived && (
+              <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-10 min-w-48">
+                {archivedSeasons.map((season) => (
+                  <div key={season.id} className="flex items-center justify-between px-3 py-2 hover:bg-zinc-50">
+                    <button
+                      onClick={() => { setActiveTab(season.id); setShowArchived(false) }}
+                      className="text-sm text-muted-foreground hover:text-zinc-900"
+                    >
+                      {season.label}
+                    </button>
+                    <button
+                      onClick={() => toggleArchiveSeason(season.id)}
+                      className="text-muted-foreground hover:text-zinc-700"
+                      title="Restore tab"
+                    >
+                      <ArchiveRestore className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {currentSeason && (
@@ -164,6 +292,17 @@ function CompanyCommission({ companyId }) {
             </Card>
           </div>
 
+          {/* Search bar */}
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+            <Input
+              placeholder="Search account, order #, invoice #, total..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+
           {/* Commission table */}
           <div className="overflow-x-auto">
             <Table>
@@ -178,31 +317,94 @@ function CompanyCommission({ companyId }) {
                   <TableHead className="text-right">Amount Paid</TableHead>
                   <TableHead>Paid Date</TableHead>
                   <TableHead className="text-right">Amount Remaining</TableHead>
+                  <TableHead className="w-20"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} className="text-center text-muted-foreground">
-                      No commission data for this season.
+                    <TableCell colSpan={10} className="text-center text-muted-foreground">
+                      {searchQuery ? 'No commissions match your search.' : 'No commission data for this season.'}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredRows.map((row) => (
-                    <TableRow key={row.id} className={rowHighlight(row.payStatus)}>
-                      <TableCell className="font-medium whitespace-nowrap">
-                        {getClientName(row.clientId)}
-                      </TableCell>
-                      <TableCell className="whitespace-nowrap">{row.orderNumber}</TableCell>
-                      <TableCell className="whitespace-nowrap">{row.invoiceNumber}</TableCell>
-                      <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
-                      <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
-                      <TableCell>{statusBadge(row.payStatus)}</TableCell>
-                      <TableCell className="text-right">{fmt(row.amountPaid)}</TableCell>
-                      <TableCell>{row.paidDate || '—'}</TableCell>
-                      <TableCell className="text-right">{fmt(row.amountRemaining)}</TableCell>
-                    </TableRow>
-                  ))
+                  filteredRows.map((row) => {
+                    const isEditing = editingId === row.id
+
+                    if (isEditing) {
+                      return (
+                        <TableRow key={row.id} className="bg-blue-50/50">
+                          <TableCell className="font-medium whitespace-nowrap">{getClientName(row.clientId)}</TableCell>
+                          <TableCell className="whitespace-nowrap">{row.orderNumber}</TableCell>
+                          <TableCell className="whitespace-nowrap">{row.invoiceNumber}</TableCell>
+                          <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
+                          <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
+                          <TableCell>
+                            <select
+                              value={editForm.payStatus}
+                              onChange={(e) => setEditForm((p) => ({ ...p, payStatus: e.target.value }))}
+                              className="border rounded px-2 py-1 text-sm w-36"
+                            >
+                              {payStatusOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={editForm.amountPaid}
+                              onChange={(e) => setEditForm((p) => ({ ...p, amountPaid: e.target.value }))}
+                              className="h-8 text-sm w-24 text-right"
+                              type="number"
+                              step="0.01"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              value={editForm.paidDate}
+                              onChange={(e) => setEditForm((p) => ({ ...p, paidDate: e.target.value }))}
+                              className="h-8 text-sm w-28"
+                              placeholder="MM/DD/YYYY"
+                            />
+                          </TableCell>
+                          <TableCell className="text-right text-muted-foreground">—</TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => saveEdit(row)} title="Save">
+                                <Check className="size-4 text-green-600" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit} title="Cancel">
+                                <X className="size-4 text-red-500" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    }
+
+                    return (
+                      <TableRow key={row.id} className={`group ${rowHighlight(row.payStatus)}`}>
+                        <TableCell className="font-medium whitespace-nowrap">
+                          {getClientName(row.clientId)}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{row.orderNumber}</TableCell>
+                        <TableCell className="whitespace-nowrap">{row.invoiceNumber}</TableCell>
+                        <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
+                        <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
+                        <TableCell>{statusBadge(row.payStatus)}</TableCell>
+                        <TableCell className="text-right">{fmt(row.amountPaid)}</TableCell>
+                        <TableCell>{row.paidDate || '—'}</TableCell>
+                        <TableCell className="text-right">{fmt(row.amountRemaining)}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(row)} title="Edit">
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
