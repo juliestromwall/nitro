@@ -2,6 +2,7 @@ import { useState, useMemo, useRef } from 'react'
 import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, Search, Filter, FileText, Upload, AlertTriangle, StickyNote } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -35,6 +36,13 @@ const getCommission = (order) => {
   const pct = order.commissionOverride != null ? order.commissionOverride : defaultPct
   const isOverridden = order.commissionOverride != null && order.commissionOverride !== defaultPct
   return { amount: order.total * pct / 100, pct, isOverridden, defaultPct }
+}
+
+// Strip non-numeric chars except decimal point
+const sanitizeCurrency = (val) => val.replace(/[^0-9.]/g, '')
+const formatToTwoDecimals = (val) => {
+  const num = parseFloat(val)
+  return isNaN(num) ? '' : num.toFixed(2)
 }
 
 function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
@@ -74,12 +82,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     invoiceNumber: '',
     closeDate: '',
     stage: 'Closed - Won',
-    documents: [],
+    orderDocument: null,
+    invoiceDocument: null,
     total: '',
     commissionOverride: '',
     notes: '',
   })
-  const fileInputRef = useRef(null)
+  const orderDocRef = useRef(null)
+  const invoiceDocRef = useRef(null)
 
   // Notes modal state
   const [noteModalOpen, setNoteModalOpen] = useState(false)
@@ -171,7 +181,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       invoiceNumber: saleForm.invoiceNumber,
       closeDate: saleForm.closeDate,
       stage: saleForm.stage,
-      documents: saleForm.documents,
+      orderDocument: saleForm.orderDocument,
+      invoiceDocument: saleForm.invoiceDocument,
       total,
       commissionOverride: commOverride,
       notes: saleForm.notes,
@@ -180,17 +191,26 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     setSaleForm({
       clientId: null, clientName: '', orderType: 'Rental',
       items: '', orderNumber: '', invoiceNumber: '', closeDate: '',
-      stage: 'Closed - Won', documents: [], total: '', commissionOverride: '', notes: '',
+      stage: 'Closed - Won', orderDocument: null, invoiceDocument: null, total: '', commissionOverride: '', notes: '',
     })
     setClientSearch('')
     setAddSaleOpen(false)
   }
 
-  const handleDocUpload = (e) => {
-    const files = Array.from(e.target.files || [])
-    const names = files.map((f) => f.name)
-    setSaleForm((p) => ({ ...p, documents: [...p.documents, ...names] }))
-    if (fileInputRef.current) fileInputRef.current.value = ''
+  const handleOrderDocUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setSaleForm((p) => ({ ...p, orderDocument: { name: file.name, url: URL.createObjectURL(file) } }))
+    }
+    if (orderDocRef.current) orderDocRef.current.value = ''
+  }
+
+  const handleInvoiceDocUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setSaleForm((p) => ({ ...p, invoiceDocument: { name: file.name, url: URL.createObjectURL(file) } }))
+    }
+    if (invoiceDocRef.current) invoiceDocRef.current.value = ''
   }
 
   // Notes modal
@@ -219,7 +239,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       invoiceNumber: order.invoiceNumber || '',
       closeDate: order.closeDate,
       stage: order.stage,
-      documents: (order.documents || []).join(', '),
       total: String(order.total),
       commissionOverride: order.commissionOverride != null ? String(order.commissionOverride) : '',
     })
@@ -233,7 +252,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const saveEdit = (orderId) => {
     const isRental = editForm.orderType === 'Rental'
     const items = editForm.items.split(',').map((s) => s.trim()).filter(Boolean)
-    const docs = editForm.documents.split(',').map((s) => s.trim()).filter(Boolean)
     const commOverride = editForm.commissionOverride.trim() !== '' ? parseFloat(editForm.commissionOverride) : null
 
     updateOrder(orderId, {
@@ -243,7 +261,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       invoiceNumber: editForm.invoiceNumber,
       closeDate: editForm.closeDate,
       stage: editForm.stage,
-      documents: docs,
       total: parseFloat(editForm.total) || 0,
       commissionOverride: commOverride,
     })
@@ -289,10 +306,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const uniqueOrderTypes = [...new Set(seasonOrders.map((o) => o.orderType))]
   const uniqueStages = [...new Set(seasonOrders.map((o) => o.stage))]
 
-  const rentalTotal = filteredOrders.filter((o) => o.orderType === 'Rental').reduce((sum, o) => sum + o.total, 0)
-  const retailTotal = filteredOrders.filter((o) => o.orderType === 'Retail').reduce((sum, o) => sum + o.total, 0)
+  // Compute totals from seasonOrders (unfiltered) so card values stay constant
+  const rentalTotal = seasonOrders.filter((o) => o.orderType === 'Rental').reduce((sum, o) => sum + o.total, 0)
+  const retailTotal = seasonOrders.filter((o) => o.orderType === 'Retail').reduce((sum, o) => sum + o.total, 0)
   const totalSales = rentalTotal + retailTotal
-  const totalCommission = filteredOrders.reduce((sum, o) => sum + getCommission(o).amount, 0)
+  const totalCommission = seasonOrders.reduce((sum, o) => sum + getCommission(o).amount, 0)
 
   return (
     <div className="space-y-6 min-w-0">
@@ -550,70 +568,99 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               </div>
               <div className="space-y-2">
                 <Label>Total</Label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={saleForm.total}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, total: e.target.value }))}
-                  required
-                />
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                  <Input
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    value={saleForm.total}
+                    onChange={(e) => setSaleForm((p) => ({ ...p, total: sanitizeCurrency(e.target.value) }))}
+                    onBlur={(e) => setSaleForm((p) => ({ ...p, total: formatToTwoDecimals(p.total) }))}
+                    className="pl-7"
+                    required
+                  />
+                </div>
               </div>
             </div>
 
             {/* Commission Override */}
             <div className="space-y-2">
               <Label>Commission % Override</Label>
-              <Input
-                type="number"
-                step="0.1"
-                min="0"
-                max="100"
-                placeholder={company ? `Default: ${company.commissionPercent}%` : ''}
-                value={saleForm.commissionOverride}
-                onChange={(e) => setSaleForm((p) => ({ ...p, commissionOverride: e.target.value }))}
-              />
+              <div className="relative">
+                <Input
+                  inputMode="decimal"
+                  placeholder={company ? `Default: ${company.commissionPercent}` : ''}
+                  value={saleForm.commissionOverride}
+                  onChange={(e) => setSaleForm((p) => ({ ...p, commissionOverride: sanitizeCurrency(e.target.value) }))}
+                  className="no-spinner pr-7"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+              </div>
               <p className="text-xs text-muted-foreground">Leave blank to use the company default.</p>
             </div>
 
-            {/* Documents */}
+            {/* Order Document */}
             <div className="space-y-2">
-              <Label>Documents</Label>
+              <Label>Order Document</Label>
               <div className="flex items-center gap-2">
                 <input
-                  ref={fileInputRef}
+                  ref={orderDocRef}
                   type="file"
-                  multiple
-                  onChange={handleDocUpload}
+                  onChange={handleOrderDocUpload}
                   className="hidden"
                 />
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => orderDocRef.current?.click()}
                 >
                   <Upload className="size-4 mr-1" /> Upload
                 </Button>
-                {saleForm.documents.length > 0 && (
-                  <span className="text-sm text-muted-foreground">{saleForm.documents.length} file(s)</span>
+                {saleForm.orderDocument && (
+                  <Badge variant="secondary" className="gap-1 text-xs">
+                    <FileText className="size-3" /> {saleForm.orderDocument.name}
+                    <button
+                      type="button"
+                      onClick={() => setSaleForm((p) => ({ ...p, orderDocument: null }))}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
                 )}
               </div>
-              {saleForm.documents.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {saleForm.documents.map((doc, i) => (
-                    <Badge key={i} variant="secondary" className="gap-1 text-xs">
-                      <FileText className="size-3" /> {doc}
-                      <button
-                        type="button"
-                        onClick={() => setSaleForm((p) => ({ ...p, documents: p.documents.filter((_, j) => j !== i) }))}
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-              )}
+            </div>
+
+            {/* Invoice Document */}
+            <div className="space-y-2">
+              <Label>Invoice Document</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={invoiceDocRef}
+                  type="file"
+                  onChange={handleInvoiceDocUpload}
+                  className="hidden"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => invoiceDocRef.current?.click()}
+                >
+                  <Upload className="size-4 mr-1" /> Upload
+                </Button>
+                {saleForm.invoiceDocument && (
+                  <Badge variant="secondary" className="gap-1 text-xs">
+                    <FileText className="size-3" /> {saleForm.invoiceDocument.name}
+                    <button
+                      type="button"
+                      onClick={() => setSaleForm((p) => ({ ...p, invoiceDocument: null }))}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
+                )}
+              </div>
             </div>
 
             {/* Notes */}
@@ -664,6 +711,51 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       {/* Search and summary */}
       {currentSeason && (
         <>
+          {/* Summary cards — clickable filters */}
+          <div className="grid grid-cols-4 gap-6">
+            <Card
+              className={`cursor-pointer transition-shadow hover:shadow-md ${filterOrderType === 'Rental' ? 'ring-2 ring-zinc-900' : ''}`}
+              onClick={() => setFilterOrderType(filterOrderType === 'Rental' ? '' : 'Rental')}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Rental Total</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{fmt(rentalTotal)}</p>
+              </CardContent>
+            </Card>
+            <Card
+              className={`cursor-pointer transition-shadow hover:shadow-md ${filterOrderType === 'Retail' ? 'ring-2 ring-zinc-900' : ''}`}
+              onClick={() => setFilterOrderType(filterOrderType === 'Retail' ? '' : 'Retail')}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Retail Total</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{fmt(retailTotal)}</p>
+              </CardContent>
+            </Card>
+            <Card
+              className={`cursor-pointer transition-shadow hover:shadow-md ${!filterOrderType ? 'ring-2 ring-zinc-900' : ''}`}
+              onClick={() => setFilterOrderType('')}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Sales</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{fmt(totalSales)}</p>
+              </CardContent>
+            </Card>
+            <Card className="transition-shadow hover:shadow-md">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Commission</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{fmt(totalCommission)}</p>
+              </CardContent>
+            </Card>
+          </div>
+
           <div className="relative max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <Input
@@ -702,31 +794,13 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
             </div>
           )}
 
-          <div className="flex gap-8 text-sm flex-wrap">
-            <div>
-              <span className="text-muted-foreground">Rental Total:</span>{' '}
-              <span className="font-semibold">{fmt(rentalTotal)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Retail Total:</span>{' '}
-              <span className="font-semibold">{fmt(retailTotal)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Total Sales:</span>{' '}
-              <span className="font-semibold">{fmt(totalSales)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Total Commission:</span>{' '}
-              <span className="font-semibold">{fmt(totalCommission)}</span>
-            </div>
-          </div>
-
           {/* Orders table - scrollable */}
           <div className="overflow-x-auto -mx-4 px-4">
-          <div style={{ minWidth: '1600px' }}>
+          <div style={{ minWidth: '1400px' }}>
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 sticky left-0 bg-white z-10"></TableHead>
                   <TableHead className="whitespace-nowrap">Account Name</TableHead>
                   <TableHead>
                     <div className="relative">
@@ -792,11 +866,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap">Documents</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Total</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Commission</TableHead>
                   <TableHead className="whitespace-nowrap text-center">Notes</TableHead>
-                  <TableHead className="w-20"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -818,6 +890,16 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                     if (isEditing) {
                       return (
                         <TableRow key={order.id} className="bg-blue-50/50">
+                          <TableCell className="sticky left-0 bg-blue-50 z-10 w-10">
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => saveEdit(order.id)} title="Save">
+                                <Check className="size-4 text-green-600" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit} title="Cancel">
+                                <X className="size-4 text-red-500" />
+                              </Button>
+                            </div>
+                          </TableCell>
                           <TableCell className="font-medium whitespace-nowrap">{getClientName(order.clientId)}</TableCell>
                           <TableCell>
                             <select
@@ -866,46 +948,33 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                             />
                           </TableCell>
                           <TableCell>
-                            <Input
-                              value={editForm.documents}
-                              onChange={(e) => setEditForm((p) => ({ ...p, documents: e.target.value }))}
-                              className="h-8 text-sm w-24"
-                              placeholder="doc1, doc2"
-                            />
+                            <div className="relative">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
+                              <Input
+                                inputMode="decimal"
+                                value={editForm.total}
+                                onChange={(e) => setEditForm((p) => ({ ...p, total: sanitizeCurrency(e.target.value) }))}
+                                onBlur={() => setEditForm((p) => ({ ...p, total: formatToTwoDecimals(p.total) }))}
+                                className="h-8 text-sm w-24 text-right pl-5"
+                              />
+                            </div>
                           </TableCell>
                           <TableCell>
-                            <Input
-                              value={editForm.total}
-                              onChange={(e) => setEditForm((p) => ({ ...p, total: e.target.value }))}
-                              className="h-8 text-sm w-24 text-right"
-                              type="number"
-                              step="0.01"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={editForm.commissionOverride}
-                              onChange={(e) => setEditForm((p) => ({ ...p, commissionOverride: e.target.value }))}
-                              className="h-8 text-sm w-20 text-right"
-                              type="number"
-                              step="0.1"
-                              placeholder={`${comm.defaultPct}%`}
-                            />
+                            <div className="relative">
+                              <Input
+                                inputMode="decimal"
+                                value={editForm.commissionOverride}
+                                onChange={(e) => setEditForm((p) => ({ ...p, commissionOverride: sanitizeCurrency(e.target.value) }))}
+                                className="h-8 text-sm w-20 text-right no-spinner pr-6"
+                                placeholder={`${comm.defaultPct}`}
+                              />
+                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+                            </div>
                           </TableCell>
                           <TableCell className="text-center">
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openNoteModal(order)} title="Note">
                               <StickyNote className={`size-4 ${hasNote ? 'text-amber-500' : 'text-muted-foreground'}`} />
                             </Button>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-1">
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => saveEdit(order.id)} title="Save">
-                                <Check className="size-4 text-green-600" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit} title="Cancel">
-                                <X className="size-4 text-red-500" />
-                              </Button>
-                            </div>
                           </TableCell>
                         </TableRow>
                       )
@@ -918,6 +987,16 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                         onMouseLeave={() => setHoveredRow(null)}
                         className="group"
                       >
+                        <TableCell className="sticky left-0 bg-white z-10 w-10">
+                          <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(order)} title="Edit">
+                              <Pencil className="size-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(order.id)} title="Delete">
+                              <Trash2 className="size-3.5 text-red-500" />
+                            </Button>
+                          </div>
+                        </TableCell>
                         <TableCell className="font-medium whitespace-nowrap">{getClientName(order.clientId)}</TableCell>
                         <TableCell>
                           <Badge
@@ -932,19 +1011,17 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                         </TableCell>
                         <TableCell className="max-w-48 truncate">{getItems(order)}</TableCell>
                         <TableCell className="whitespace-nowrap">{order.orderNumber}</TableCell>
-                        <TableCell className="whitespace-nowrap">{order.invoiceNumber || '—'}</TableCell>
-                        <TableCell className="whitespace-nowrap">{order.closeDate}</TableCell>
-                        <TableCell className="whitespace-nowrap">{order.stage}</TableCell>
-                        <TableCell>
-                          {order.documents && order.documents.length > 0 ? (
-                            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                              <FileText className="size-3.5" />
-                              {order.documents.length}
-                            </div>
+                        <TableCell className="whitespace-nowrap">
+                          {order.invoiceDocument ? (
+                            <a href={order.invoiceDocument.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
+                              {order.invoiceNumber || '—'}
+                            </a>
                           ) : (
-                            <span className="text-muted-foreground">—</span>
+                            order.invoiceNumber || '—'
                           )}
                         </TableCell>
+                        <TableCell className="whitespace-nowrap">{order.closeDate}</TableCell>
+                        <TableCell className="whitespace-nowrap">{order.stage}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">{fmt(order.total)}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1">
@@ -960,25 +1037,24 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                           </div>
                         </TableCell>
                         <TableCell className="text-center">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => openNoteModal(order)}
-                            title={hasNote ? order.notes : 'Add note'}
-                          >
-                            <StickyNote className={`size-4 ${hasNote ? 'text-amber-500 fill-amber-100' : 'text-muted-foreground'}`} />
-                          </Button>
-                        </TableCell>
-                        <TableCell>
-                          <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(order)} title="Edit">
-                              <Pencil className="size-3.5" />
+                          {hasNote ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => openNoteModal(order)}
+                              title={order.notes}
+                            >
+                              <StickyNote className="size-4 text-amber-500 fill-amber-100" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(order.id)} title="Delete">
-                              <Trash2 className="size-3.5 text-red-500" />
-                            </Button>
-                          </div>
+                          ) : (
+                            <button
+                              onClick={() => openNoteModal(order)}
+                              className="text-xs text-muted-foreground hover:text-zinc-700 flex items-center gap-0.5 mx-auto"
+                            >
+                              <Plus className="size-3" />Note
+                            </button>
+                          )}
                         </TableCell>
                       </TableRow>
                     )

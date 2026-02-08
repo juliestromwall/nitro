@@ -58,6 +58,12 @@ const rowHighlight = (status) => {
   return ''
 }
 
+const stickyBg = (status) => {
+  if (status === 'paid') return 'bg-green-50'
+  if (status === 'partial') return 'bg-yellow-50'
+  return 'bg-white'
+}
+
 function CompanyCommission({ companyId }) {
   const { activeSeasons, archivedSeasons, orders, updateSeason, toggleArchiveSeason } = useSales()
   const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
@@ -73,6 +79,7 @@ function CompanyCommission({ companyId }) {
   // Inline editing state — keyed by order id
   const [editingId, setEditingId] = useState(null)
   const [editForm, setEditForm] = useState({ payStatus: '', amountPaid: '', paidDate: '' })
+  const [hoveredRow, setHoveredRow] = useState(null)
 
   // Commission overrides — local state for pay status edits (since no backend)
   const [commissionOverrides, setCommissionOverrides] = useState({})
@@ -424,6 +431,7 @@ function CompanyCommission({ companyId }) {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-10 sticky left-0 bg-white z-10"></TableHead>
                   <TableHead>Account Name</TableHead>
                   <TableHead>Order #</TableHead>
                   <TableHead>Invoice #</TableHead>
@@ -433,7 +441,6 @@ function CompanyCommission({ companyId }) {
                   <TableHead className="text-right">Amount Paid</TableHead>
                   <TableHead>Paid Date</TableHead>
                   <TableHead className="text-right">Amount Remaining</TableHead>
-                  <TableHead className="w-20"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -446,10 +453,21 @@ function CompanyCommission({ companyId }) {
                 ) : (
                   filteredRows.map((row) => {
                     const isEditing = editingId === row.id
+                    const isHovered = hoveredRow === row.id
 
                     if (isEditing) {
                       return (
                         <TableRow key={row.id} className="bg-blue-50/50">
+                          <TableCell className="sticky left-0 bg-blue-50 z-10 w-10">
+                            <div className="flex gap-1">
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => saveEdit(row)} title="Save">
+                                <Check className="size-4 text-green-600" />
+                              </Button>
+                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit} title="Cancel">
+                                <X className="size-4 text-red-500" />
+                              </Button>
+                            </div>
+                          </TableCell>
                           <TableCell className="font-medium whitespace-nowrap">{getClientName(row.clientId)}</TableCell>
                           <TableCell className="whitespace-nowrap">{row.orderNumber}</TableCell>
                           <TableCell className="whitespace-nowrap">{row.invoiceNumber}</TableCell>
@@ -484,22 +502,24 @@ function CompanyCommission({ companyId }) {
                             />
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">—</TableCell>
-                          <TableCell>
-                            <div className="flex gap-1">
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => saveEdit(row)} title="Save">
-                                <Check className="size-4 text-green-600" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit} title="Cancel">
-                                <X className="size-4 text-red-500" />
-                              </Button>
-                            </div>
-                          </TableCell>
                         </TableRow>
                       )
                     }
 
                     return (
-                      <TableRow key={row.id} className={`group ${rowHighlight(row.payStatus)}`}>
+                      <TableRow
+                        key={row.id}
+                        className={`group ${rowHighlight(row.payStatus)}`}
+                        onMouseEnter={() => setHoveredRow(row.id)}
+                        onMouseLeave={() => setHoveredRow(null)}
+                      >
+                        <TableCell className={`sticky left-0 z-10 w-10 ${stickyBg(row.payStatus)}`}>
+                          <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(row)} title="Edit">
+                              <Pencil className="size-3.5" />
+                            </Button>
+                          </div>
+                        </TableCell>
                         <TableCell className="font-medium whitespace-nowrap">
                           {getClientName(row.clientId)}
                         </TableCell>
@@ -511,13 +531,6 @@ function CompanyCommission({ companyId }) {
                         <TableCell className="text-right">{fmt(row.amountPaid)}</TableCell>
                         <TableCell>{row.paidDate || '—'}</TableCell>
                         <TableCell className="text-right">{fmt(row.amountRemaining)}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(row)} title="Edit">
-                              <Pencil className="size-3.5" />
-                            </Button>
-                          </div>
-                        </TableCell>
                       </TableRow>
                     )
                   })

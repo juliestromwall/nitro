@@ -144,3 +144,28 @@
 
 **Open questions:**
 - None at this time
+
+## 2026-02-07 (session 7)
+
+**Worked on:** Sales & Commission table UX improvements.
+
+**Changes made:**
+- Added sticky first column for edit/delete actions (Sales) and edit actions (Commission) — no scrolling needed to access controls
+- Removed Documents column from Sales table; replaced single document upload with dual Order Document + Invoice Document uploads in Add Sale dialog
+- Invoice # renders as blue hyperlink when an invoice document has been uploaded
+- Notes column: shows "+Note" text when empty, amber StickyNote icon when note exists
+- Total field: $ prefix, `inputMode="decimal"`, strips non-numeric chars, formats to 2 decimals on blur (both dialog and inline edit)
+- Commission % input: no-spinner CSS class, % suffix, `inputMode="decimal"` (both dialog and inline edit)
+- Replaced plain text summary line with 4 clickable Card components (Rental Total, Retail Total, Total Sales, Total Commission) — clicking Rental/Retail filters table, Total Sales clears filter; active card gets ring-2
+- Card totals computed from unfiltered seasonOrders so values stay constant regardless of filters
+- Commission table: sticky first column with status-aware backgrounds (green-50 for Paid, yellow-50 for Partial, blue-50 for editing)
+- Removed `overflow-x-auto` from table.jsx wrapper to enable sticky columns
+- Added `.no-spinner` CSS utility to index.css
+
+**Next steps:**
+- Add edit/delete functionality for clients
+- Import more client data from the full spreadsheet
+- Consider cross-company dashboard aggregation
+
+**Open questions:**
+- None at this time
