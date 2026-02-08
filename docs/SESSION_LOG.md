@@ -122,3 +122,25 @@
 
 **Open questions:**
 - None at this time
+
+## 2026-02-07 (session 6)
+
+**Worked on:** Tab archive/edit UX revamp for Sales and Commission.
+
+**Changes made:**
+- Replaced hover archive icon on tabs with pencil edit icon (visible on all tabs, not just active)
+- Merged create/edit into single tab dialog in CompanySales (mode flag: `editingTabId` null=create, set=edit)
+- Edit modal pre-fills with current season name/year/dates and shows red "Archive" or green "Unarchive" button
+- Archived dropdown now shows pencil edit icon per row (opens edit modal) instead of restore icon
+- Added `FolderArchive` icon to archived dropdown button for better visual identity
+- Added same edit tab dialog to CompanyCommission (edit-only, no create mode)
+- Used `updateSeason` from SalesContext (already existed but wasn't used) to save tab edits
+- Archiving the active tab auto-switches to the first remaining active season
+
+**Next steps:**
+- Add edit/delete functionality for clients
+- Import more client data from the full spreadsheet
+- Consider cross-company dashboard aggregation
+
+**Open questions:**
+- None at this time

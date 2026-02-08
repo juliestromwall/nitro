@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react'
-import { Plus, Archive, ArchiveRestore, Pencil, Trash2, Check, X, ChevronDown, Search, Filter, FileText, Upload, AlertTriangle, StickyNote } from 'lucide-react'
+import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, Search, Filter, FileText, Upload, AlertTriangle, StickyNote } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,14 +40,15 @@ const getCommission = (order) => {
 function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const {
     activeSeasons, archivedSeasons, orders,
-    addSeason, toggleArchiveSeason,
+    addSeason, updateSeason, toggleArchiveSeason,
     addOrder, updateOrder, deleteOrder,
   } = useSales()
 
   const company = getCompany(companyId)
 
   const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
-  const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [tabDialogOpen, setTabDialogOpen] = useState(false)
+  const [editingTabId, setEditingTabId] = useState(null)
   const [tabForm, setTabForm] = useState({ label: '', year: '', startDate: '', endDate: '' })
   const [editingOrderId, setEditingOrderId] = useState(null)
   const [editForm, setEditForm] = useState({})
@@ -96,18 +97,58 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     ? clients.filter((c) => c.name.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 10)
     : clients.slice(0, 10)
 
-  // Add tab dialog
-  const handleAddTab = (e) => {
-    e.preventDefault()
-    const newSeason = addSeason({
-      label: tabForm.label,
-      year: tabForm.year,
-      startDate: tabForm.startDate,
-      endDate: tabForm.endDate,
-    })
-    setActiveTab(newSeason.id)
+  // Tab dialog handlers
+  const openCreateTab = () => {
+    setEditingTabId(null)
     setTabForm({ label: '', year: '', startDate: '', endDate: '' })
-    setAddDialogOpen(false)
+    setTabDialogOpen(true)
+  }
+
+  const openEditTab = (season) => {
+    setEditingTabId(season.id)
+    setTabForm({
+      label: season.label,
+      year: season.year || '',
+      startDate: season.startDate || '',
+      endDate: season.endDate || '',
+    })
+    setTabDialogOpen(true)
+  }
+
+  const handleTabSubmit = (e) => {
+    e.preventDefault()
+    if (editingTabId) {
+      updateSeason(editingTabId, {
+        label: tabForm.label,
+        year: tabForm.year,
+        startDate: tabForm.startDate,
+        endDate: tabForm.endDate,
+      })
+    } else {
+      const newSeason = addSeason({
+        label: tabForm.label,
+        year: tabForm.year,
+        startDate: tabForm.startDate,
+        endDate: tabForm.endDate,
+      })
+      setActiveTab(newSeason.id)
+    }
+    setTabForm({ label: '', year: '', startDate: '', endDate: '' })
+    setEditingTabId(null)
+    setTabDialogOpen(false)
+  }
+
+  const handleArchiveFromModal = () => {
+    const id = editingTabId
+    toggleArchiveSeason(id)
+    setTabDialogOpen(false)
+    setEditingTabId(null)
+    setTabForm({ label: '', year: '', startDate: '', endDate: '' })
+    // If we archived the active tab, switch to first remaining active season
+    if (activeTab === id) {
+      const remaining = activeSeasons.filter((s) => s.id !== id)
+      setActiveTab(remaining[0]?.id || '')
+    }
   }
 
   // Add Sale — auto-set companyId
@@ -269,15 +310,13 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
             >
               {season.label}
             </button>
-            {activeTab === season.id && (
-              <button
-                onClick={() => toggleArchiveSeason(season.id)}
-                className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-200 rounded-full p-0.5"
-                title="Archive tab"
-              >
-                <Archive className="size-3" />
-              </button>
-            )}
+            <button
+              onClick={() => openEditTab(season)}
+              className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-200 rounded-full p-0.5"
+              title="Edit tab"
+            >
+              <Pencil className="size-3" />
+            </button>
           </div>
         ))}
 
@@ -287,6 +326,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               onClick={() => setShowArchived(!showArchived)}
               className="px-3 py-2 text-sm text-muted-foreground hover:text-zinc-700 flex items-center gap-1"
             >
+              <FolderArchive className="size-3.5" />
               Archived ({archivedSeasons.length})
               <ChevronDown className={`size-3 transition-transform ${showArchived ? 'rotate-180' : ''}`} />
             </button>
@@ -296,16 +336,16 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   <div key={season.id} className="flex items-center justify-between px-3 py-2 hover:bg-zinc-50">
                     <button
                       onClick={() => { setActiveTab(season.id); setShowArchived(false) }}
-                      className="text-sm text-muted-foreground hover:text-zinc-900"
+                      className="text-sm text-muted-foreground hover:text-zinc-900 flex-1 text-left"
                     >
                       {season.label}
                     </button>
                     <button
-                      onClick={() => toggleArchiveSeason(season.id)}
-                      className="text-muted-foreground hover:text-zinc-700"
-                      title="Restore tab"
+                      onClick={() => { openEditTab(season); setShowArchived(false) }}
+                      className="text-muted-foreground hover:text-zinc-700 ml-2"
+                      title="Edit tab"
                     >
-                      <ArchiveRestore className="size-3.5" />
+                      <Pencil className="size-3.5" />
                     </button>
                   </div>
                 ))}
@@ -315,21 +355,26 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         )}
 
         <button
-          onClick={() => setAddDialogOpen(true)}
+          onClick={openCreateTab}
           className="px-3 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap flex items-center gap-1"
         >
           <Plus className="size-4" /> New Sales Tracker
         </button>
       </div>
 
-      {/* Add tab dialog */}
-      <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
+      {/* Create / Edit tab dialog */}
+      <Dialog open={tabDialogOpen} onOpenChange={(open) => {
+        setTabDialogOpen(open)
+        if (!open) { setEditingTabId(null); setTabForm({ label: '', year: '', startDate: '', endDate: '' }) }
+      }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New Sales Tracker</DialogTitle>
-            <DialogDescription>Create a new tracker for a specific sales period.</DialogDescription>
+            <DialogTitle>{editingTabId ? 'Edit Sales Tracker' : 'New Sales Tracker'}</DialogTitle>
+            <DialogDescription>
+              {editingTabId ? 'Update this tracker or change its archive status.' : 'Create a new tracker for a specific sales period.'}
+            </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleAddTab} className="space-y-4">
+          <form onSubmit={handleTabSubmit} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="tabLabel">Tracker Name</Label>
               <Input
@@ -372,8 +417,22 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 />
               </div>
             </div>
-            <DialogFooter>
-              <Button type="submit">Create Tracker</Button>
+            <DialogFooter className="flex gap-2">
+              {editingTabId && (() => {
+                const isArchived = archivedSeasons.some((s) => s.id === editingTabId)
+                return (
+                  <Button
+                    type="button"
+                    variant={isArchived ? 'default' : 'destructive'}
+                    className={isArchived ? 'bg-green-600 hover:bg-green-700 mr-auto' : 'mr-auto'}
+                    onClick={handleArchiveFromModal}
+                  >
+                    <FolderArchive className="size-4 mr-1" />
+                    {isArchived ? 'Unarchive' : 'Archive'}
+                  </Button>
+                )
+              })()}
+              <Button type="submit">{editingTabId ? 'Save Changes' : 'Create Tracker'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>

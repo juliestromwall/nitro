@@ -1,12 +1,16 @@
 import { useState, useMemo } from 'react'
-import { Archive, ArchiveRestore, ChevronDown, Search, Check, X, Pencil } from 'lucide-react'
+import { FolderArchive, ChevronDown, Search, Check, X, Pencil } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from '@/components/ui/table'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
 import { commissions, clients, companies } from '@/data/mockData'
 import { useSales } from '@/context/SalesContext'
 
@@ -55,11 +59,16 @@ const rowHighlight = (status) => {
 }
 
 function CompanyCommission({ companyId }) {
-  const { activeSeasons, archivedSeasons, orders, toggleArchiveSeason } = useSales()
+  const { activeSeasons, archivedSeasons, orders, updateSeason, toggleArchiveSeason } = useSales()
   const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
   const [cardFilter, setCardFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
+
+  // Edit tab dialog state
+  const [tabDialogOpen, setTabDialogOpen] = useState(false)
+  const [editingTabId, setEditingTabId] = useState(null)
+  const [tabForm, setTabForm] = useState({ label: '', year: '', startDate: '', endDate: '' })
 
   // Inline editing state — keyed by order id
   const [editingId, setEditingId] = useState(null)
@@ -162,6 +171,45 @@ function CompanyCommission({ companyId }) {
     setSearchQuery('')
   }
 
+  // Tab dialog handlers
+  const openEditTab = (season) => {
+    setEditingTabId(season.id)
+    setTabForm({
+      label: season.label,
+      year: season.year || '',
+      startDate: season.startDate || '',
+      endDate: season.endDate || '',
+    })
+    setTabDialogOpen(true)
+  }
+
+  const handleTabSubmit = (e) => {
+    e.preventDefault()
+    if (editingTabId) {
+      updateSeason(editingTabId, {
+        label: tabForm.label,
+        year: tabForm.year,
+        startDate: tabForm.startDate,
+        endDate: tabForm.endDate,
+      })
+    }
+    setTabForm({ label: '', year: '', startDate: '', endDate: '' })
+    setEditingTabId(null)
+    setTabDialogOpen(false)
+  }
+
+  const handleArchiveFromModal = () => {
+    const id = editingTabId
+    toggleArchiveSeason(id)
+    setTabDialogOpen(false)
+    setEditingTabId(null)
+    setTabForm({ label: '', year: '', startDate: '', endDate: '' })
+    if (activeTab === id) {
+      const remaining = activeSeasons.filter((s) => s.id !== id)
+      setActiveTab(remaining[0]?.id || '')
+    }
+  }
+
   // Inline editing
   const startEdit = (row) => {
     setEditingId(row.id)
@@ -207,15 +255,13 @@ function CompanyCommission({ companyId }) {
             >
               {season.label}
             </button>
-            {activeTab === season.id && (
-              <button
-                onClick={() => toggleArchiveSeason(season.id)}
-                className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-200 rounded-full p-0.5"
-                title="Archive tab"
-              >
-                <Archive className="size-3" />
-              </button>
-            )}
+            <button
+              onClick={() => openEditTab(season)}
+              className="absolute -top-1 -right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-zinc-200 rounded-full p-0.5"
+              title="Edit tab"
+            >
+              <Pencil className="size-3" />
+            </button>
           </div>
         ))}
 
@@ -225,6 +271,7 @@ function CompanyCommission({ companyId }) {
               onClick={() => setShowArchived(!showArchived)}
               className="px-3 py-2 text-sm text-muted-foreground hover:text-zinc-700 flex items-center gap-1"
             >
+              <FolderArchive className="size-3.5" />
               Archived ({archivedSeasons.length})
               <ChevronDown className={`size-3 transition-transform ${showArchived ? 'rotate-180' : ''}`} />
             </button>
@@ -234,16 +281,16 @@ function CompanyCommission({ companyId }) {
                   <div key={season.id} className="flex items-center justify-between px-3 py-2 hover:bg-zinc-50">
                     <button
                       onClick={() => { setActiveTab(season.id); setShowArchived(false) }}
-                      className="text-sm text-muted-foreground hover:text-zinc-900"
+                      className="text-sm text-muted-foreground hover:text-zinc-900 flex-1 text-left"
                     >
                       {season.label}
                     </button>
                     <button
-                      onClick={() => toggleArchiveSeason(season.id)}
-                      className="text-muted-foreground hover:text-zinc-700"
-                      title="Restore tab"
+                      onClick={() => { openEditTab(season); setShowArchived(false) }}
+                      className="text-muted-foreground hover:text-zinc-700 ml-2"
+                      title="Edit tab"
                     >
-                      <ArchiveRestore className="size-3.5" />
+                      <Pencil className="size-3.5" />
                     </button>
                   </div>
                 ))}
@@ -252,6 +299,80 @@ function CompanyCommission({ companyId }) {
           </div>
         )}
       </div>
+
+      {/* Edit tab dialog */}
+      <Dialog open={tabDialogOpen} onOpenChange={(open) => {
+        setTabDialogOpen(open)
+        if (!open) { setEditingTabId(null); setTabForm({ label: '', year: '', startDate: '', endDate: '' }) }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Commission Tracker</DialogTitle>
+            <DialogDescription>Update this tracker or change its archive status.</DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleTabSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="tabLabel">Tracker Name</Label>
+              <Input
+                id="tabLabel"
+                placeholder='e.g. "US 2027-2028" or "Demos"'
+                value={tabForm.label}
+                onChange={(e) => setTabForm((p) => ({ ...p, label: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="tabYear">Year</Label>
+              <Input
+                id="tabYear"
+                placeholder="e.g. 2027"
+                value={tabForm.year}
+                onChange={(e) => setTabForm((p) => ({ ...p, year: e.target.value }))}
+                required
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="startDate">Start Date</Label>
+                <Input
+                  id="startDate"
+                  type="date"
+                  value={tabForm.startDate}
+                  onChange={(e) => setTabForm((p) => ({ ...p, startDate: e.target.value }))}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="endDate">End Date</Label>
+                <Input
+                  id="endDate"
+                  type="date"
+                  value={tabForm.endDate}
+                  onChange={(e) => setTabForm((p) => ({ ...p, endDate: e.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+            <DialogFooter className="flex gap-2">
+              {editingTabId && (() => {
+                const isArchived = archivedSeasons.some((s) => s.id === editingTabId)
+                return (
+                  <Button
+                    type="button"
+                    variant={isArchived ? 'default' : 'destructive'}
+                    className={isArchived ? 'bg-green-600 hover:bg-green-700 mr-auto' : 'mr-auto'}
+                    onClick={handleArchiveFromModal}
+                  >
+                    <FolderArchive className="size-4 mr-1" />
+                    {isArchived ? 'Unarchive' : 'Archive'}
+                  </Button>
+                )
+              })()}
+              <Button type="submit">Save Changes</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {currentSeason && (
         <>
