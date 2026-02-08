@@ -72,11 +72,31 @@
 - Updated FEATURES.md, PRODUCT.md
 
 **Next steps:**
+- Finish commission page rewrite
 - Add edit/delete functionality for clients
-- Import more client data from the full spreadsheet
-- Add commission entry creation/editing within CompanyCommission
-- Consider cross-company dashboard aggregation
 
 **Open questions:**
 - Should To Dos have notifications/reminders?
-- Should commission entries be editable inline like sales orders?
+
+## 2026-02-07 (session 4)
+
+**Worked on:** Green Add Sale button placement, Commission page rewrite.
+
+**Changes made:**
+- Moved "+ Add Sale" button to right of company name (after commission % badge), changed to green
+- Rewrote CompanyCommission to be order-driven: any sale with stage "Closed - Won" creates a commission line
+- Added Order #, Invoice #, and Total columns to commission table before Commission Due
+- Renamed summary cards: "Total Commission Earned", "Total Commission Paid", "Total Commission Outstanding"
+- Made summary cards clickable filters: Earned=show all, Paid=show Paid+Partial only, Outstanding=show everything except Paid
+- Added row highlighting: Paid rows get green-50 tint, Partial rows get yellow-50 tint (matching badge colors)
+- Commission Due calculated as order total * company commission %
+
+**Next steps:**
+- Add commission entry creation/editing (pay status, amount paid, paid date)
+- Add edit/delete functionality for clients
+- Import more client data from the full spreadsheet
+- Consider cross-company dashboard aggregation
+
+**Open questions:**
+- Should commission pay status be editable inline?
+- Should there be a way to mark individual order commissions as paid vs. paying at the client level?

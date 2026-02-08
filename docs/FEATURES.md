@@ -15,7 +15,7 @@
 | CompanyDetail | src/pages/CompanyDetail.jsx | Tab shell: header with Add Sale button + Dashboard/Sales/Commission pill tabs per company |
 | CompanyDashboard | src/components/company/CompanyDashboard.jsx | Season dropdown, 4 summary cards, To Dos with searchable account dropdown, pin/unpin, drag-to-reorder, overdue styling |
 | CompanySales | src/components/company/CompanySales.jsx | Per-company sales: season tabs ("+ New Sales Tracker"), search, filters, inline edit, notes modal (StickyNote icon), scrollable table |
-| CompanyCommission | src/components/company/CompanyCommission.jsx | Per-company commission: season tabs, summary cards, commission table filtered by company's clients |
+| CompanyCommission | src/components/company/CompanyCommission.jsx | Per-company commission: order-driven (Closed - Won orders), Order #/Invoice #/Total columns, clickable summary card filters (Earned/Paid/Outstanding), row highlighting (green=Paid, yellow=Partial) |
 | CompanyContext | src/context/CompanyContext.jsx | Shared company state (add, update, archive) used by sidebar and pages |
 | Mock Data | src/data/mockData.js | Companies, clients, orders, commissions, seasons, todos based on real spreadsheet data |
 
@@ -32,3 +32,4 @@
 | 2026-02-07 | Sales: Commission column (auto-calculated from company %), Notes column, Add Sale dialog with searchable client dropdown, commission override with visual flag, horizontally scrollable table |
 | 2026-02-07 | Restructured Sales & Commission under CompanyDetail tabs; added TodoContext and CompanyDashboard with To Dos; Sales/Commission pages now show company directory |
 | 2026-02-07 | Removed standalone Sales/Commission pages and nav items; Add Sale button moved to company header; pill-style tabs (black/white); To Dos: searchable account typeahead, pin/unpin, drag-to-reorder; Sales: notes modal via StickyNote icon, "+ New Sales Tracker" rename |
+| 2026-02-07 | Add Sale button moved next to company name (green); Commission rewritten: order-driven from Closed-Won sales, shows Order #/Invoice #/Total, clickable summary cards filter table (Earned=all, Paid=paid+partial, Outstanding=not paid), row highlighting by pay status |
