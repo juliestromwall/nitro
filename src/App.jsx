@@ -1,5 +1,5 @@
-import { Routes, Route, NavLink, Link } from 'react-router-dom'
-import { Building2, Users, ShoppingCart, DollarSign, LayoutDashboard } from 'lucide-react'
+import { Routes, Route, NavLink } from 'react-router-dom'
+import { Building2, Users, LayoutDashboard } from 'lucide-react'
 import { CompanyProvider, useCompanies } from './context/CompanyContext'
 import { SalesProvider } from './context/SalesContext'
 import { TodoProvider } from './context/TodoContext'
@@ -7,14 +7,10 @@ import Dashboard from './pages/Dashboard'
 import Companies from './pages/Companies'
 import CompanyDetail from './pages/CompanyDetail'
 import Clients from './pages/Clients'
-import Sales from './pages/Sales'
-import Commission from './pages/Commission'
 
 const navItems = [
   { to: '/companies', icon: Building2, label: 'Companies' },
   { to: '/clients', icon: Users, label: 'Clients' },
-  { to: '/sales', icon: ShoppingCart, label: 'Sales' },
-  { to: '/commission', icon: DollarSign, label: 'Commission' },
 ]
 
 function CompanyIcons() {
@@ -107,8 +103,6 @@ function App() {
             <Route path="/companies" element={<Companies />} />
             <Route path="/companies/:id" element={<CompanyDetail />} />
             <Route path="/clients" element={<Clients />} />
-            <Route path="/sales" element={<Sales />} />
-            <Route path="/commission" element={<Commission />} />
           </Routes>
         </main>
       </div>

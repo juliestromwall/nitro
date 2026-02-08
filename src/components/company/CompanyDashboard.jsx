@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Plus, Pencil, Trash2, Check, X, ChevronDown } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Plus, Pencil, Trash2, Pin, PinOff, GripVertical, ChevronDown } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,7 +24,7 @@ const getClientName = (clientId) => {
 
 function CompanyDashboard({ companyId }) {
   const { activeSeasons, orders } = useSales()
-  const { getTodosByCompany, addTodo, updateTodo, toggleComplete, deleteTodo } = useTodos()
+  const { getTodosByCompany, addTodo, updateTodo, toggleComplete, togglePin, reorderTodos, deleteTodo } = useTodos()
   const company = companies.find((c) => c.id === companyId)
 
   // Season selector persisted in localStorage
@@ -62,9 +62,59 @@ function CompanyDashboard({ companyId }) {
     title: '', note: '', clientId: '', phone: '', dueDate: '',
   })
 
+  // Searchable account dropdown state
+  const [accountSearch, setAccountSearch] = useState('')
+  const [accountDropdownOpen, setAccountDropdownOpen] = useState(false)
+  const accountRef = useRef(null)
+
+  const filteredClients = accountSearch
+    ? clients.filter((c) => c.name.toLowerCase().includes(accountSearch.toLowerCase()))
+    : clients
+
+  // Close account dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (accountRef.current && !accountRef.current.contains(e.target)) {
+        setAccountDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Drag & drop state
+  const [dragIndex, setDragIndex] = useState(null)
+  const [dragOverIndex, setDragOverIndex] = useState(null)
+
+  const handleDragStart = (e, index) => {
+    setDragIndex(index)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+
+  const handleDragOver = (e, index) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverIndex(index)
+  }
+
+  const handleDrop = (e, toIndex) => {
+    e.preventDefault()
+    if (dragIndex !== null && dragIndex !== toIndex) {
+      reorderTodos(companyId, dragIndex, toIndex)
+    }
+    setDragIndex(null)
+    setDragOverIndex(null)
+  }
+
+  const handleDragEnd = () => {
+    setDragIndex(null)
+    setDragOverIndex(null)
+  }
+
   const openAddTodo = () => {
     setEditingTodoId(null)
     setTodoForm({ title: '', note: '', clientId: '', phone: '', dueDate: '' })
+    setAccountSearch('')
     setTodoDialogOpen(true)
   }
 
@@ -77,7 +127,19 @@ function CompanyDashboard({ companyId }) {
       phone: todo.phone || '',
       dueDate: todo.dueDate || '',
     })
+    setAccountSearch(todo.clientId ? getClientName(todo.clientId) : '')
     setTodoDialogOpen(true)
+  }
+
+  const selectClient = (client) => {
+    setTodoForm((p) => ({ ...p, clientId: String(client.id) }))
+    setAccountSearch(client.name)
+    setAccountDropdownOpen(false)
+  }
+
+  const clearClient = () => {
+    setTodoForm((p) => ({ ...p, clientId: '' }))
+    setAccountSearch('')
   }
 
   const handleSaveTodo = (e) => {
@@ -168,28 +230,41 @@ function CompanyDashboard({ companyId }) {
         <Table>
           <TableHeader>
             <TableRow>
+              <TableHead className="w-8"></TableHead>
               <TableHead className="w-10"></TableHead>
               <TableHead>Title</TableHead>
               <TableHead>Note</TableHead>
               <TableHead>Account</TableHead>
               <TableHead>Phone</TableHead>
               <TableHead>Due Date</TableHead>
-              <TableHead className="w-20"></TableHead>
+              <TableHead className="w-28"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {todos.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center text-muted-foreground">
+                <TableCell colSpan={8} className="text-center text-muted-foreground">
                   No to-dos yet.
                 </TableCell>
               </TableRow>
             ) : (
-              todos.map((todo) => (
+              todos.map((todo, index) => (
                 <TableRow
                   key={todo.id}
-                  className={isOverdue(todo) ? 'border-l-2 border-l-red-500' : ''}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, index)}
+                  onDragOver={(e) => handleDragOver(e, index)}
+                  onDrop={(e) => handleDrop(e, index)}
+                  onDragEnd={handleDragEnd}
+                  className={`${
+                    dragOverIndex === index && dragIndex !== index ? 'border-t-2 border-t-blue-500' : ''
+                  } ${dragIndex === index ? 'opacity-40' : ''} ${
+                    isOverdue(todo) ? 'border-l-2 border-l-red-500' : ''
+                  }`}
                 >
+                  <TableCell className="cursor-grab active:cursor-grabbing">
+                    <GripVertical className="size-4 text-muted-foreground" />
+                  </TableCell>
                   <TableCell>
                     <input
                       type="checkbox"
@@ -213,6 +288,19 @@ function CompanyDashboard({ companyId }) {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => togglePin(todo.id)}
+                        title={todo.pinned ? 'Unpin' : 'Pin to top'}
+                      >
+                        {todo.pinned ? (
+                          <PinOff className="size-3.5 text-blue-500" />
+                        ) : (
+                          <Pin className="size-3.5" />
+                        )}
+                      </Button>
                       <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditTodo(todo)} title="Edit">
                         <Pencil className="size-3.5" />
                       </Button>
@@ -258,16 +346,50 @@ function CompanyDashboard({ companyId }) {
             </div>
             <div className="space-y-2">
               <Label>Account</Label>
-              <select
-                value={todoForm.clientId}
-                onChange={(e) => setTodoForm((p) => ({ ...p, clientId: e.target.value }))}
-                className="w-full border rounded-md px-3 py-2 text-sm"
-              >
-                <option value="">None</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
+              <div className="relative" ref={accountRef}>
+                <Input
+                  value={accountSearch}
+                  onChange={(e) => {
+                    setAccountSearch(e.target.value)
+                    setAccountDropdownOpen(true)
+                    if (!e.target.value) {
+                      setTodoForm((p) => ({ ...p, clientId: '' }))
+                    }
+                  }}
+                  onFocus={() => setAccountDropdownOpen(true)}
+                  placeholder="Search accounts..."
+                  autoComplete="off"
+                />
+                {todoForm.clientId && (
+                  <button
+                    type="button"
+                    onClick={clearClient}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <span className="text-xs">✕</span>
+                  </button>
+                )}
+                {accountDropdownOpen && (
+                  <div className="absolute z-50 mt-1 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    {filteredClients.length === 0 ? (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">No accounts found</div>
+                    ) : (
+                      filteredClients.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => selectClient(c)}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-zinc-100 ${
+                            String(c.id) === todoForm.clientId ? 'bg-zinc-50 font-medium' : ''
+                          }`}
+                        >
+                          {c.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

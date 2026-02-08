@@ -19,7 +19,7 @@
 4. **Company Detail** - Click a company to see Dashboard/Sales/Commission tabs scoped to that company
 5. **Track Sales** - Per-company: view orders by season, add/edit/delete, search and filter
 6. **Track Commission** - Per-company: see what's owed, paid, and outstanding by season
-7. **Manage To Dos** - Per-company: add, edit, complete, and delete to-do items with due dates and overdue highlighting
+7. **Manage To Dos** - Per-company: add, edit, complete, pin/unpin, drag-to-reorder, and delete to-do items with searchable account dropdown, due dates, and overdue highlighting
 
 ## Terminology
 
@@ -44,7 +44,7 @@
 |------|-------------|
 | Dashboard | Summary stats: total sales, rental/retail breakdown, commission due/paid |
 | Clients | Client list with add/edit, filterable by region and type |
-| Sales | Company directory linking to per-company sales views |
-| Commission | Company directory linking to per-company commission views |
+| ~~Sales~~ | _(Removed — Sales accessed via CompanyDetail > Sales tab)_ |
+| ~~Commission~~ | _(Removed — Commission accessed via CompanyDetail > Commission tab)_ |
 | Companies | Company management with commission %, quick links in sidebar |
 | CompanyDetail | Tabbed view (Dashboard/Sales/Commission) scoped to a single company |

@@ -7,14 +7,14 @@
 | App Layout | src/App.jsx | Sidebar nav with company icons at top, icon navigation below |
 | Dashboard | src/pages/Dashboard.jsx | Summary cards (Total/Rental/Retail Sales, Commission Due/Paid/Outstanding) + Recent Orders table |
 | Clients | src/pages/Clients.jsx | Client list with search, add client dialog with form |
-| Sales | src/pages/Sales.jsx | Company directory linking to per-company sales views |
-| Commission | src/pages/Commission.jsx | Company directory linking to per-company commission views |
+| Sales | _(removed)_ | Sales now accessed only via CompanyDetail > Sales tab |
+| Commission | _(removed)_ | Commission now accessed only via CompanyDetail > Sales tab |
 | SalesContext | src/context/SalesContext.jsx | Shared state for seasons (tabs) and orders with CRUD operations |
-| TodoContext | src/context/TodoContext.jsx | Per-company to-do state (add, edit, toggle complete, delete) |
+| TodoContext | src/context/TodoContext.jsx | Per-company to-do state (add, edit, toggle complete, pin/unpin, reorder, delete) |
 | Companies | src/pages/Companies.jsx | Company list with add/edit, logo upload, archive/restore, drag-to-reorder |
-| CompanyDetail | src/pages/CompanyDetail.jsx | Tab shell: header + Dashboard/Sales/Commission tabs per company |
-| CompanyDashboard | src/components/company/CompanyDashboard.jsx | Season dropdown, 4 summary cards, To Dos table with add/edit/complete/delete and overdue styling |
-| CompanySales | src/components/company/CompanySales.jsx | Per-company sales: season tabs, search, filters, inline edit, scrollable table, Add Sale (no company selector) |
+| CompanyDetail | src/pages/CompanyDetail.jsx | Tab shell: header with Add Sale button + Dashboard/Sales/Commission pill tabs per company |
+| CompanyDashboard | src/components/company/CompanyDashboard.jsx | Season dropdown, 4 summary cards, To Dos with searchable account dropdown, pin/unpin, drag-to-reorder, overdue styling |
+| CompanySales | src/components/company/CompanySales.jsx | Per-company sales: season tabs ("+ New Sales Tracker"), search, filters, inline edit, notes modal (StickyNote icon), scrollable table |
 | CompanyCommission | src/components/company/CompanyCommission.jsx | Per-company commission: season tabs, summary cards, commission table filtered by company's clients |
 | CompanyContext | src/context/CompanyContext.jsx | Shared company state (add, update, archive) used by sidebar and pages |
 | Mock Data | src/data/mockData.js | Companies, clients, orders, commissions, seasons, todos based on real spreadsheet data |
@@ -31,3 +31,4 @@
 | 2026-02-07 | Sales enhancements: Invoice # and Documents columns, search bar, Order Type and Stage column filters, archived tab dropdown with restore |
 | 2026-02-07 | Sales: Commission column (auto-calculated from company %), Notes column, Add Sale dialog with searchable client dropdown, commission override with visual flag, horizontally scrollable table |
 | 2026-02-07 | Restructured Sales & Commission under CompanyDetail tabs; added TodoContext and CompanyDashboard with To Dos; Sales/Commission pages now show company directory |
+| 2026-02-07 | Removed standalone Sales/Commission pages and nav items; Add Sale button moved to company header; pill-style tabs (black/white); To Dos: searchable account typeahead, pin/unpin, drag-to-reorder; Sales: notes modal via StickyNote icon, "+ New Sales Tracker" rename |

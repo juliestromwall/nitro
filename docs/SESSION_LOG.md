@@ -54,3 +54,29 @@
 **Open questions:**
 - Should To Dos have notifications/reminders?
 - Should commission entries be editable inline like sales orders?
+
+## 2026-02-07 (session 3)
+
+**Worked on:** UI/UX improvements — streamlined navigation, enhanced To Dos, improved Sales notes.
+
+**Changes made:**
+- Removed standalone Sales and Commission pages and their nav bar items (no longer needed)
+- Moved "+ Add Sale" button to CompanyDetail header (accessible from any tab)
+- Styled Dashboard/Sales/Commission tabs as pill buttons (black bg + white text when active)
+- To Dos: replaced plain `<select>` with searchable/typeahead account dropdown
+- To Dos: added pin/unpin functionality (pinned items float to top, blue PinOff icon when pinned)
+- To Dos: added drag-to-reorder with GripVertical handles (same pattern as Companies page)
+- TodoContext: added `pinned`, `sortOrder`, `togglePin`, `reorderTodos` support
+- Sales: renamed "+ Add Tab" to "+ New Sales Tracker"
+- Sales: replaced inline notes editing with StickyNote icon → modal (filled amber icon when note exists)
+- Updated FEATURES.md, PRODUCT.md
+
+**Next steps:**
+- Add edit/delete functionality for clients
+- Import more client data from the full spreadsheet
+- Add commission entry creation/editing within CompanyCommission
+- Consider cross-company dashboard aggregation
+
+**Open questions:**
+- Should To Dos have notifications/reminders?
+- Should commission entries be editable inline like sales orders?

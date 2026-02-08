@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react'
-import { Plus, Archive, ArchiveRestore, Pencil, Trash2, Check, X, ChevronDown, Search, Filter, FileText, Upload, AlertTriangle } from 'lucide-react'
+import { Plus, Archive, ArchiveRestore, Pencil, Trash2, Check, X, ChevronDown, Search, Filter, FileText, Upload, AlertTriangle, StickyNote } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,7 +37,7 @@ const getCommission = (order) => {
   return { amount: order.total * pct / 100, pct, isOverridden, defaultPct }
 }
 
-function CompanySales({ companyId }) {
+function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const {
     activeSeasons, archivedSeasons, orders,
     addSeason, toggleArchiveSeason,
@@ -62,7 +62,6 @@ function CompanySales({ companyId }) {
   const [showStageFilter, setShowStageFilter] = useState(false)
 
   // Add Sale dialog state
-  const [addSaleOpen, setAddSaleOpen] = useState(false)
   const [clientSearch, setClientSearch] = useState('')
   const [showClientDropdown, setShowClientDropdown] = useState(false)
   const [saleForm, setSaleForm] = useState({
@@ -80,6 +79,11 @@ function CompanySales({ companyId }) {
     notes: '',
   })
   const fileInputRef = useRef(null)
+
+  // Notes modal state
+  const [noteModalOpen, setNoteModalOpen] = useState(false)
+  const [noteOrderId, setNoteOrderId] = useState(null)
+  const [noteText, setNoteText] = useState('')
 
   // Ensure activeTab is valid
   const allVisibleSeasons = showArchived
@@ -148,6 +152,22 @@ function CompanySales({ companyId }) {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
+  // Notes modal
+  const openNoteModal = (order) => {
+    setNoteOrderId(order.id)
+    setNoteText(order.notes || '')
+    setNoteModalOpen(true)
+  }
+
+  const saveNote = () => {
+    if (noteOrderId) {
+      updateOrder(noteOrderId, { notes: noteText })
+    }
+    setNoteModalOpen(false)
+    setNoteOrderId(null)
+    setNoteText('')
+  }
+
   // Inline editing
   const startEdit = (order) => {
     setEditingOrderId(order.id)
@@ -161,7 +181,6 @@ function CompanySales({ companyId }) {
       documents: (order.documents || []).join(', '),
       total: String(order.total),
       commissionOverride: order.commissionOverride != null ? String(order.commissionOverride) : '',
-      notes: order.notes || '',
     })
   }
 
@@ -186,7 +205,6 @@ function CompanySales({ companyId }) {
       documents: docs,
       total: parseFloat(editForm.total) || 0,
       commissionOverride: commOverride,
-      notes: editForm.notes,
     })
     setEditingOrderId(null)
     setEditForm({})
@@ -237,15 +255,7 @@ function CompanySales({ companyId }) {
 
   return (
     <div className="space-y-6 min-w-0">
-      <div className="flex items-center justify-end">
-        {currentSeason && (
-          <Button onClick={() => setAddSaleOpen(true)}>
-            <Plus className="size-4 mr-1" /> Add Sale
-          </Button>
-        )}
-      </div>
-
-      {/* Tabs bar */}
+      {/* Season tabs bar */}
       <div className="flex items-center gap-1 border-b overflow-x-auto">
         {activeSeasons.map((season) => (
           <div key={season.id} className="group relative">
@@ -308,7 +318,7 @@ function CompanySales({ companyId }) {
           onClick={() => setAddDialogOpen(true)}
           className="px-3 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap flex items-center gap-1"
         >
-          <Plus className="size-4" /> Add Tab
+          <Plus className="size-4" /> New Sales Tracker
         </button>
       </div>
 
@@ -316,12 +326,12 @@ function CompanySales({ companyId }) {
       <Dialog open={addDialogOpen} onOpenChange={setAddDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Sales Tab</DialogTitle>
-            <DialogDescription>Create a new tab to track sales for a specific period.</DialogDescription>
+            <DialogTitle>New Sales Tracker</DialogTitle>
+            <DialogDescription>Create a new tracker for a specific sales period.</DialogDescription>
           </DialogHeader>
           <form onSubmit={handleAddTab} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="tabLabel">Tab Name</Label>
+              <Label htmlFor="tabLabel">Tracker Name</Label>
               <Input
                 id="tabLabel"
                 placeholder='e.g. "US 2027-2028" or "Demos"'
@@ -363,7 +373,7 @@ function CompanySales({ companyId }) {
               </div>
             </div>
             <DialogFooter>
-              <Button type="submit">Create Tab</Button>
+              <Button type="submit">Create Tracker</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -570,6 +580,33 @@ function CompanySales({ companyId }) {
         </DialogContent>
       </Dialog>
 
+      {/* Notes modal */}
+      <Dialog open={noteModalOpen} onOpenChange={setNoteModalOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {noteOrderId && orders.find((o) => o.id === noteOrderId)?.notes ? 'Edit Note' : 'Add Note'}
+            </DialogTitle>
+            <DialogDescription>
+              {noteOrderId && getClientName(orders.find((o) => o.id === noteOrderId)?.clientId)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <textarea
+              className="w-full border rounded-md px-3 py-2 text-sm min-h-24 resize-y"
+              placeholder="Add a note..."
+              value={noteText}
+              onChange={(e) => setNoteText(e.target.value)}
+              autoFocus
+            />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setNoteModalOpen(false)}>Cancel</Button>
+              <Button onClick={saveNote}>Save Note</Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Search and summary */}
       {currentSeason && (
         <>
@@ -704,14 +741,14 @@ function CompanySales({ companyId }) {
                   <TableHead className="whitespace-nowrap">Documents</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Total</TableHead>
                   <TableHead className="text-right whitespace-nowrap">Commission</TableHead>
-                  <TableHead className="whitespace-nowrap">Notes</TableHead>
+                  <TableHead className="whitespace-nowrap text-center">Notes</TableHead>
                   <TableHead className="w-20"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredOrders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center text-muted-foreground">
+                    <TableCell colSpan={11} className="text-center text-muted-foreground">
                       {searchQuery || filterOrderType || filterStage
                         ? 'No orders match your search or filters.'
                         : 'No orders for this tab.'}
@@ -722,6 +759,7 @@ function CompanySales({ companyId }) {
                     const isEditing = editingOrderId === order.id
                     const isHovered = hoveredRow === order.id
                     const comm = getCommission(order)
+                    const hasNote = order.notes && order.notes.trim().length > 0
 
                     if (isEditing) {
                       return (
@@ -800,13 +838,10 @@ function CompanySales({ companyId }) {
                               placeholder={`${comm.defaultPct}%`}
                             />
                           </TableCell>
-                          <TableCell>
-                            <Input
-                              value={editForm.notes}
-                              onChange={(e) => setEditForm((p) => ({ ...p, notes: e.target.value }))}
-                              className="h-8 text-sm w-32"
-                              placeholder="Notes..."
-                            />
+                          <TableCell className="text-center">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openNoteModal(order)} title="Note">
+                              <StickyNote className={`size-4 ${hasNote ? 'text-amber-500' : 'text-muted-foreground'}`} />
+                            </Button>
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-1">
@@ -870,8 +905,16 @@ function CompanySales({ companyId }) {
                             </span>
                           </div>
                         </TableCell>
-                        <TableCell className="max-w-32 truncate text-sm text-muted-foreground">
-                          {order.notes || '—'}
+                        <TableCell className="text-center">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => openNoteModal(order)}
+                            title={hasNote ? order.notes : 'Add note'}
+                          >
+                            <StickyNote className={`size-4 ${hasNote ? 'text-amber-500 fill-amber-100' : 'text-muted-foreground'}`} />
+                          </Button>
                         </TableCell>
                         <TableCell>
                           <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
