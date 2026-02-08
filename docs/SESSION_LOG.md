@@ -162,6 +162,13 @@
 - Removed `overflow-x-auto` from table.jsx wrapper to enable sticky columns
 - Added `.no-spinner` CSS utility to index.css
 
+**Next steps:**
+- Refine UX based on user feedback
+- Add edit/delete functionality for clients
+
+**Open questions:**
+- None at this time
+
 ## 2026-02-07 (session 8)
 
 **Worked on:** UX refinements — modal-based editing, inline document uploads, card reorder.
