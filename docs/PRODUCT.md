@@ -16,8 +16,10 @@
 1. **View Dashboard** - See total sales, commission due, and outstanding payments at a glance
 2. **Manage Companies** - Add/edit companies with commission %, archive/restore, view per-company dashboards
 3. **Manage Clients** - Add new clients, view client list with region/type/location
-4. **Track Sales** - View orders by season (US/CA) with rental and retail breakdowns
-5. **Track Commission** - See what's owed, what's been paid, and what's outstanding
+4. **Company Detail** - Click a company to see Dashboard/Sales/Commission tabs scoped to that company
+5. **Track Sales** - Per-company: view orders by season, add/edit/delete, search and filter
+6. **Track Commission** - Per-company: see what's owed, paid, and outstanding by season
+7. **Manage To Dos** - Per-company: add, edit, complete, and delete to-do items with due dates and overdue highlighting
 
 ## Terminology
 
@@ -34,6 +36,7 @@
 | Pay Status | Whether commission has been paid (Paid, Partial, Unpaid) |
 | Region | Geographic area (Rockies, PNW, Southeast, etc.) |
 | Account Type | Ski Shop (Off Site), Resort, Resort SARA Group, Chain |
+| To Do | A per-company task item with title, note, account, phone, and due date |
 
 ## Pages
 
@@ -41,7 +44,7 @@
 |------|-------------|
 | Dashboard | Summary stats: total sales, rental/retail breakdown, commission due/paid |
 | Clients | Client list with add/edit, filterable by region and type |
-| Sales | Orders by season/country tab, rental and retail sections |
+| Sales | Company directory linking to per-company sales views |
+| Commission | Company directory linking to per-company commission views |
 | Companies | Company management with commission %, quick links in sidebar |
-| CompanyDetail | Per-company dashboard with sales/commission stats and orders by season |
-| Commission | Commission tracking with payment status per account |
+| CompanyDetail | Tabbed view (Dashboard/Sales/Commission) scoped to a single company |

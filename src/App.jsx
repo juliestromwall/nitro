@@ -2,6 +2,7 @@ import { Routes, Route, NavLink, Link } from 'react-router-dom'
 import { Building2, Users, ShoppingCart, DollarSign, LayoutDashboard } from 'lucide-react'
 import { CompanyProvider, useCompanies } from './context/CompanyContext'
 import { SalesProvider } from './context/SalesContext'
+import { TodoProvider } from './context/TodoContext'
 import Dashboard from './pages/Dashboard'
 import Companies from './pages/Companies'
 import CompanyDetail from './pages/CompanyDetail'
@@ -55,6 +56,7 @@ function App() {
   return (
     <CompanyProvider>
     <SalesProvider>
+    <TodoProvider>
       <div className="flex h-screen">
         {/* Sidebar */}
         <aside className="w-16 bg-zinc-900 flex flex-col items-center py-4 shrink-0">
@@ -110,6 +112,7 @@ function App() {
           </Routes>
         </main>
       </div>
+    </TodoProvider>
     </SalesProvider>
     </CompanyProvider>
   )

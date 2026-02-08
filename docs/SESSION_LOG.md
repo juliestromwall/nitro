@@ -28,3 +28,29 @@
 - Should the app support importing data from the spreadsheet or is manual entry preferred?
 - Are there other users/roles beyond the sales rep who need access?
 - What commission rate should be used (currently assumed 5% based on spreadsheet)?
+
+## 2026-02-07 (session 2)
+
+**Worked on:** Restructured Sales & Commission under CompanyDetail tabs; added To Dos feature.
+
+**Changes made:**
+- Moved Sales and Commission into per-company tabbed views under CompanyDetail (`/companies/:id`)
+- Created `CompanyDashboard` component: season dropdown (persisted in localStorage), 4 summary cards, To Dos table
+- Created `CompanySales` component: extracted from Sales.jsx, scoped by companyId, no company selector in Add Sale
+- Created `CompanyCommission` component: extracted from Commission.jsx, scoped by companyId via order-based client filtering
+- Created `TodoContext` for per-company to-dos with add/edit/toggle complete/delete
+- Added todo seed data to mockData.js (5 items across 3 companies, some overdue)
+- Rewrote `CompanyDetail` as tab shell: header + Dashboard/Sales/Commission tabs
+- Simplified standalone `Sales.jsx` and `Commission.jsx` to company directory pages
+- Updated FEATURES.md, PRODUCT.md
+
+**Next steps:**
+- Add edit/delete functionality for clients
+- Import more client data from the full spreadsheet
+- Add commission entry creation/editing within CompanyCommission
+- Consider cross-company dashboard aggregation
+- Push to GitHub
+
+**Open questions:**
+- Should To Dos have notifications/reminders?
+- Should commission entries be editable inline like sales orders?

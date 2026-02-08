@@ -26,6 +26,13 @@ export function SalesProvider({ children }) {
   }
 
   // Order management
+  const addOrder = (data) => {
+    const id = Date.now()
+    const newOrder = { id, ...data }
+    setOrders((prev) => [...prev, newOrder])
+    return newOrder
+  }
+
   const updateOrder = (id, data) => {
     setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, ...data } : o)))
   }
@@ -41,7 +48,7 @@ export function SalesProvider({ children }) {
     <SalesContext.Provider value={{
       seasons, activeSeasons, archivedSeasons, orders,
       addSeason, updateSeason, toggleArchiveSeason,
-      updateOrder, deleteOrder,
+      addOrder, updateOrder, deleteOrder,
     }}>
       {children}
     </SalesContext.Provider>
