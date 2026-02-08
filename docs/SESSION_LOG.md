@@ -156,11 +156,24 @@
 - Notes column: shows "+Note" text when empty, amber StickyNote icon when note exists
 - Total field: $ prefix, `inputMode="decimal"`, strips non-numeric chars, formats to 2 decimals on blur (both dialog and inline edit)
 - Commission % input: no-spinner CSS class, % suffix, `inputMode="decimal"` (both dialog and inline edit)
-- Replaced plain text summary line with 4 clickable Card components (Rental Total, Retail Total, Total Sales, Total Commission) — clicking Rental/Retail filters table, Total Sales clears filter; active card gets ring-2
+- Replaced plain text summary line with 4 clickable Card components (Total Sales, Rental Total, Retail Total, Total Commission) — clicking Rental/Retail filters table, Total Sales clears filter; active card gets ring-2
 - Card totals computed from unfiltered seasonOrders so values stay constant regardless of filters
 - Commission table: sticky first column with status-aware backgrounds (green-50 for Paid, yellow-50 for Partial, blue-50 for editing)
 - Removed `overflow-x-auto` from table.jsx wrapper to enable sticky columns
 - Added `.no-spinner` CSS utility to index.css
+
+## 2026-02-07 (session 8)
+
+**Worked on:** UX refinements — modal-based editing, inline document uploads, card reorder.
+
+**Changes made:**
+- Replaced inline row editing with modal-based editing: clicking pencil opens the Add/Edit Sale dialog pre-filled with order data
+- Unified Add/Edit into single dialog with `isEditMode` flag — title shows "Edit Sale" / "Add Sale", button shows "Save Changes" / "Add Sale"
+- Account Name is disabled (grayed out) in edit mode
+- Moved document upload controls inline next to Order # and Invoice # labels (small blue "Upload Doc" text links instead of separate sections at bottom)
+- Uploaded documents show as Badge with filename and X to remove
+- Reordered summary cards: Total Sales first (far left), then Rental Total, Retail Total, Total Commission
+- Removed all inline editing code from table rows (cleaner, simpler)
 
 **Next steps:**
 - Add edit/delete functionality for clients
@@ -169,3 +182,4 @@
 
 **Open questions:**
 - None at this time
+

@@ -58,8 +58,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [tabDialogOpen, setTabDialogOpen] = useState(false)
   const [editingTabId, setEditingTabId] = useState(null)
   const [tabForm, setTabForm] = useState({ label: '', year: '', startDate: '', endDate: '' })
-  const [editingOrderId, setEditingOrderId] = useState(null)
-  const [editForm, setEditForm] = useState({})
   const [hoveredRow, setHoveredRow] = useState(null)
   const [showArchived, setShowArchived] = useState(false)
 
@@ -70,7 +68,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [showOrderTypeFilter, setShowOrderTypeFilter] = useState(false)
   const [showStageFilter, setShowStageFilter] = useState(false)
 
-  // Add Sale dialog state
+  // Add/Edit Sale dialog state
+  const [editingOrderId, setEditingOrderId] = useState(null)
   const [clientSearch, setClientSearch] = useState('')
   const [showClientDropdown, setShowClientDropdown] = useState(false)
   const [saleForm, setSaleForm] = useState({
@@ -106,6 +105,25 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const filteredClients = clientSearch.trim()
     ? clients.filter((c) => c.name.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 10)
     : clients.slice(0, 10)
+
+  // Whether the sale dialog is in "edit" vs "add" mode
+  const isEditMode = editingOrderId !== null
+  const saleDialogOpen = addSaleOpen || isEditMode
+
+  const closeSaleDialog = () => {
+    setAddSaleOpen(false)
+    setEditingOrderId(null)
+    resetSaleForm()
+  }
+
+  const resetSaleForm = () => {
+    setSaleForm({
+      clientId: null, clientName: '', orderType: 'Rental',
+      items: '', orderNumber: '', invoiceNumber: '', closeDate: '',
+      stage: 'Closed - Won', orderDocument: null, invoiceDocument: null, total: '', commissionOverride: '', notes: '',
+    })
+    setClientSearch('')
+  }
 
   // Tab dialog handlers
   const openCreateTab = () => {
@@ -154,15 +172,34 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     setTabDialogOpen(false)
     setEditingTabId(null)
     setTabForm({ label: '', year: '', startDate: '', endDate: '' })
-    // If we archived the active tab, switch to first remaining active season
     if (activeTab === id) {
       const remaining = activeSeasons.filter((s) => s.id !== id)
       setActiveTab(remaining[0]?.id || '')
     }
   }
 
-  // Add Sale — auto-set companyId
-  const handleAddSale = (e) => {
+  // Open edit modal for an existing order
+  const openEditOrder = (order) => {
+    setEditingOrderId(order.id)
+    setSaleForm({
+      clientId: order.clientId,
+      clientName: getClientName(order.clientId),
+      orderType: order.orderType,
+      items: getItems(order),
+      orderNumber: order.orderNumber,
+      invoiceNumber: order.invoiceNumber || '',
+      closeDate: order.closeDate,
+      stage: order.stage,
+      orderDocument: order.orderDocument || null,
+      invoiceDocument: order.invoiceDocument || null,
+      total: String(order.total),
+      commissionOverride: order.commissionOverride != null ? String(order.commissionOverride) : '',
+      notes: order.notes || '',
+    })
+  }
+
+  // Add or Edit Sale submit
+  const handleSaleSubmit = (e) => {
     e.preventDefault()
     if (!saleForm.clientId || !currentSeason) return
 
@@ -171,12 +208,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     const total = parseFloat(saleForm.total) || 0
     const commOverride = saleForm.commissionOverride.trim() !== '' ? parseFloat(saleForm.commissionOverride) : null
 
-    addOrder({
+    const orderData = {
       clientId: saleForm.clientId,
       companyId: companyId,
       seasonId: currentSeason.id,
       orderType: saleForm.orderType,
-      ...(isRental ? { rentalItems: items } : { retailItems: items }),
+      ...(isRental ? { rentalItems: items, retailItems: undefined } : { retailItems: items, rentalItems: undefined }),
       orderNumber: saleForm.orderNumber,
       invoiceNumber: saleForm.invoiceNumber,
       closeDate: saleForm.closeDate,
@@ -186,15 +223,15 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       total,
       commissionOverride: commOverride,
       notes: saleForm.notes,
-    })
+    }
 
-    setSaleForm({
-      clientId: null, clientName: '', orderType: 'Rental',
-      items: '', orderNumber: '', invoiceNumber: '', closeDate: '',
-      stage: 'Closed - Won', orderDocument: null, invoiceDocument: null, total: '', commissionOverride: '', notes: '',
-    })
-    setClientSearch('')
-    setAddSaleOpen(false)
+    if (isEditMode) {
+      updateOrder(editingOrderId, orderData)
+    } else {
+      addOrder(orderData)
+    }
+
+    closeSaleDialog()
   }
 
   const handleOrderDocUpload = (e) => {
@@ -229,48 +266,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     setNoteText('')
   }
 
-  // Inline editing
-  const startEdit = (order) => {
-    setEditingOrderId(order.id)
-    setEditForm({
-      orderType: order.orderType,
-      items: getItems(order),
-      orderNumber: order.orderNumber,
-      invoiceNumber: order.invoiceNumber || '',
-      closeDate: order.closeDate,
-      stage: order.stage,
-      total: String(order.total),
-      commissionOverride: order.commissionOverride != null ? String(order.commissionOverride) : '',
-    })
-  }
-
-  const cancelEdit = () => {
-    setEditingOrderId(null)
-    setEditForm({})
-  }
-
-  const saveEdit = (orderId) => {
-    const isRental = editForm.orderType === 'Rental'
-    const items = editForm.items.split(',').map((s) => s.trim()).filter(Boolean)
-    const commOverride = editForm.commissionOverride.trim() !== '' ? parseFloat(editForm.commissionOverride) : null
-
-    updateOrder(orderId, {
-      orderType: editForm.orderType,
-      ...(isRental ? { rentalItems: items, retailItems: undefined } : { retailItems: items, rentalItems: undefined }),
-      orderNumber: editForm.orderNumber,
-      invoiceNumber: editForm.invoiceNumber,
-      closeDate: editForm.closeDate,
-      stage: editForm.stage,
-      total: parseFloat(editForm.total) || 0,
-      commissionOverride: commOverride,
-    })
-    setEditingOrderId(null)
-    setEditForm({})
-  }
-
   const handleDelete = (orderId) => {
     deleteOrder(orderId)
-    if (editingOrderId === orderId) cancelEdit()
   }
 
   // Current season data filtered by companyId
@@ -451,52 +448,60 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         </DialogContent>
       </Dialog>
 
-      {/* Add Sale dialog — no company selector */}
-      <Dialog open={addSaleOpen} onOpenChange={setAddSaleOpen}>
+      {/* Add / Edit Sale dialog */}
+      <Dialog open={saleDialogOpen} onOpenChange={(open) => { if (!open) closeSaleDialog() }}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Add Sale</DialogTitle>
-            <DialogDescription>Add a new sale to {currentSeason?.label}.</DialogDescription>
+            <DialogTitle>{isEditMode ? 'Edit Sale' : 'Add Sale'}</DialogTitle>
+            <DialogDescription>
+              {isEditMode
+                ? `Editing sale for ${saleForm.clientName}.`
+                : `Add a new sale to ${currentSeason?.label}.`}
+            </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleAddSale} className="space-y-4">
-            {/* Account Name - searchable */}
+          <form onSubmit={handleSaleSubmit} className="space-y-4">
+            {/* Account Name - searchable (disabled in edit mode) */}
             <div className="space-y-2">
               <Label>Account Name</Label>
-              <div className="relative">
-                <Input
-                  placeholder="Start typing to search..."
-                  value={saleForm.clientName || clientSearch}
-                  onChange={(e) => {
-                    setClientSearch(e.target.value)
-                    setSaleForm((p) => ({ ...p, clientId: null, clientName: '' }))
-                    setShowClientDropdown(true)
-                  }}
-                  onFocus={() => setShowClientDropdown(true)}
-                  required
-                />
-                {showClientDropdown && !saleForm.clientId && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
-                    {filteredClients.map((client) => (
-                      <button
-                        key={client.id}
-                        type="button"
-                        onClick={() => {
-                          setSaleForm((p) => ({ ...p, clientId: client.id, clientName: client.name }))
-                          setClientSearch('')
-                          setShowClientDropdown(false)
-                        }}
-                        className="block w-full text-left px-3 py-2 text-sm hover:bg-zinc-50"
-                      >
-                        <span className="font-medium">{client.name}</span>
-                        <span className="text-muted-foreground ml-2">{client.city}, {client.state}</span>
-                      </button>
-                    ))}
-                    {filteredClients.length === 0 && (
-                      <div className="px-3 py-2 text-sm text-muted-foreground">No clients found</div>
-                    )}
-                  </div>
-                )}
-              </div>
+              {isEditMode ? (
+                <Input value={saleForm.clientName} disabled />
+              ) : (
+                <div className="relative">
+                  <Input
+                    placeholder="Start typing to search..."
+                    value={saleForm.clientName || clientSearch}
+                    onChange={(e) => {
+                      setClientSearch(e.target.value)
+                      setSaleForm((p) => ({ ...p, clientId: null, clientName: '' }))
+                      setShowClientDropdown(true)
+                    }}
+                    onFocus={() => setShowClientDropdown(true)}
+                    required
+                  />
+                  {showClientDropdown && !saleForm.clientId && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                      {filteredClients.map((client) => (
+                        <button
+                          key={client.id}
+                          type="button"
+                          onClick={() => {
+                            setSaleForm((p) => ({ ...p, clientId: client.id, clientName: client.name }))
+                            setClientSearch('')
+                            setShowClientDropdown(false)
+                          }}
+                          className="block w-full text-left px-3 py-2 text-sm hover:bg-zinc-50"
+                        >
+                          <span className="font-medium">{client.name}</span>
+                          <span className="text-muted-foreground ml-2">{client.city}, {client.state}</span>
+                        </button>
+                      ))}
+                      {filteredClients.length === 0 && (
+                        <div className="px-3 py-2 text-sm text-muted-foreground">No clients found</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -542,14 +547,52 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
 
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Order #</Label>
+                <div className="flex items-center gap-2">
+                  <Label>Order #</Label>
+                  <input ref={orderDocRef} type="file" onChange={handleOrderDocUpload} className="hidden" />
+                  {saleForm.orderDocument ? (
+                    <Badge variant="secondary" className="gap-1 text-xs">
+                      <FileText className="size-3" /> {saleForm.orderDocument.name}
+                      <button type="button" onClick={() => setSaleForm((p) => ({ ...p, orderDocument: null }))}>
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => orderDocRef.current?.click()}
+                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                    >
+                      <Upload className="size-3" /> Upload Doc
+                    </button>
+                  )}
+                </div>
                 <Input
                   value={saleForm.orderNumber}
                   onChange={(e) => setSaleForm((p) => ({ ...p, orderNumber: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
-                <Label>Invoice #</Label>
+                <div className="flex items-center gap-2">
+                  <Label>Invoice #</Label>
+                  <input ref={invoiceDocRef} type="file" onChange={handleInvoiceDocUpload} className="hidden" />
+                  {saleForm.invoiceDocument ? (
+                    <Badge variant="secondary" className="gap-1 text-xs">
+                      <FileText className="size-3" /> {saleForm.invoiceDocument.name}
+                      <button type="button" onClick={() => setSaleForm((p) => ({ ...p, invoiceDocument: null }))}>
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => invoiceDocRef.current?.click()}
+                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                    >
+                      <Upload className="size-3" /> Upload Doc
+                    </button>
+                  )}
+                </div>
                 <Input
                   value={saleForm.invoiceNumber}
                   onChange={(e) => setSaleForm((p) => ({ ...p, invoiceNumber: e.target.value }))}
@@ -599,70 +642,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               <p className="text-xs text-muted-foreground">Leave blank to use the company default.</p>
             </div>
 
-            {/* Order Document */}
-            <div className="space-y-2">
-              <Label>Order Document</Label>
-              <div className="flex items-center gap-2">
-                <input
-                  ref={orderDocRef}
-                  type="file"
-                  onChange={handleOrderDocUpload}
-                  className="hidden"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => orderDocRef.current?.click()}
-                >
-                  <Upload className="size-4 mr-1" /> Upload
-                </Button>
-                {saleForm.orderDocument && (
-                  <Badge variant="secondary" className="gap-1 text-xs">
-                    <FileText className="size-3" /> {saleForm.orderDocument.name}
-                    <button
-                      type="button"
-                      onClick={() => setSaleForm((p) => ({ ...p, orderDocument: null }))}
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </Badge>
-                )}
-              </div>
-            </div>
-
-            {/* Invoice Document */}
-            <div className="space-y-2">
-              <Label>Invoice Document</Label>
-              <div className="flex items-center gap-2">
-                <input
-                  ref={invoiceDocRef}
-                  type="file"
-                  onChange={handleInvoiceDocUpload}
-                  className="hidden"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => invoiceDocRef.current?.click()}
-                >
-                  <Upload className="size-4 mr-1" /> Upload
-                </Button>
-                {saleForm.invoiceDocument && (
-                  <Badge variant="secondary" className="gap-1 text-xs">
-                    <FileText className="size-3" /> {saleForm.invoiceDocument.name}
-                    <button
-                      type="button"
-                      onClick={() => setSaleForm((p) => ({ ...p, invoiceDocument: null }))}
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </Badge>
-                )}
-              </div>
-            </div>
-
             {/* Notes */}
             <div className="space-y-2">
               <Label>Notes</Label>
@@ -675,7 +654,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
             </div>
 
             <DialogFooter>
-              <Button type="submit" disabled={!saleForm.clientId}>Add Sale</Button>
+              <Button type="submit" disabled={!saleForm.clientId}>
+                {isEditMode ? 'Save Changes' : 'Add Sale'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -714,6 +695,17 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           {/* Summary cards — clickable filters */}
           <div className="grid grid-cols-4 gap-6">
             <Card
+              className={`cursor-pointer transition-shadow hover:shadow-md ${!filterOrderType ? 'ring-2 ring-zinc-900' : ''}`}
+              onClick={() => setFilterOrderType('')}
+            >
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">Total Sales</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold">{fmt(totalSales)}</p>
+              </CardContent>
+            </Card>
+            <Card
               className={`cursor-pointer transition-shadow hover:shadow-md ${filterOrderType === 'Rental' ? 'ring-2 ring-zinc-900' : ''}`}
               onClick={() => setFilterOrderType(filterOrderType === 'Rental' ? '' : 'Rental')}
             >
@@ -733,17 +725,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold">{fmt(retailTotal)}</p>
-              </CardContent>
-            </Card>
-            <Card
-              className={`cursor-pointer transition-shadow hover:shadow-md ${!filterOrderType ? 'ring-2 ring-zinc-900' : ''}`}
-              onClick={() => setFilterOrderType('')}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Sales</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{fmt(totalSales)}</p>
               </CardContent>
             </Card>
             <Card className="transition-shadow hover:shadow-md">
@@ -882,103 +863,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   </TableRow>
                 ) : (
                   filteredOrders.map((order) => {
-                    const isEditing = editingOrderId === order.id
                     const isHovered = hoveredRow === order.id
                     const comm = getCommission(order)
                     const hasNote = order.notes && order.notes.trim().length > 0
-
-                    if (isEditing) {
-                      return (
-                        <TableRow key={order.id} className="bg-blue-50/50">
-                          <TableCell className="sticky left-0 bg-blue-50 z-10 w-10">
-                            <div className="flex gap-1">
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => saveEdit(order.id)} title="Save">
-                                <Check className="size-4 text-green-600" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit} title="Cancel">
-                                <X className="size-4 text-red-500" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                          <TableCell className="font-medium whitespace-nowrap">{getClientName(order.clientId)}</TableCell>
-                          <TableCell>
-                            <select
-                              value={editForm.orderType}
-                              onChange={(e) => setEditForm((p) => ({ ...p, orderType: e.target.value }))}
-                              className="border rounded px-2 py-1 text-sm w-24"
-                            >
-                              <option value="Rental">Rental</option>
-                              <option value="Retail">Retail</option>
-                            </select>
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={editForm.items}
-                              onChange={(e) => setEditForm((p) => ({ ...p, items: e.target.value }))}
-                              className="h-8 text-sm min-w-32"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={editForm.orderNumber}
-                              onChange={(e) => setEditForm((p) => ({ ...p, orderNumber: e.target.value }))}
-                              className="h-8 text-sm w-28"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={editForm.invoiceNumber}
-                              onChange={(e) => setEditForm((p) => ({ ...p, invoiceNumber: e.target.value }))}
-                              className="h-8 text-sm w-28"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={editForm.closeDate}
-                              onChange={(e) => setEditForm((p) => ({ ...p, closeDate: e.target.value }))}
-                              className="h-8 text-sm w-28"
-                              placeholder="MM/DD/YYYY"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              value={editForm.stage}
-                              onChange={(e) => setEditForm((p) => ({ ...p, stage: e.target.value }))}
-                              className="h-8 text-sm w-32"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <div className="relative">
-                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">$</span>
-                              <Input
-                                inputMode="decimal"
-                                value={editForm.total}
-                                onChange={(e) => setEditForm((p) => ({ ...p, total: sanitizeCurrency(e.target.value) }))}
-                                onBlur={() => setEditForm((p) => ({ ...p, total: formatToTwoDecimals(p.total) }))}
-                                className="h-8 text-sm w-24 text-right pl-5"
-                              />
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="relative">
-                              <Input
-                                inputMode="decimal"
-                                value={editForm.commissionOverride}
-                                onChange={(e) => setEditForm((p) => ({ ...p, commissionOverride: sanitizeCurrency(e.target.value) }))}
-                                className="h-8 text-sm w-20 text-right no-spinner pr-6"
-                                placeholder={`${comm.defaultPct}`}
-                              />
-                              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-center">
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openNoteModal(order)} title="Note">
-                              <StickyNote className={`size-4 ${hasNote ? 'text-amber-500' : 'text-muted-foreground'}`} />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      )
-                    }
 
                     return (
                       <TableRow
@@ -989,7 +876,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                       >
                         <TableCell className="sticky left-0 bg-white z-10 w-10">
                           <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(order)} title="Edit">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditOrder(order)} title="Edit">
                               <Pencil className="size-3.5" />
                             </Button>
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(order.id)} title="Delete">
