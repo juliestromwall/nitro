@@ -10,36 +10,42 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { orders } from '@/data/mockData'
 import { useCompanies } from '@/context/CompanyContext'
+import { useSales } from '@/context/SalesContext'
+import { useAuth } from '@/context/AuthContext'
+import { uploadLogo } from '@/lib/db'
 
 const fmt = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v)
 
 const currentYear = new Date().getFullYear()
 
-function getCompanyStats(companyId) {
-  const companyOrders = orders.filter((o) => o.companyId === companyId)
-  const allTimeSales = companyOrders.reduce((sum, o) => sum + o.total, 0)
-
-  const ytdOrders = companyOrders.filter((o) => {
-    const parts = o.closeDate.split('/')
-    const year = parseInt(parts[2])
-    return year === currentYear
-  })
-  const ytdSales = ytdOrders.reduce((sum, o) => sum + o.total, 0)
-
-  return { ytdSales, allTimeSales }
-}
-
 function Companies() {
+  const { user } = useAuth()
   const { companies, addCompany, updateCompany, toggleArchive, reorderCompanies } = useCompanies()
+  const { orders } = useSales()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState({ name: '', commissionPercent: '', logo: null })
+  const [form, setForm] = useState({ name: '', commission_percent: '', logo_path: null })
   const [logoPreview, setLogoPreview] = useState(null)
+  const [logoFile, setLogoFile] = useState(null)
   const fileInputRef = useRef(null)
   const [dragIndex, setDragIndex] = useState(null)
   const [dragOverIndex, setDragOverIndex] = useState(null)
+
+  function getCompanyStats(companyId) {
+    const companyOrders = orders.filter((o) => o.company_id === companyId)
+    const allTimeSales = companyOrders.reduce((sum, o) => sum + (o.total || 0), 0)
+
+    const ytdOrders = companyOrders.filter((o) => {
+      if (!o.close_date) return false
+      const parts = o.close_date.split('/')
+      const year = parseInt(parts[2] || parts[0])
+      return year === currentYear
+    })
+    const ytdSales = ytdOrders.reduce((sum, o) => sum + (o.total || 0), 0)
+
+    return { ytdSales, allTimeSales }
+  }
 
   const handleFormChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -48,56 +54,66 @@ function Companies() {
   const handleLogoUpload = (e) => {
     const file = e.target.files?.[0]
     if (!file) return
+    setLogoFile(file)
     const reader = new FileReader()
     reader.onload = (ev) => {
-      const dataUrl = ev.target.result
-      setForm((prev) => ({ ...prev, logo: dataUrl }))
-      setLogoPreview(dataUrl)
+      setLogoPreview(ev.target.result)
     }
     reader.readAsDataURL(file)
   }
 
   const removeLogo = () => {
-    setForm((prev) => ({ ...prev, logo: null }))
+    setForm((prev) => ({ ...prev, logo_path: null }))
     setLogoPreview(null)
+    setLogoFile(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
   const openAdd = () => {
     setEditingId(null)
-    setForm({ name: '', commissionPercent: '', logo: null })
+    setForm({ name: '', commission_percent: '', logo_path: null })
     setLogoPreview(null)
+    setLogoFile(null)
     setDialogOpen(true)
   }
 
   const openEdit = (company) => {
     setEditingId(company.id)
-    setForm({ name: company.name, commissionPercent: String(company.commissionPercent), logo: company.logo })
-    setLogoPreview(company.logo)
+    setForm({ name: company.name, commission_percent: String(company.commission_percent), logo_path: company.logo_path })
+    setLogoPreview(company.logo_path)
+    setLogoFile(null)
     setDialogOpen(true)
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
+    let logoPath = form.logo_path
+
+    // Upload logo if a new file was selected
+    if (logoFile) {
+      const companyId = editingId || 'new'
+      logoPath = await uploadLogo(user.id, companyId, logoFile)
+    }
+
     const data = {
       name: form.name,
-      commissionPercent: parseFloat(form.commissionPercent),
-      logo: form.logo,
+      commission_percent: parseFloat(form.commission_percent),
+      logo_path: logoPath,
     }
 
     if (editingId) {
-      updateCompany(editingId, data)
+      await updateCompany(editingId, data)
     } else {
-      addCompany(data)
+      await addCompany(data)
     }
 
-    setForm({ name: '', commissionPercent: '', logo: null })
+    setForm({ name: '', commission_percent: '', logo_path: null })
     setLogoPreview(null)
+    setLogoFile(null)
     setEditingId(null)
     setDialogOpen(false)
   }
 
-  // Drag and drop handlers
   const handleDragStart = (e, index) => {
     setDragIndex(index)
     e.dataTransfer.effectAllowed = 'move'
@@ -112,7 +128,6 @@ function Companies() {
   const handleDrop = (e, toIndex) => {
     e.preventDefault()
     if (dragIndex !== null && dragIndex !== toIndex) {
-      // Map from active-only indices to full company array indices
       const activeIds = active.map((c) => c.id)
       const fromFullIndex = companies.findIndex((c) => c.id === activeIds[dragIndex])
       const toFullIndex = companies.findIndex((c) => c.id === activeIds[toIndex])
@@ -201,8 +216,8 @@ function Companies() {
                 step="0.1"
                 min="0"
                 max="100"
-                value={form.commissionPercent}
-                onChange={(e) => handleFormChange('commissionPercent', e.target.value)}
+                value={form.commission_percent}
+                onChange={(e) => handleFormChange('commission_percent', e.target.value)}
                 required
               />
             </div>
@@ -244,8 +259,8 @@ function Companies() {
                   <GripVertical className="size-4 text-muted-foreground" />
                 </TableCell>
                 <TableCell>
-                  {company.logo ? (
-                    <img src={company.logo} alt="" className="w-8 h-8 object-contain" />
+                  {company.logo_path ? (
+                    <img src={company.logo_path} alt="" className="w-8 h-8 object-contain" />
                   ) : (
                     <div className="w-8 h-8 rounded bg-zinc-200 flex items-center justify-center text-zinc-600 text-sm font-bold">
                       {company.name.charAt(0)}
@@ -253,7 +268,7 @@ function Companies() {
                   )}
                 </TableCell>
                 <TableCell className="font-medium">{company.name}</TableCell>
-                <TableCell className="text-right">{company.commissionPercent}%</TableCell>
+                <TableCell className="text-right">{company.commission_percent}%</TableCell>
                 <TableCell className="text-right">{fmt(ytdSales)}</TableCell>
                 <TableCell className="text-right">{fmt(allTimeSales)}</TableCell>
                 <TableCell>
@@ -301,7 +316,7 @@ function Companies() {
                       {company.name}
                       <Badge variant="secondary" className="ml-2">Archived</Badge>
                     </TableCell>
-                    <TableCell className="text-right">{company.commissionPercent}%</TableCell>
+                    <TableCell className="text-right">{company.commission_percent}%</TableCell>
                     <TableCell className="text-right">{fmt(ytdSales)}</TableCell>
                     <TableCell className="text-right">{fmt(allTimeSales)}</TableCell>
                     <TableCell>

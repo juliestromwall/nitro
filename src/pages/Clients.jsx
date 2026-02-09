@@ -11,22 +11,23 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
-import { clients as initialClients, regions, accountTypes } from '@/data/mockData'
+import { useClients } from '@/context/ClientContext'
+import { regions, accountTypes } from '@/lib/constants'
 
 function Clients() {
-  const [clientList, setClientList] = useState(initialClients)
+  const { clients, addClient } = useClients()
   const [search, setSearch] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [form, setForm] = useState({
     name: '',
-    accountNumber: '',
+    account_number: '',
     region: '',
     type: '',
     city: '',
     state: '',
   })
 
-  const filteredClients = clientList.filter((c) =>
+  const filteredClients = clients.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase())
   )
 
@@ -34,14 +35,10 @@ function Clients() {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault()
-    const newClient = {
-      id: Math.max(...clientList.map((c) => c.id)) + 1,
-      ...form,
-    }
-    setClientList((prev) => [...prev, newClient])
-    setForm({ name: '', accountNumber: '', region: '', type: '', city: '', state: '' })
+    await addClient(form)
+    setForm({ name: '', account_number: '', region: '', type: '', city: '', state: '' })
     setDialogOpen(false)
   }
 
@@ -72,8 +69,8 @@ function Clients() {
                 <Label htmlFor="accountNumber">Account #</Label>
                 <Input
                   id="accountNumber"
-                  value={form.accountNumber}
-                  onChange={(e) => handleFormChange('accountNumber', e.target.value)}
+                  value={form.account_number}
+                  onChange={(e) => handleFormChange('account_number', e.target.value)}
                   required
                 />
               </div>
@@ -153,7 +150,7 @@ function Clients() {
           {filteredClients.map((client) => (
             <TableRow key={client.id}>
               <TableCell className="font-medium">{client.name}</TableCell>
-              <TableCell>{client.accountNumber}</TableCell>
+              <TableCell>{client.account_number}</TableCell>
               <TableCell>{client.region}</TableCell>
               <TableCell>{client.type}</TableCell>
               <TableCell>{client.city}</TableCell>

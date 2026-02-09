@@ -11,31 +11,19 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { clients, companies } from '@/data/mockData'
+import { useClients } from '@/context/ClientContext'
+import { useCompanies } from '@/context/CompanyContext'
+import { useAuth } from '@/context/AuthContext'
+import { uploadDocument, getDocumentUrl } from '@/lib/db'
 import { useSales } from '@/context/SalesContext'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 
-const getClientName = (clientId) => {
-  const client = clients.find((c) => c.id === clientId)
-  return client ? client.name : 'Unknown'
-}
-
-const getCompany = (companyId) => companies.find((c) => c.id === companyId)
-
 const getItems = (order) => {
-  if (order.orderType === 'Rental' && order.rentalItems) return order.rentalItems.join(', ')
-  if (order.orderType === 'Retail' && order.retailItems) return order.retailItems.join(', ')
+  if (order.order_type === 'Rental' && order.rental_items) return order.rental_items.join(', ')
+  if (order.order_type === 'Retail' && order.retail_items) return order.retail_items.join(', ')
   return ''
-}
-
-const getCommission = (order) => {
-  const company = getCompany(order.companyId)
-  const defaultPct = company?.commissionPercent || 0
-  const pct = order.commissionOverride != null ? order.commissionOverride : defaultPct
-  const isOverridden = order.commissionOverride != null && order.commissionOverride !== defaultPct
-  return { amount: order.total * pct / 100, pct, isOverridden, defaultPct }
 }
 
 // Strip non-numeric chars except decimal point
@@ -46,18 +34,32 @@ const formatToTwoDecimals = (val) => {
 }
 
 function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
+  const { clients, getClientName } = useClients()
+  const { companies } = useCompanies()
+  const { user } = useAuth()
+
   const {
     activeSeasons, archivedSeasons, orders,
     addSeason, updateSeason, toggleArchiveSeason,
     addOrder, updateOrder, deleteOrder,
   } = useSales()
 
+  const getCompany = (id) => companies.find((c) => c.id === id)
+
+  const getCommission = (order) => {
+    const company = getCompany(order.company_id)
+    const defaultPct = company?.commission_percent || 0
+    const pct = order.commission_override != null ? order.commission_override : defaultPct
+    const isOverridden = order.commission_override != null && order.commission_override !== defaultPct
+    return { amount: order.total * pct / 100, pct, isOverridden, defaultPct }
+  }
+
   const company = getCompany(companyId)
 
   const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
   const [tabDialogOpen, setTabDialogOpen] = useState(false)
   const [editingTabId, setEditingTabId] = useState(null)
-  const [tabForm, setTabForm] = useState({ label: '', year: '', startDate: '', endDate: '' })
+  const [tabForm, setTabForm] = useState({ label: '', year: '', start_date: '', end_date: '' })
   const [hoveredRow, setHoveredRow] = useState(null)
   const [showArchived, setShowArchived] = useState(false)
 
@@ -73,18 +75,18 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [clientSearch, setClientSearch] = useState('')
   const [showClientDropdown, setShowClientDropdown] = useState(false)
   const [saleForm, setSaleForm] = useState({
-    clientId: null,
+    client_id: null,
     clientName: '',
-    orderType: 'Rental',
+    order_type: 'Rental',
     items: '',
-    orderNumber: '',
-    invoiceNumber: '',
-    closeDate: '',
+    order_number: '',
+    invoice_number: '',
+    close_date: '',
     stage: 'Closed - Won',
-    orderDocument: null,
-    invoiceDocument: null,
+    order_document: null,
+    invoice_document: null,
     total: '',
-    commissionOverride: '',
+    commission_override: '',
     notes: '',
   })
   const orderDocRef = useRef(null)
@@ -118,9 +120,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
 
   const resetSaleForm = () => {
     setSaleForm({
-      clientId: null, clientName: '', orderType: 'Rental',
-      items: '', orderNumber: '', invoiceNumber: '', closeDate: '',
-      stage: 'Closed - Won', orderDocument: null, invoiceDocument: null, total: '', commissionOverride: '', notes: '',
+      client_id: null, clientName: '', order_type: 'Rental',
+      items: '', order_number: '', invoice_number: '', close_date: '',
+      stage: 'Closed - Won', order_document: null, invoice_document: null, total: '', commission_override: '', notes: '',
     })
     setClientSearch('')
   }
@@ -128,7 +130,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   // Tab dialog handlers
   const openCreateTab = () => {
     setEditingTabId(null)
-    setTabForm({ label: '', year: '', startDate: '', endDate: '' })
+    setTabForm({ label: '', year: '', start_date: '', end_date: '' })
     setTabDialogOpen(true)
   }
 
@@ -137,41 +139,41 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     setTabForm({
       label: season.label,
       year: season.year || '',
-      startDate: season.startDate || '',
-      endDate: season.endDate || '',
+      start_date: season.start_date || '',
+      end_date: season.end_date || '',
     })
     setTabDialogOpen(true)
   }
 
-  const handleTabSubmit = (e) => {
+  const handleTabSubmit = async (e) => {
     e.preventDefault()
     if (editingTabId) {
-      updateSeason(editingTabId, {
+      await updateSeason(editingTabId, {
         label: tabForm.label,
         year: tabForm.year,
-        startDate: tabForm.startDate,
-        endDate: tabForm.endDate,
+        start_date: tabForm.start_date,
+        end_date: tabForm.end_date,
       })
     } else {
-      const newSeason = addSeason({
+      const newSeason = await addSeason({
         label: tabForm.label,
         year: tabForm.year,
-        startDate: tabForm.startDate,
-        endDate: tabForm.endDate,
+        start_date: tabForm.start_date,
+        end_date: tabForm.end_date,
       })
       setActiveTab(newSeason.id)
     }
-    setTabForm({ label: '', year: '', startDate: '', endDate: '' })
+    setTabForm({ label: '', year: '', start_date: '', end_date: '' })
     setEditingTabId(null)
     setTabDialogOpen(false)
   }
 
-  const handleArchiveFromModal = () => {
+  const handleArchiveFromModal = async () => {
     const id = editingTabId
-    toggleArchiveSeason(id)
+    await toggleArchiveSeason(id)
     setTabDialogOpen(false)
     setEditingTabId(null)
-    setTabForm({ label: '', year: '', startDate: '', endDate: '' })
+    setTabForm({ label: '', year: '', start_date: '', end_date: '' })
     if (activeTab === id) {
       const remaining = activeSeasons.filter((s) => s.id !== id)
       setActiveTab(remaining[0]?.id || '')
@@ -182,70 +184,80 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const openEditOrder = (order) => {
     setEditingOrderId(order.id)
     setSaleForm({
-      clientId: order.clientId,
-      clientName: getClientName(order.clientId),
-      orderType: order.orderType,
+      client_id: order.client_id,
+      clientName: getClientName(order.client_id),
+      order_type: order.order_type,
       items: getItems(order),
-      orderNumber: order.orderNumber,
-      invoiceNumber: order.invoiceNumber || '',
-      closeDate: order.closeDate,
+      order_number: order.order_number,
+      invoice_number: order.invoice_number || '',
+      close_date: order.close_date,
       stage: order.stage,
-      orderDocument: order.orderDocument || null,
-      invoiceDocument: order.invoiceDocument || null,
+      order_document: order.order_document || null,
+      invoice_document: order.invoice_document || null,
       total: String(order.total),
-      commissionOverride: order.commissionOverride != null ? String(order.commissionOverride) : '',
+      commission_override: order.commission_override != null ? String(order.commission_override) : '',
       notes: order.notes || '',
     })
   }
 
   // Add or Edit Sale submit
-  const handleSaleSubmit = (e) => {
+  const handleSaleSubmit = async (e) => {
     e.preventDefault()
-    if (!saleForm.clientId || !currentSeason) return
+    if (!saleForm.client_id || !currentSeason) return
 
-    const isRental = saleForm.orderType === 'Rental'
+    const isRental = saleForm.order_type === 'Rental'
     const items = saleForm.items.split(',').map((s) => s.trim()).filter(Boolean)
     const total = parseFloat(saleForm.total) || 0
-    const commOverride = saleForm.commissionOverride.trim() !== '' ? parseFloat(saleForm.commissionOverride) : null
+    const commOverride = saleForm.commission_override.trim() !== '' ? parseFloat(saleForm.commission_override) : null
 
     const orderData = {
-      clientId: saleForm.clientId,
-      companyId: companyId,
-      seasonId: currentSeason.id,
-      orderType: saleForm.orderType,
-      ...(isRental ? { rentalItems: items, retailItems: undefined } : { retailItems: items, rentalItems: undefined }),
-      orderNumber: saleForm.orderNumber,
-      invoiceNumber: saleForm.invoiceNumber,
-      closeDate: saleForm.closeDate,
+      client_id: saleForm.client_id,
+      company_id: companyId,
+      season_id: currentSeason.id,
+      order_type: saleForm.order_type,
+      ...(isRental ? { rental_items: items, retail_items: undefined } : { retail_items: items, rental_items: undefined }),
+      order_number: saleForm.order_number,
+      invoice_number: saleForm.invoice_number,
+      close_date: saleForm.close_date,
       stage: saleForm.stage,
-      orderDocument: saleForm.orderDocument,
-      invoiceDocument: saleForm.invoiceDocument,
+      order_document: saleForm.order_document,
+      invoice_document: saleForm.invoice_document,
       total,
-      commissionOverride: commOverride,
+      commission_override: commOverride,
       notes: saleForm.notes,
     }
 
     if (isEditMode) {
-      updateOrder(editingOrderId, orderData)
+      await updateOrder(editingOrderId, orderData)
     } else {
-      addOrder(orderData)
+      await addOrder(orderData)
     }
 
     closeSaleDialog()
   }
 
-  const handleOrderDocUpload = (e) => {
+  const handleOrderDocUpload = async (e) => {
     const file = e.target.files?.[0]
-    if (file) {
-      setSaleForm((p) => ({ ...p, orderDocument: { name: file.name, url: URL.createObjectURL(file) } }))
+    if (file && user) {
+      try {
+        const doc = await uploadDocument(user.id, editingOrderId || 'new', 'order', file)
+        setSaleForm((p) => ({ ...p, order_document: { name: doc.name, path: doc.path } }))
+      } catch (err) {
+        console.error('Failed to upload order document:', err)
+      }
     }
     if (orderDocRef.current) orderDocRef.current.value = ''
   }
 
-  const handleInvoiceDocUpload = (e) => {
+  const handleInvoiceDocUpload = async (e) => {
     const file = e.target.files?.[0]
-    if (file) {
-      setSaleForm((p) => ({ ...p, invoiceDocument: { name: file.name, url: URL.createObjectURL(file) } }))
+    if (file && user) {
+      try {
+        const doc = await uploadDocument(user.id, editingOrderId || 'new', 'invoice', file)
+        setSaleForm((p) => ({ ...p, invoice_document: { name: doc.name, path: doc.path } }))
+      } catch (err) {
+        console.error('Failed to upload invoice document:', err)
+      }
     }
     if (invoiceDocRef.current) invoiceDocRef.current.value = ''
   }
@@ -257,22 +269,22 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     setNoteModalOpen(true)
   }
 
-  const saveNote = () => {
+  const saveNote = async () => {
     if (noteOrderId) {
-      updateOrder(noteOrderId, { notes: noteText })
+      await updateOrder(noteOrderId, { notes: noteText })
     }
     setNoteModalOpen(false)
     setNoteOrderId(null)
     setNoteText('')
   }
 
-  const handleDelete = (orderId) => {
-    deleteOrder(orderId)
+  const handleDelete = async (orderId) => {
+    await deleteOrder(orderId)
   }
 
   // Current season data filtered by companyId
   const seasonOrders = currentSeason
-    ? orders.filter((o) => o.seasonId === currentSeason.id && o.companyId === companyId)
+    ? orders.filter((o) => o.season_id === currentSeason.id && o.company_id === companyId)
     : []
 
   const filteredOrders = useMemo(() => {
@@ -281,16 +293,16 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter((o) => {
-        const clientName = getClientName(o.clientId).toLowerCase()
-        const orderNum = (o.orderNumber || '').toLowerCase()
-        const invoiceNum = (o.invoiceNumber || '').toLowerCase()
+        const clientName = getClientName(o.client_id).toLowerCase()
+        const orderNum = (o.order_number || '').toLowerCase()
+        const invoiceNum = (o.invoice_number || '').toLowerCase()
         const total = String(o.total)
         return clientName.includes(q) || orderNum.includes(q) || invoiceNum.includes(q) || total.includes(q)
       })
     }
 
     if (filterOrderType) {
-      result = result.filter((o) => o.orderType === filterOrderType)
+      result = result.filter((o) => o.order_type === filterOrderType)
     }
 
     if (filterStage) {
@@ -300,12 +312,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     return result
   }, [seasonOrders, searchQuery, filterOrderType, filterStage])
 
-  const uniqueOrderTypes = [...new Set(seasonOrders.map((o) => o.orderType))]
+  const uniqueOrderTypes = [...new Set(seasonOrders.map((o) => o.order_type))]
   const uniqueStages = [...new Set(seasonOrders.map((o) => o.stage))]
 
   // Compute totals from seasonOrders (unfiltered) so card values stay constant
-  const rentalTotal = seasonOrders.filter((o) => o.orderType === 'Rental').reduce((sum, o) => sum + o.total, 0)
-  const retailTotal = seasonOrders.filter((o) => o.orderType === 'Retail').reduce((sum, o) => sum + o.total, 0)
+  const rentalTotal = seasonOrders.filter((o) => o.order_type === 'Rental').reduce((sum, o) => sum + o.total, 0)
+  const retailTotal = seasonOrders.filter((o) => o.order_type === 'Retail').reduce((sum, o) => sum + o.total, 0)
   const totalSales = rentalTotal + retailTotal
   const totalCommission = seasonOrders.reduce((sum, o) => sum + getCommission(o).amount, 0)
 
@@ -375,7 +387,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       {/* Create / Edit tab dialog */}
       <Dialog open={tabDialogOpen} onOpenChange={(open) => {
         setTabDialogOpen(open)
-        if (!open) { setEditingTabId(null); setTabForm({ label: '', year: '', startDate: '', endDate: '' }) }
+        if (!open) { setEditingTabId(null); setTabForm({ label: '', year: '', start_date: '', end_date: '' }) }
       }}>
         <DialogContent>
           <DialogHeader>
@@ -411,8 +423,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 <Input
                   id="startDate"
                   type="date"
-                  value={tabForm.startDate}
-                  onChange={(e) => setTabForm((p) => ({ ...p, startDate: e.target.value }))}
+                  value={tabForm.start_date}
+                  onChange={(e) => setTabForm((p) => ({ ...p, start_date: e.target.value }))}
                   required
                 />
               </div>
@@ -421,8 +433,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 <Input
                   id="endDate"
                   type="date"
-                  value={tabForm.endDate}
-                  onChange={(e) => setTabForm((p) => ({ ...p, endDate: e.target.value }))}
+                  value={tabForm.end_date}
+                  onChange={(e) => setTabForm((p) => ({ ...p, end_date: e.target.value }))}
                   required
                 />
               </div>
@@ -472,20 +484,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                     value={saleForm.clientName || clientSearch}
                     onChange={(e) => {
                       setClientSearch(e.target.value)
-                      setSaleForm((p) => ({ ...p, clientId: null, clientName: '' }))
+                      setSaleForm((p) => ({ ...p, client_id: null, clientName: '' }))
                       setShowClientDropdown(true)
                     }}
                     onFocus={() => setShowClientDropdown(true)}
                     required
                   />
-                  {showClientDropdown && !saleForm.clientId && (
+                  {showClientDropdown && !saleForm.client_id && (
                     <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
                       {filteredClients.map((client) => (
                         <button
                           key={client.id}
                           type="button"
                           onClick={() => {
-                            setSaleForm((p) => ({ ...p, clientId: client.id, clientName: client.name }))
+                            setSaleForm((p) => ({ ...p, client_id: client.id, clientName: client.name }))
                             setClientSearch('')
                             setShowClientDropdown(false)
                           }}
@@ -509,8 +521,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               <div className="space-y-2">
                 <Label>Order Type</Label>
                 <select
-                  value={saleForm.orderType}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, orderType: e.target.value }))}
+                  value={saleForm.order_type}
+                  onChange={(e) => setSaleForm((p) => ({ ...p, order_type: e.target.value }))}
                   className="w-full border rounded-md px-3 py-2 text-sm"
                 >
                   <option value="Rental">Rental</option>
@@ -550,10 +562,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 <div className="flex items-center gap-2">
                   <Label>Order #</Label>
                   <input ref={orderDocRef} type="file" onChange={handleOrderDocUpload} className="hidden" />
-                  {saleForm.orderDocument ? (
+                  {saleForm.order_document ? (
                     <Badge variant="secondary" className="gap-1 text-xs">
-                      <FileText className="size-3" /> {saleForm.orderDocument.name}
-                      <button type="button" onClick={() => setSaleForm((p) => ({ ...p, orderDocument: null }))}>
+                      <FileText className="size-3" /> {saleForm.order_document.name}
+                      <button type="button" onClick={() => setSaleForm((p) => ({ ...p, order_document: null }))}>
                         <X className="size-3" />
                       </button>
                     </Badge>
@@ -568,18 +580,18 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   )}
                 </div>
                 <Input
-                  value={saleForm.orderNumber}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, orderNumber: e.target.value }))}
+                  value={saleForm.order_number}
+                  onChange={(e) => setSaleForm((p) => ({ ...p, order_number: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Label>Invoice #</Label>
                   <input ref={invoiceDocRef} type="file" onChange={handleInvoiceDocUpload} className="hidden" />
-                  {saleForm.invoiceDocument ? (
+                  {saleForm.invoice_document ? (
                     <Badge variant="secondary" className="gap-1 text-xs">
-                      <FileText className="size-3" /> {saleForm.invoiceDocument.name}
-                      <button type="button" onClick={() => setSaleForm((p) => ({ ...p, invoiceDocument: null }))}>
+                      <FileText className="size-3" /> {saleForm.invoice_document.name}
+                      <button type="button" onClick={() => setSaleForm((p) => ({ ...p, invoice_document: null }))}>
                         <X className="size-3" />
                       </button>
                     </Badge>
@@ -594,8 +606,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   )}
                 </div>
                 <Input
-                  value={saleForm.invoiceNumber}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, invoiceNumber: e.target.value }))}
+                  value={saleForm.invoice_number}
+                  onChange={(e) => setSaleForm((p) => ({ ...p, invoice_number: e.target.value }))}
                 />
               </div>
             </div>
@@ -605,8 +617,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 <Label>Close Date</Label>
                 <Input
                   type="date"
-                  value={saleForm.closeDate}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, closeDate: e.target.value }))}
+                  value={saleForm.close_date}
+                  onChange={(e) => setSaleForm((p) => ({ ...p, close_date: e.target.value }))}
                 />
               </div>
               <div className="space-y-2">
@@ -632,9 +644,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               <div className="relative">
                 <Input
                   inputMode="decimal"
-                  placeholder={company ? `Default: ${company.commissionPercent}` : ''}
-                  value={saleForm.commissionOverride}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, commissionOverride: sanitizeCurrency(e.target.value) }))}
+                  placeholder={company ? `Default: ${company.commission_percent}` : ''}
+                  value={saleForm.commission_override}
+                  onChange={(e) => setSaleForm((p) => ({ ...p, commission_override: sanitizeCurrency(e.target.value) }))}
                   className="no-spinner pr-7"
                 />
                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
@@ -654,7 +666,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
             </div>
 
             <DialogFooter>
-              <Button type="submit" disabled={!saleForm.clientId}>
+              <Button type="submit" disabled={!saleForm.client_id}>
                 {isEditMode ? 'Save Changes' : 'Add Sale'}
               </Button>
             </DialogFooter>
@@ -670,7 +682,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               {noteOrderId && orders.find((o) => o.id === noteOrderId)?.notes ? 'Edit Note' : 'Add Note'}
             </DialogTitle>
             <DialogDescription>
-              {noteOrderId && getClientName(orders.find((o) => o.id === noteOrderId)?.clientId)}
+              {noteOrderId && getClientName(orders.find((o) => o.id === noteOrderId)?.client_id)}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -884,30 +896,42 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                             </Button>
                           </div>
                         </TableCell>
-                        <TableCell className="font-medium whitespace-nowrap">{getClientName(order.clientId)}</TableCell>
+                        <TableCell className="font-medium whitespace-nowrap">{getClientName(order.client_id)}</TableCell>
                         <TableCell>
                           <Badge
                             className={
-                              order.orderType === 'Rental'
+                              order.order_type === 'Rental'
                                 ? 'bg-green-100 text-green-800 border-green-200'
                                 : 'bg-purple-100 text-purple-800 border-purple-200'
                             }
                           >
-                            {order.orderType}
+                            {order.order_type}
                           </Badge>
                         </TableCell>
                         <TableCell className="max-w-48 truncate">{getItems(order)}</TableCell>
-                        <TableCell className="whitespace-nowrap">{order.orderNumber}</TableCell>
+                        <TableCell className="whitespace-nowrap">{order.order_number}</TableCell>
                         <TableCell className="whitespace-nowrap">
-                          {order.invoiceDocument ? (
-                            <a href={order.invoiceDocument.url} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline">
-                              {order.invoiceNumber || '—'}
+                          {order.invoice_document ? (
+                            <a
+                              href="#"
+                              onClick={async (e) => {
+                                e.preventDefault()
+                                try {
+                                  const url = await getDocumentUrl(order.invoice_document.path)
+                                  window.open(url, '_blank')
+                                } catch (err) {
+                                  console.error('Failed to get document URL:', err)
+                                }
+                              }}
+                              className="text-blue-600 underline"
+                            >
+                              {order.invoice_number || '—'}
                             </a>
                           ) : (
-                            order.invoiceNumber || '—'
+                            order.invoice_number || '—'
                           )}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{order.closeDate}</TableCell>
+                        <TableCell className="whitespace-nowrap">{order.close_date}</TableCell>
                         <TableCell className="whitespace-nowrap">{order.stage}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">{fmt(order.total)}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">

@@ -42,15 +42,15 @@ function CompanyDetail() {
         <Link to="/companies" className="text-muted-foreground hover:text-foreground">
           <ArrowLeft className="size-5" />
         </Link>
-        {company.logo ? (
-          <img src={company.logo} alt="" className="w-8 h-8 object-contain" />
+        {company.logo_path ? (
+          <img src={company.logo_path} alt="" className="w-8 h-8 object-contain" />
         ) : (
           <div className="w-8 h-8 rounded bg-zinc-200 flex items-center justify-center text-zinc-600 text-sm font-bold">
             {company.name.charAt(0)}
           </div>
         )}
         <h1 className="text-2xl font-bold">{company.name}</h1>
-        <Badge variant="outline">{company.commissionPercent}% Commission</Badge>
+        <Badge variant="outline">{company.commission_percent}% Commission</Badge>
         <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleAddSaleClick}>
           <Plus className="size-4 mr-1" /> Add Sale
         </Button>

@@ -4,20 +4,27 @@
 
 | Component | Location | Description |
 |-----------|----------|-------------|
-| App Layout | src/App.jsx | Sidebar nav with company icons at top, icon navigation below |
+| App Layout | src/App.jsx | Sidebar nav with company icons at top, icon navigation below, auth guard, sign out button |
+| Login | src/pages/Login.jsx | Email/password login + signup form with toggle, error/success messages |
 | Dashboard | src/pages/Dashboard.jsx | Summary cards (Total/Rental/Retail Sales, Commission Due/Paid/Outstanding) + Recent Orders table |
-| Clients | src/pages/Clients.jsx | Client list with search, add client dialog with form |
+| Clients | src/pages/Clients.jsx | Client list with search, add client dialog with form (uses ClientContext) |
 | Sales | _(removed)_ | Sales now accessed only via CompanyDetail > Sales tab |
 | Commission | _(removed)_ | Commission now accessed only via CompanyDetail > Sales tab |
-| SalesContext | src/context/SalesContext.jsx | Shared state for seasons (tabs) and orders with CRUD operations |
-| TodoContext | src/context/TodoContext.jsx | Per-company to-do state (add, edit, toggle complete, pin/unpin, reorder, delete) |
-| Companies | src/pages/Companies.jsx | Company list with add/edit, logo upload, archive/restore, drag-to-reorder |
+| AuthContext | src/context/AuthContext.jsx | Auth state (user, loading), signUp, signIn, signOut via Supabase Auth |
+| ClientContext | src/context/ClientContext.jsx | Client CRUD via Supabase + getClientName helper |
+| SalesContext | src/context/SalesContext.jsx | Seasons + Orders + Commissions CRUD via Supabase |
+| TodoContext | src/context/TodoContext.jsx | Per-company to-do CRUD via Supabase (add, edit, toggle complete, pin/unpin, reorder, delete) |
+| CompanyContext | src/context/CompanyContext.jsx | Company CRUD via Supabase (add, update, archive, reorder) + logo upload to Storage |
+| Companies | src/pages/Companies.jsx | Company list with add/edit, logo upload to Supabase Storage, archive/restore, drag-to-reorder |
 | CompanyDetail | src/pages/CompanyDetail.jsx | Tab shell: header with Add Sale button + Dashboard/Sales/Commission pill tabs per company |
 | CompanyDashboard | src/components/company/CompanyDashboard.jsx | Season dropdown, 4 summary cards, To Dos with searchable account dropdown, pin/unpin, drag-to-reorder, overdue styling |
-| CompanySales | src/components/company/CompanySales.jsx | Per-company sales: season tabs, sticky first-column edit/delete actions, 4 clickable summary cards (Total Sales/Rental/Retail + Commission) that filter by order type, unified Add/Edit Sale modal (pencil opens pre-filled dialog), dual document upload inline next to Order # and Invoice # labels, invoice # hyperlinks when doc uploaded, currency-formatted Total with $ prefix, commission % input with no-spinner and % suffix, "+Note" text button vs amber StickyNote icon, search, filters, notes modal |
-| CompanyCommission | src/components/company/CompanyCommission.jsx | Per-company commission: order-driven (Closed - Won orders), sticky first-column edit actions with status-aware backgrounds, clickable summary card filters (Earned/Paid/Outstanding), row highlighting (green=Paid, yellow=Partial), search bar, inline pay status editing |
-| CompanyContext | src/context/CompanyContext.jsx | Shared company state (add, update, archive) used by sidebar and pages |
-| Mock Data | src/data/mockData.js | Companies, clients, orders, commissions, seasons, todos based on real spreadsheet data |
+| CompanySales | src/components/company/CompanySales.jsx | Per-company sales: season tabs, sticky first-column edit/delete actions, 4 clickable summary cards (Total Sales/Rental/Retail + Commission) that filter by order type, unified Add/Edit Sale modal (pencil opens pre-filled dialog), dual document upload to Supabase Storage inline next to Order # and Invoice # labels, invoice # hyperlinks with signed URLs when doc uploaded, currency-formatted Total with $ prefix, commission % input with no-spinner and % suffix, "+Note" text button vs amber StickyNote icon, search, filters, notes modal |
+| CompanyCommission | src/components/company/CompanyCommission.jsx | Per-company commission: order-driven (Closed - Won orders), sticky first-column edit actions with status-aware backgrounds, clickable summary card filters (Earned/Paid/Outstanding), row highlighting (green=Paid, yellow=Partial), search bar, inline pay status editing persisted to Supabase |
+| Supabase Client | src/lib/supabase.js | Supabase client init (uses VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY) |
+| DB Helpers | src/lib/db.js | All Supabase query helpers (companies, clients, seasons, orders, commissions, todos, storage) |
+| Constants | src/lib/constants.js | Regions, account types, rental/retail item lists (extracted from mock data) |
+| SQL Schema | scripts/schema.sql | Full PostgreSQL schema with RLS policies and storage buckets |
+| Seed Script | scripts/seed.js | One-time seed script to import mock data for a user |
 
 ## Changelog
 
@@ -37,3 +44,4 @@
 | 2026-02-07 | Tab edit UX revamp: replaced hover archive icon with pencil edit icon on all tabs; merged create/edit into single dialog with mode flag; edit modal shows Archive/Unarchive button; archived dropdown shows pencil edit icons; FolderArchive icon for archived dropdown; applies to both Sales and Commission tabs |
 | 2026-02-07 | Sales & Commission table UX: sticky first-column edit actions (no scroll needed), removed Documents column, dual document upload in Add Sale dialog, invoice # hyperlinks, "+Note" vs amber icon, $ currency formatting with decimal sanitization, % commission input with no-spinner CSS, 4 clickable summary cards on Sales page, status-aware sticky backgrounds on Commission |
 | 2026-02-07 | Sales UX refinements: replaced inline row editing with modal-based editing (pencil opens pre-filled Add/Edit dialog), unified Add/Edit Sale dialog with isEditMode flag, document uploads moved inline next to Order # and Invoice # labels, Total Sales card reordered to first position |
+| 2026-02-09 | Supabase backend: Added auth (email/password), migrated all contexts from mock data to Supabase (PostgreSQL + RLS), added file storage (logos public, documents private with signed URLs), created AuthContext, ClientContext, Login page, db helpers, constants, SQL schema, seed script, .htaccess for Hostinger SPA routing. Deleted mockData.js. |

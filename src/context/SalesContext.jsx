@@ -1,44 +1,105 @@
-import { createContext, useContext, useState } from 'react'
-import { orders as initialOrders, seasons as initialSeasons } from '@/data/mockData'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { useAuth } from './AuthContext'
+import * as db from '@/lib/db'
 
 const SalesContext = createContext()
 
 export function SalesProvider({ children }) {
-  const [seasons, setSeasons] = useState(
-    initialSeasons.map((s) => ({ ...s, startDate: '', endDate: '', archived: false }))
-  )
-  const [orders, setOrders] = useState(initialOrders)
+  const { user } = useAuth()
+  const [seasons, setSeasons] = useState([])
+  const [orders, setOrders] = useState([])
+  const [commissions, setCommissions] = useState([])
+  const [loading, setLoading] = useState(true)
 
-  // Season / tab management
-  const addSeason = (data) => {
+  const load = useCallback(async () => {
+    if (!user) return
+    try {
+      const [seasonsData, ordersData, commissionsData] = await Promise.all([
+        db.fetchSeasons(),
+        db.fetchOrders(),
+        db.fetchCommissions(),
+      ])
+      setSeasons(seasonsData)
+      setOrders(ordersData)
+      setCommissions(commissionsData)
+    } catch (err) {
+      console.error('Failed to load sales data:', err)
+    } finally {
+      setLoading(false)
+    }
+  }, [user])
+
+  useEffect(() => { load() }, [load])
+
+  // Season management
+  const addSeason = async (data) => {
     const id = data.label.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now()
-    const newSeason = { id, archived: false, ...data }
-    setSeasons((prev) => [...prev, newSeason])
-    return newSeason
+    const row = await db.insertSeason({
+      id,
+      ...data,
+      user_id: user.id,
+      archived: false,
+    })
+    setSeasons((prev) => [...prev, row])
+    return row
   }
 
-  const updateSeason = (id, data) => {
-    setSeasons((prev) => prev.map((s) => (s.id === id ? { ...s, ...data } : s)))
+  const updateSeason = async (id, data) => {
+    const row = await db.updateSeason(id, data)
+    setSeasons((prev) => prev.map((s) => (s.id === id ? row : s)))
+    return row
   }
 
-  const toggleArchiveSeason = (id) => {
-    setSeasons((prev) => prev.map((s) => (s.id === id ? { ...s, archived: !s.archived } : s)))
+  const toggleArchiveSeason = async (id) => {
+    const season = seasons.find((s) => s.id === id)
+    if (!season) return
+    const row = await db.updateSeason(id, { archived: !season.archived })
+    setSeasons((prev) => prev.map((s) => (s.id === id ? row : s)))
   }
 
   // Order management
-  const addOrder = (data) => {
-    const id = Date.now()
-    const newOrder = { id, ...data }
-    setOrders((prev) => [...prev, newOrder])
-    return newOrder
+  const addOrder = async (data) => {
+    const row = await db.insertOrder({
+      ...data,
+      user_id: user.id,
+    })
+    setOrders((prev) => [row, ...prev])
+    return row
   }
 
-  const updateOrder = (id, data) => {
-    setOrders((prev) => prev.map((o) => (o.id === id ? { ...o, ...data } : o)))
+  const updateOrder = async (id, data) => {
+    const row = await db.updateOrder(id, data)
+    setOrders((prev) => prev.map((o) => (o.id === id ? row : o)))
+    return row
   }
 
-  const deleteOrder = (id) => {
+  const deleteOrder = async (id) => {
+    await db.deleteOrder(id)
     setOrders((prev) => prev.filter((o) => o.id !== id))
+    // Also remove any associated commission
+    setCommissions((prev) => prev.filter((c) => c.order_id !== id))
+  }
+
+  // Commission management
+  const upsertCommission = async (data) => {
+    const row = await db.upsertCommission({
+      ...data,
+      user_id: user.id,
+    })
+    setCommissions((prev) => {
+      const existing = prev.findIndex((c) => c.order_id === row.order_id)
+      if (existing >= 0) {
+        return prev.map((c, i) => (i === existing ? row : c))
+      }
+      return [row, ...prev]
+    })
+    return row
+  }
+
+  const updateCommission = async (id, data) => {
+    const row = await db.updateCommission(id, data)
+    setCommissions((prev) => prev.map((c) => (c.id === id ? row : c)))
+    return row
   }
 
   const activeSeasons = seasons.filter((s) => !s.archived)
@@ -46,9 +107,10 @@ export function SalesProvider({ children }) {
 
   return (
     <SalesContext.Provider value={{
-      seasons, activeSeasons, archivedSeasons, orders,
+      seasons, activeSeasons, archivedSeasons, orders, commissions, loading,
       addSeason, updateSeason, toggleArchiveSeason,
       addOrder, updateOrder, deleteOrder,
+      upsertCommission, updateCommission,
     }}>
       {children}
     </SalesContext.Provider>

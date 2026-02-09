@@ -2,40 +2,49 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from '@/components/ui/table'
-import { orders, commissions, clients } from '@/data/mockData'
+import { useSales } from '@/context/SalesContext'
+import { useClients } from '@/context/ClientContext'
+import { useCompanies } from '@/context/CompanyContext'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 
-const CURRENT_SEASON = 'us-2025-2026'
-
 function Dashboard() {
-  const seasonOrders = orders.filter((o) => o.seasonId === CURRENT_SEASON)
-  const seasonCommissions = commissions.filter((c) => c.seasonId === CURRENT_SEASON)
+  const { orders, commissions, activeSeasons } = useSales()
+  const { getClientName } = useClients()
+  const { companies } = useCompanies()
 
-  const totalSales = seasonOrders.reduce((sum, o) => sum + o.total, 0)
+  // Use the most recent active season as current
+  const currentSeason = activeSeasons.length > 0 ? activeSeasons[activeSeasons.length - 1] : null
+  const currentSeasonId = currentSeason?.id || ''
+
+  const seasonOrders = orders.filter((o) => o.season_id === currentSeasonId)
+
+  const totalSales = seasonOrders.reduce((sum, o) => sum + (o.total || 0), 0)
   const rentalSales = seasonOrders
-    .filter((o) => o.orderType === 'Rental')
-    .reduce((sum, o) => sum + o.total, 0)
+    .filter((o) => o.order_type === 'Rental')
+    .reduce((sum, o) => sum + (o.total || 0), 0)
   const retailSales = seasonOrders
-    .filter((o) => o.orderType === 'Retail')
-    .reduce((sum, o) => sum + o.total, 0)
-  const commissionDue = seasonCommissions.reduce((sum, c) => sum + c.due, 0)
-  const commissionPaid = seasonCommissions.reduce((sum, c) => sum + c.amountPaid, 0)
-  const outstanding = seasonCommissions.reduce((sum, c) => sum + c.amountRemaining, 0)
+    .filter((o) => o.order_type === 'Retail')
+    .reduce((sum, o) => sum + (o.total || 0), 0)
+
+  // Commission totals from commissions table (joined via order)
+  const seasonOrderIds = new Set(seasonOrders.map((o) => o.id))
+  const seasonCommissions = commissions.filter((c) => seasonOrderIds.has(c.order_id))
+  const commissionDue = seasonCommissions.reduce((sum, c) => sum + (c.commission_due || 0), 0)
+  const commissionPaid = seasonCommissions.reduce((sum, c) => sum + (c.amount_paid || 0), 0)
+  const outstanding = seasonCommissions.reduce((sum, c) => sum + (c.amount_remaining || 0), 0)
 
   const recentOrders = [...seasonOrders]
-    .sort((a, b) => new Date(b.closeDate) - new Date(a.closeDate))
+    .sort((a, b) => new Date(b.close_date) - new Date(a.close_date))
     .slice(0, 10)
-
-  const getClientName = (clientId) => {
-    const client = clients.find((c) => c.id === clientId)
-    return client ? client.name : 'Unknown'
-  }
 
   return (
     <div className="px-6 py-8 space-y-6">
       <h1 className="text-2xl font-bold">Dashboard</h1>
+      {currentSeason && (
+        <p className="text-sm text-muted-foreground">{currentSeason.label}</p>
+      )}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-3 gap-6">
@@ -105,10 +114,10 @@ function Dashboard() {
           <TableBody>
             {recentOrders.map((order) => (
               <TableRow key={order.id}>
-                <TableCell>{getClientName(order.clientId)}</TableCell>
-                <TableCell>{order.orderType}</TableCell>
-                <TableCell>{order.orderNumber}</TableCell>
-                <TableCell>{order.closeDate}</TableCell>
+                <TableCell>{getClientName(order.client_id)}</TableCell>
+                <TableCell>{order.order_type}</TableCell>
+                <TableCell>{order.order_number}</TableCell>
+                <TableCell>{order.close_date}</TableCell>
                 <TableCell className="text-right">{fmt(order.total)}</TableCell>
               </TableRow>
             ))}

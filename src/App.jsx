@@ -1,12 +1,15 @@
 import { Routes, Route, NavLink } from 'react-router-dom'
-import { Building2, Users, LayoutDashboard } from 'lucide-react'
+import { Building2, Users, LayoutDashboard, LogOut } from 'lucide-react'
+import { useAuth } from './context/AuthContext'
 import { CompanyProvider, useCompanies } from './context/CompanyContext'
+import { ClientProvider } from './context/ClientContext'
 import { SalesProvider } from './context/SalesContext'
 import { TodoProvider } from './context/TodoContext'
 import Dashboard from './pages/Dashboard'
 import Companies from './pages/Companies'
 import CompanyDetail from './pages/CompanyDetail'
 import Clients from './pages/Clients'
+import Login from './pages/Login'
 
 const navItems = [
   { to: '/companies', icon: Building2, label: 'Companies' },
@@ -31,9 +34,9 @@ function CompanyIcons() {
           }
           title={company.name}
         >
-          {company.logo ? (
+          {company.logo_path ? (
             <img
-              src={company.logo}
+              src={company.logo_path}
               alt={company.name}
               className="w-9 h-9 invert object-contain"
             />
@@ -49,8 +52,23 @@ function CompanyIcons() {
 }
 
 function App() {
+  const { user, loading, signOut } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return <Login />
+  }
+
   return (
     <CompanyProvider>
+    <ClientProvider>
     <SalesProvider>
     <TodoProvider>
       <div className="flex h-screen">
@@ -94,6 +112,17 @@ function App() {
               </NavLink>
             ))}
           </nav>
+
+          {/* Sign Out — pushed to bottom */}
+          <div className="mt-auto">
+            <button
+              onClick={signOut}
+              className="flex items-center justify-center w-10 h-10 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              title="Sign Out"
+            >
+              <LogOut className="size-5" />
+            </button>
+          </div>
         </aside>
 
         {/* Main content */}
@@ -108,6 +137,7 @@ function App() {
       </div>
     </TodoProvider>
     </SalesProvider>
+    </ClientProvider>
     </CompanyProvider>
   )
 }

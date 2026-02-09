@@ -10,21 +10,19 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { clients, commissions, companies } from '@/data/mockData'
+import { useClients } from '@/context/ClientContext'
+import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
 import { useTodos } from '@/context/TodoContext'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 
-const getClientName = (clientId) => {
-  const client = clients.find((c) => c.id === clientId)
-  return client ? client.name : 'Unknown'
-}
-
 function CompanyDashboard({ companyId }) {
-  const { activeSeasons, orders } = useSales()
+  const { activeSeasons, orders, commissions } = useSales()
   const { getTodosByCompany, addTodo, updateTodo, toggleComplete, togglePin, reorderTodos, deleteTodo } = useTodos()
+  const { companies } = useCompanies()
+  const { clients, getClientName } = useClients()
   const company = companies.find((c) => c.id === companyId)
 
   // Season selector persisted in localStorage
@@ -41,17 +39,15 @@ function CompanyDashboard({ companyId }) {
   }
 
   // Summary data
-  const seasonOrders = orders.filter((o) => o.companyId === companyId && o.seasonId === selectedSeasonId)
-  const totalSales = seasonOrders.reduce((sum, o) => sum + o.total, 0)
-  const commissionPct = company?.commissionPercent || 0
+  const seasonOrders = orders.filter((o) => o.company_id === companyId && o.season_id === selectedSeasonId)
+  const totalSales = seasonOrders.reduce((sum, o) => sum + (o.total || 0), 0)
+  const commissionPct = company?.commission_percent || 0
 
-  // Commission calculations — go through orders to find relevant clients
-  const companyClientIds = [...new Set(orders.filter((o) => o.companyId === companyId).map((o) => o.clientId))]
-  const seasonCommissions = commissions.filter(
-    (c) => c.seasonId === selectedSeasonId && companyClientIds.includes(c.clientId)
-  )
+  // Commission calculations from commissions table
+  const seasonOrderIds = new Set(seasonOrders.map((o) => o.id))
+  const seasonCommissions = commissions.filter((c) => seasonOrderIds.has(c.order_id))
   const commissionDue = totalSales * (commissionPct / 100)
-  const commissionPaid = seasonCommissions.reduce((sum, c) => sum + c.amountPaid, 0)
+  const commissionPaid = seasonCommissions.reduce((sum, c) => sum + (c.amount_paid || 0), 0)
   const outstanding = Math.max(commissionDue - commissionPaid, 0)
 
   // To Dos
@@ -59,7 +55,7 @@ function CompanyDashboard({ companyId }) {
   const [todoDialogOpen, setTodoDialogOpen] = useState(false)
   const [editingTodoId, setEditingTodoId] = useState(null)
   const [todoForm, setTodoForm] = useState({
-    title: '', note: '', clientId: '', phone: '', dueDate: '',
+    title: '', note: '', client_id: '', phone: '', due_date: '',
   })
 
   // Searchable account dropdown state
@@ -113,7 +109,7 @@ function CompanyDashboard({ companyId }) {
 
   const openAddTodo = () => {
     setEditingTodoId(null)
-    setTodoForm({ title: '', note: '', clientId: '', phone: '', dueDate: '' })
+    setTodoForm({ title: '', note: '', client_id: '', phone: '', due_date: '' })
     setAccountSearch('')
     setTodoDialogOpen(true)
   }
@@ -123,45 +119,45 @@ function CompanyDashboard({ companyId }) {
     setTodoForm({
       title: todo.title,
       note: todo.note || '',
-      clientId: todo.clientId ? String(todo.clientId) : '',
+      client_id: todo.client_id ? String(todo.client_id) : '',
       phone: todo.phone || '',
-      dueDate: todo.dueDate || '',
+      due_date: todo.due_date || '',
     })
-    setAccountSearch(todo.clientId ? getClientName(todo.clientId) : '')
+    setAccountSearch(todo.client_id ? getClientName(todo.client_id) : '')
     setTodoDialogOpen(true)
   }
 
   const selectClient = (client) => {
-    setTodoForm((p) => ({ ...p, clientId: String(client.id) }))
+    setTodoForm((p) => ({ ...p, client_id: String(client.id) }))
     setAccountSearch(client.name)
     setAccountDropdownOpen(false)
   }
 
   const clearClient = () => {
-    setTodoForm((p) => ({ ...p, clientId: '' }))
+    setTodoForm((p) => ({ ...p, client_id: '' }))
     setAccountSearch('')
   }
 
-  const handleSaveTodo = (e) => {
+  const handleSaveTodo = async (e) => {
     e.preventDefault()
     const data = {
       title: todoForm.title,
       note: todoForm.note,
-      clientId: todoForm.clientId ? parseInt(todoForm.clientId) : null,
+      client_id: todoForm.client_id ? parseInt(todoForm.client_id) : null,
       phone: todoForm.phone,
-      dueDate: todoForm.dueDate,
-      companyId,
+      due_date: todoForm.due_date || null,
+      company_id: companyId,
     }
     if (editingTodoId) {
-      updateTodo(editingTodoId, data)
+      await updateTodo(editingTodoId, data)
     } else {
-      addTodo(data)
+      await addTodo(data)
     }
     setTodoDialogOpen(false)
   }
 
   const today = new Date().toISOString().split('T')[0]
-  const isOverdue = (todo) => !todo.completed && todo.dueDate && todo.dueDate < today
+  const isOverdue = (todo) => !todo.completed && todo.due_date && todo.due_date < today
 
   return (
     <div className="space-y-6">
@@ -280,11 +276,11 @@ function CompanyDashboard({ companyId }) {
                     {todo.note || '—'}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
-                    {todo.clientId ? getClientName(todo.clientId) : '—'}
+                    {todo.client_id ? getClientName(todo.client_id) : '—'}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{todo.phone || '—'}</TableCell>
                   <TableCell className={`whitespace-nowrap ${isOverdue(todo) ? 'text-red-600 font-medium' : ''}`}>
-                    {todo.dueDate || '—'}
+                    {todo.due_date || '—'}
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
@@ -353,14 +349,14 @@ function CompanyDashboard({ companyId }) {
                     setAccountSearch(e.target.value)
                     setAccountDropdownOpen(true)
                     if (!e.target.value) {
-                      setTodoForm((p) => ({ ...p, clientId: '' }))
+                      setTodoForm((p) => ({ ...p, client_id: '' }))
                     }
                   }}
                   onFocus={() => setAccountDropdownOpen(true)}
                   placeholder="Search accounts..."
                   autoComplete="off"
                 />
-                {todoForm.clientId && (
+                {todoForm.client_id && (
                   <button
                     type="button"
                     onClick={clearClient}
@@ -380,7 +376,7 @@ function CompanyDashboard({ companyId }) {
                           type="button"
                           onClick={() => selectClient(c)}
                           className={`w-full text-left px-3 py-2 text-sm hover:bg-zinc-100 ${
-                            String(c.id) === todoForm.clientId ? 'bg-zinc-50 font-medium' : ''
+                            String(c.id) === todoForm.client_id ? 'bg-zinc-50 font-medium' : ''
                           }`}
                         >
                           {c.name}
@@ -404,8 +400,8 @@ function CompanyDashboard({ companyId }) {
                 <Label>Due Date</Label>
                 <Input
                   type="date"
-                  value={todoForm.dueDate}
-                  onChange={(e) => setTodoForm((p) => ({ ...p, dueDate: e.target.value }))}
+                  value={todoForm.due_date}
+                  onChange={(e) => setTodoForm((p) => ({ ...p, due_date: e.target.value }))}
                 />
               </div>
             </div>

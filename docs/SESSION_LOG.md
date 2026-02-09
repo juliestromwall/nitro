@@ -190,3 +190,35 @@
 **Open questions:**
 - None at this time
 
+## 2026-02-09
+
+**Worked on:** Full Supabase backend integration — auth, database, storage, and deployment prep.
+
+**Changes made:**
+- **Phase 1 (Foundation):** Installed @supabase/supabase-js, created `.env`, `src/lib/supabase.js`, `src/lib/db.js` (all query helpers), `src/lib/constants.js` (extracted from mockData)
+- **Phase 2 (Auth):** Created `AuthContext.jsx` (signUp/signIn/signOut), `Login.jsx` (email/password form), added AuthProvider to `main.jsx`, auth guard in `App.jsx`, sign out button in sidebar
+- **Phase 3 (Entity Migration):** Created `ClientContext.jsx` (new), rewrote `CompanyContext.jsx`, `SalesContext.jsx` (now includes commissions), `TodoContext.jsx` — all using Supabase fetch/mutations. Rewrote `Dashboard.jsx`, `Clients.jsx`, `Companies.jsx`, `CompanyDetail.jsx`, `CompanyDashboard.jsx`, `CompanySales.jsx`, `CompanyCommission.jsx` to use contexts with snake_case field names
+- **Phase 4 (Cleanup):** Deleted `src/data/mockData.js` and `src/data/` directory, verified no remaining mockData imports
+- **Phase 5 (Schema + Seed):** Created `scripts/schema.sql` (6 tables with RLS + storage buckets/policies), `scripts/seed.js` (imports mock data for a user), `public/.htaccess` (SPA routing for Hostinger/Apache)
+- **Phase 6 (Docs):** Updated `CLAUDE.md`, `FEATURES.md`, `PRODUCT.md`, this session log
+- Build verified: `npm run build` succeeds (593KB JS bundle)
+
+**Key architectural decisions:**
+- All database columns use snake_case (PostgreSQL convention)
+- Commissions link to `order_id` (one per Closed-Won order) instead of old client+season pattern
+- `company.logo` → `company.logo_path`, `company.commissionPercent` → `company.commission_percent`
+- Logos bucket is public, documents bucket is private (signed URLs)
+- Auth guard: no user → Login page; authenticated → wrapped providers load data
+
+**Next steps:**
+- Create Supabase project and run `scripts/schema.sql` in SQL Editor
+- Set real credentials in `.env` (VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY)
+- Create storage buckets (logos + documents) in Supabase dashboard
+- Run `scripts/seed.js` to import mock data for first user
+- `npm run build` and deploy `dist/` to Hostinger `public_html/`
+- Add domain to Supabase auth allowed URLs
+- Test multi-user isolation (sign up as second user → empty app)
+
+**Open questions:**
+- None at this time
+

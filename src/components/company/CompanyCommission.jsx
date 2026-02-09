@@ -11,16 +11,12 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { commissions, clients, companies } from '@/data/mockData'
+import { useClients } from '@/context/ClientContext'
+import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
-
-const getClientName = (clientId) => {
-  const client = clients.find((c) => c.id === clientId)
-  return client ? client.name : 'Unknown'
-}
 
 const payStatusOptions = [
   { value: 'paid', label: 'Paid' },
@@ -65,7 +61,10 @@ const stickyBg = (status) => {
 }
 
 function CompanyCommission({ companyId }) {
-  const { activeSeasons, archivedSeasons, orders, updateSeason, toggleArchiveSeason } = useSales()
+  const { getClientName } = useClients()
+  const { companies } = useCompanies()
+  const { activeSeasons, archivedSeasons, orders, commissions, updateSeason, toggleArchiveSeason, upsertCommission, updateCommission } = useSales()
+
   const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
   const [cardFilter, setCardFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
@@ -74,96 +73,84 @@ function CompanyCommission({ companyId }) {
   // Edit tab dialog state
   const [tabDialogOpen, setTabDialogOpen] = useState(false)
   const [editingTabId, setEditingTabId] = useState(null)
-  const [tabForm, setTabForm] = useState({ label: '', year: '', startDate: '', endDate: '' })
+  const [tabForm, setTabForm] = useState({ label: '', year: '', start_date: '', end_date: '' })
 
   // Inline editing state — keyed by order id
   const [editingId, setEditingId] = useState(null)
   const [editForm, setEditForm] = useState({ payStatus: '', amountPaid: '', paidDate: '' })
   const [hoveredRow, setHoveredRow] = useState(null)
 
-  // Commission overrides — local state for pay status edits (since no backend)
-  const [commissionOverrides, setCommissionOverrides] = useState({})
-
   const allVisibleSeasons = showArchived
     ? [...activeSeasons, ...archivedSeasons]
     : activeSeasons
   const currentSeason = allVisibleSeasons.find((s) => s.id === activeTab) || activeSeasons[0]
   const company = companies.find((c) => c.id === companyId)
-  const commissionPct = company?.commissionPercent || 0
+  const commissionPct = company?.commission_percent || 0
 
   // Get all "Closed - Won" orders for this company + season
   const closedWonOrders = currentSeason
     ? orders.filter(
-        (o) => o.companyId === companyId && o.seasonId === currentSeason.id && o.stage === 'Closed - Won'
+        (o) => o.company_id === companyId && o.season_id === currentSeason.id && o.stage === 'Closed - Won'
       )
     : []
 
-  // Build commission rows from orders, joining with commission mock data for pay status
+  // Build commission rows from orders, looking up commissions by order_id
   const commissionRows = closedWonOrders.map((order) => {
-    const commissionDue = order.total * (commissionPct / 100)
+    const commEntry = commissions.find((c) => c.order_id === order.id)
 
-    // Check for local overrides first
-    const override = commissionOverrides[order.id]
-    if (override) {
-      const amountPaid = override.amountPaid
+    if (commEntry) {
       return {
         id: order.id,
-        clientId: order.clientId,
-        orderNumber: order.orderNumber,
-        invoiceNumber: order.invoiceNumber,
+        orderId: order.id,
+        client_id: order.client_id,
+        order_number: order.order_number,
+        invoice_number: order.invoice_number,
         orderTotal: order.total,
-        commissionDue,
-        payStatus: override.payStatus,
-        amountPaid,
-        paidDate: override.paidDate,
-        amountRemaining: Math.max(commissionDue - amountPaid, 0),
+        commissionDue: commEntry.commission_due,
+        pay_status: commEntry.pay_status,
+        amount_paid: commEntry.amount_paid,
+        paid_date: commEntry.paid_date,
+        amount_remaining: commEntry.amount_remaining,
       }
     }
 
-    // Fall back to mock commission data
-    const commEntry = commissions.find(
-      (c) => c.clientId === order.clientId && c.seasonId === order.seasonId
-    )
-
-    const payStatus = commEntry?.payStatus || 'pending invoice'
-    const paidDate = commEntry?.paidDate || null
-    const amountPaid = commEntry ? Math.min((commEntry.amountPaid / commEntry.due) * commissionDue, commissionDue) : 0
-    const amountRemaining = Math.max(commissionDue - amountPaid, 0)
-
+    // No commission record yet — calculate defaults
+    const commissionDue = order.total * (commissionPct / 100)
     return {
       id: order.id,
-      clientId: order.clientId,
-      orderNumber: order.orderNumber,
-      invoiceNumber: order.invoiceNumber,
+      orderId: order.id,
+      client_id: order.client_id,
+      order_number: order.order_number,
+      invoice_number: order.invoice_number,
       orderTotal: order.total,
       commissionDue,
-      payStatus,
-      amountPaid,
-      paidDate,
-      amountRemaining,
+      pay_status: 'pending invoice',
+      amount_paid: 0,
+      paid_date: null,
+      amount_remaining: commissionDue,
     }
   })
 
   // Summary totals (always computed from all rows, not filtered)
   const totalEarned = commissionRows.reduce((sum, r) => sum + r.commissionDue, 0)
-  const totalPaid = commissionRows.reduce((sum, r) => sum + r.amountPaid, 0)
-  const totalOutstanding = commissionRows.reduce((sum, r) => sum + r.amountRemaining, 0)
+  const totalPaid = commissionRows.reduce((sum, r) => sum + r.amount_paid, 0)
+  const totalOutstanding = commissionRows.reduce((sum, r) => sum + r.amount_remaining, 0)
 
   // Apply card filter + search
   const filteredRows = useMemo(() => {
     let result = commissionRows
 
     // Card filter
-    if (cardFilter === 'paid') result = result.filter((r) => r.payStatus === 'paid' || r.payStatus === 'partial')
-    if (cardFilter === 'outstanding') result = result.filter((r) => r.payStatus !== 'paid')
+    if (cardFilter === 'paid') result = result.filter((r) => r.pay_status === 'paid' || r.pay_status === 'partial')
+    if (cardFilter === 'outstanding') result = result.filter((r) => r.pay_status !== 'paid')
 
     // Search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter((r) => {
-        const clientName = getClientName(r.clientId).toLowerCase()
-        const orderNum = (r.orderNumber || '').toLowerCase()
-        const invoiceNum = (r.invoiceNumber || '').toLowerCase()
+        const clientName = getClientName(r.client_id).toLowerCase()
+        const orderNum = (r.order_number || '').toLowerCase()
+        const invoiceNum = (r.invoice_number || '').toLowerCase()
         const total = String(r.orderTotal)
         return clientName.includes(q) || orderNum.includes(q) || invoiceNum.includes(q) || total.includes(q)
       })
@@ -184,33 +171,33 @@ function CompanyCommission({ companyId }) {
     setTabForm({
       label: season.label,
       year: season.year || '',
-      startDate: season.startDate || '',
-      endDate: season.endDate || '',
+      start_date: season.start_date || '',
+      end_date: season.end_date || '',
     })
     setTabDialogOpen(true)
   }
 
-  const handleTabSubmit = (e) => {
+  const handleTabSubmit = async (e) => {
     e.preventDefault()
     if (editingTabId) {
-      updateSeason(editingTabId, {
+      await updateSeason(editingTabId, {
         label: tabForm.label,
         year: tabForm.year,
-        startDate: tabForm.startDate,
-        endDate: tabForm.endDate,
+        start_date: tabForm.start_date,
+        end_date: tabForm.end_date,
       })
     }
-    setTabForm({ label: '', year: '', startDate: '', endDate: '' })
+    setTabForm({ label: '', year: '', start_date: '', end_date: '' })
     setEditingTabId(null)
     setTabDialogOpen(false)
   }
 
-  const handleArchiveFromModal = () => {
+  const handleArchiveFromModal = async () => {
     const id = editingTabId
-    toggleArchiveSeason(id)
+    await toggleArchiveSeason(id)
     setTabDialogOpen(false)
     setEditingTabId(null)
-    setTabForm({ label: '', year: '', startDate: '', endDate: '' })
+    setTabForm({ label: '', year: '', start_date: '', end_date: '' })
     if (activeTab === id) {
       const remaining = activeSeasons.filter((s) => s.id !== id)
       setActiveTab(remaining[0]?.id || '')
@@ -221,9 +208,9 @@ function CompanyCommission({ companyId }) {
   const startEdit = (row) => {
     setEditingId(row.id)
     setEditForm({
-      payStatus: row.payStatus,
-      amountPaid: String(row.amountPaid ? row.amountPaid.toFixed(2) : '0'),
-      paidDate: row.paidDate || '',
+      payStatus: row.pay_status,
+      amountPaid: String(row.amount_paid ? row.amount_paid.toFixed(2) : '0'),
+      paidDate: row.paid_date || '',
     })
   }
 
@@ -232,16 +219,15 @@ function CompanyCommission({ companyId }) {
     setEditForm({ payStatus: '', amountPaid: '', paidDate: '' })
   }
 
-  const saveEdit = (row) => {
-    const amountPaid = parseFloat(editForm.amountPaid) || 0
-    setCommissionOverrides((prev) => ({
-      ...prev,
-      [row.id]: {
-        payStatus: editForm.payStatus,
-        amountPaid,
-        paidDate: editForm.paidDate || null,
-      },
-    }))
+  const saveEdit = async (row) => {
+    await upsertCommission({
+      order_id: row.orderId,
+      commission_due: row.commissionDue,
+      pay_status: editForm.payStatus,
+      amount_paid: parseFloat(editForm.amountPaid) || 0,
+      paid_date: editForm.paidDate || null,
+      amount_remaining: Math.max(row.commissionDue - (parseFloat(editForm.amountPaid) || 0), 0),
+    })
     setEditingId(null)
     setEditForm({ payStatus: '', amountPaid: '', paidDate: '' })
   }
@@ -305,7 +291,7 @@ function CompanyCommission({ companyId }) {
       {/* Edit tab dialog */}
       <Dialog open={tabDialogOpen} onOpenChange={(open) => {
         setTabDialogOpen(open)
-        if (!open) { setEditingTabId(null); setTabForm({ label: '', year: '', startDate: '', endDate: '' }) }
+        if (!open) { setEditingTabId(null); setTabForm({ label: '', year: '', start_date: '', end_date: '' }) }
       }}>
         <DialogContent>
           <DialogHeader>
@@ -339,8 +325,8 @@ function CompanyCommission({ companyId }) {
                 <Input
                   id="startDate"
                   type="date"
-                  value={tabForm.startDate}
-                  onChange={(e) => setTabForm((p) => ({ ...p, startDate: e.target.value }))}
+                  value={tabForm.start_date}
+                  onChange={(e) => setTabForm((p) => ({ ...p, start_date: e.target.value }))}
                   required
                 />
               </div>
@@ -349,8 +335,8 @@ function CompanyCommission({ companyId }) {
                 <Input
                   id="endDate"
                   type="date"
-                  value={tabForm.endDate}
-                  onChange={(e) => setTabForm((p) => ({ ...p, endDate: e.target.value }))}
+                  value={tabForm.end_date}
+                  onChange={(e) => setTabForm((p) => ({ ...p, end_date: e.target.value }))}
                   required
                 />
               </div>
@@ -468,9 +454,9 @@ function CompanyCommission({ companyId }) {
                               </Button>
                             </div>
                           </TableCell>
-                          <TableCell className="font-medium whitespace-nowrap">{getClientName(row.clientId)}</TableCell>
-                          <TableCell className="whitespace-nowrap">{row.orderNumber}</TableCell>
-                          <TableCell className="whitespace-nowrap">{row.invoiceNumber}</TableCell>
+                          <TableCell className="font-medium whitespace-nowrap">{getClientName(row.client_id)}</TableCell>
+                          <TableCell className="whitespace-nowrap">{row.order_number}</TableCell>
+                          <TableCell className="whitespace-nowrap">{row.invoice_number}</TableCell>
                           <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
                           <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
                           <TableCell>
@@ -509,11 +495,11 @@ function CompanyCommission({ companyId }) {
                     return (
                       <TableRow
                         key={row.id}
-                        className={`group ${rowHighlight(row.payStatus)}`}
+                        className={`group ${rowHighlight(row.pay_status)}`}
                         onMouseEnter={() => setHoveredRow(row.id)}
                         onMouseLeave={() => setHoveredRow(null)}
                       >
-                        <TableCell className={`sticky left-0 z-10 w-10 ${stickyBg(row.payStatus)}`}>
+                        <TableCell className={`sticky left-0 z-10 w-10 ${stickyBg(row.pay_status)}`}>
                           <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(row)} title="Edit">
                               <Pencil className="size-3.5" />
@@ -521,16 +507,16 @@ function CompanyCommission({ companyId }) {
                           </div>
                         </TableCell>
                         <TableCell className="font-medium whitespace-nowrap">
-                          {getClientName(row.clientId)}
+                          {getClientName(row.client_id)}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{row.orderNumber}</TableCell>
-                        <TableCell className="whitespace-nowrap">{row.invoiceNumber}</TableCell>
+                        <TableCell className="whitespace-nowrap">{row.order_number}</TableCell>
+                        <TableCell className="whitespace-nowrap">{row.invoice_number}</TableCell>
                         <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
                         <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
-                        <TableCell>{statusBadge(row.payStatus)}</TableCell>
-                        <TableCell className="text-right">{fmt(row.amountPaid)}</TableCell>
-                        <TableCell>{row.paidDate || '—'}</TableCell>
-                        <TableCell className="text-right">{fmt(row.amountRemaining)}</TableCell>
+                        <TableCell>{statusBadge(row.pay_status)}</TableCell>
+                        <TableCell className="text-right">{fmt(row.amount_paid)}</TableCell>
+                        <TableCell>{row.paid_date || '—'}</TableCell>
+                        <TableCell className="text-right">{fmt(row.amount_remaining)}</TableCell>
                       </TableRow>
                     )
                   })
