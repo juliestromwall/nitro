@@ -6,27 +6,19 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
 
 function Login() {
-  const { signIn, signUp } = useAuth()
-  const [isSignUp, setIsSignUp] = useState(false)
+  const { signIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [message, setMessage] = useState('')
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setError('')
-    setMessage('')
     setLoading(true)
 
     try {
-      if (isSignUp) {
-        await signUp(email, password)
-        setMessage('Check your email to confirm your account.')
-      } else {
-        await signIn(email, password)
-      }
+      await signIn(email, password)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -40,7 +32,7 @@ function Login() {
         <CardHeader className="text-center">
           <img src="/repcommish-logo.png" alt="RepCommish" className="h-28 mx-auto" />
           <p className="text-sm text-muted-foreground">
-            {isSignUp ? 'Create an account' : 'Sign in to your account'}
+            Sign in to your account
           </p>
         </CardHeader>
         <CardContent>
@@ -72,24 +64,10 @@ function Login() {
             {error && (
               <p className="text-sm text-red-600">{error}</p>
             )}
-            {message && (
-              <p className="text-sm text-green-600">{message}</p>
-            )}
 
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? 'Loading...' : isSignUp ? 'Sign Up' : 'Sign In'}
+              {loading ? 'Loading...' : 'Sign In'}
             </Button>
-
-            <p className="text-center text-sm text-muted-foreground">
-              {isSignUp ? 'Already have an account?' : "Don't have an account?"}{' '}
-              <button
-                type="button"
-                onClick={() => { setIsSignUp(!isSignUp); setError(''); setMessage('') }}
-                className="text-blue-600 hover:underline"
-              >
-                {isSignUp ? 'Sign In' : 'Sign Up'}
-              </button>
-            </p>
           </form>
         </CardContent>
       </Card>
