@@ -222,3 +222,24 @@
 **Open questions:**
 - None at this time
 
+## 2026-02-09 (session 2)
+
+**Worked on:** Rebranding to RepCommish, VPS deployment, domain + SSL setup, Supabase URL config.
+
+**Changes made:**
+- Renamed app from "Nitro" to "RepCommish" — updated Login.jsx logo and index.html title
+- Added RepCommish logo (`public/repcommish-logo.png`) to login page (h-28 size)
+- Deployed built app to Hostinger VPS (Ubuntu 24.04, IP 187.77.10.132) via nginx + scp
+- Configured nginx for SPA routing with `server_name repcommish.com www.repcommish.com`
+- Set up DNS A records: `@ → 187.77.10.132` and `www → 187.77.10.132` in Hostinger DNS
+- Installed Let's Encrypt SSL via certbot — HTTPS live on both repcommish.com and www.repcommish.com
+- Updated Supabase Site URL from `http://187.77.10.132` to `https://repcommish.com`
+- Added Supabase redirect URL: `https://repcommish.com/**`
+
+**Next steps:**
+- Test login end-to-end on https://repcommish.com
+- Test multi-user isolation (sign up as second user → empty app)
+- Consider adding www → non-www redirect in nginx
+
+**Open questions:**
+- None at this time

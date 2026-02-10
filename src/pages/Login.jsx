@@ -38,7 +38,7 @@ function Login() {
     <div className="min-h-screen flex items-center justify-center bg-zinc-50">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Nitro</CardTitle>
+          <img src="/repcommish-logo.png" alt="RepCommish" className="h-28 mx-auto" />
           <p className="text-sm text-muted-foreground">
             {isSignUp ? 'Create an account' : 'Sign in to your account'}
           </p>
