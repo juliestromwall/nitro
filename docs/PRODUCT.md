@@ -2,8 +2,9 @@
 
 ## Overview
 
-**What:** Sales and commission tracking app for Nitro Snowboards sales rep
+**What:** RepCommish — Sales and commission tracking app for sales reps
 **For:** Sales rep tracking client accounts, orders (rental & retail), and commission payments
+**URL:** https://repcommish.com
 
 ## User Roles
 
@@ -13,7 +14,7 @@
 
 ## Key Flows
 
-1. **Sign Up / Sign In** - Email/password auth via Supabase; new users see empty app (data isolated per user via RLS)
+1. **Sign In** - Email/password auth via Supabase; public signups disabled, new users created via Supabase dashboard (data isolated per user via RLS)
 2. **View Dashboard** - See total sales, commission due, and outstanding payments at a glance
 3. **Manage Companies** - Add/edit companies with commission %, logo upload (Supabase Storage), archive/restore, view per-company dashboards
 4. **Manage Clients** - Add new clients, view client list with region/type/location
@@ -46,7 +47,7 @@
 
 | Page | Description |
 |------|-------------|
-| Login | Email/password sign in + sign up (shown when not authenticated) |
+| Login | Email/password sign in only (shown when not authenticated; no public signup) |
 | Dashboard | Summary stats: total sales, rental/retail breakdown, commission due/paid |
 | Clients | Client list with add/edit, filterable by region and type |
 | ~~Sales~~ | _(Removed — Sales accessed via CompanyDetail > Sales tab)_ |

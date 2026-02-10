@@ -243,3 +243,30 @@
 
 **Open questions:**
 - None at this time
+
+## 2026-02-09 (session 3)
+
+**Worked on:** Favicon, title update, signup lockdown, search engine blocking.
+
+**Changes made:**
+- Added custom favicon (`public/favicon.png`) — black circle with white mountain "A" icon
+- Changed page title from "RepCommish" to "REPCOMMISH" in index.html
+- Updated favicon link in index.html from SVG to PNG
+- Disabled "Allow new users to sign up" in Supabase Auth settings
+- Removed sign up UI from Login.jsx — sign-in only (no toggle, no sign up button, no confirmation message)
+- Added `public/robots.txt` with `Disallow: /` to block all search engine indexing
+- Disabled "Confirm email" in Supabase Auth (not needed for admin-created users)
+- Built and deployed all changes to VPS (https://repcommish.com)
+- Committed and pushed to GitHub
+
+**Deployment notes:**
+- New users are added via Supabase dashboard > Authentication > Users > Add user / Invite user
+- Public signups are fully disabled at both the Supabase level and the UI level
+
+**Next steps:**
+- Import client/order data or start entering manually
+- Consider adding www → non-www redirect in nginx
+- Add edit/delete functionality for clients
+
+**Open questions:**
+- None at this time

@@ -5,7 +5,7 @@
 | Component | Location | Description |
 |-----------|----------|-------------|
 | App Layout | src/App.jsx | Sidebar nav with company icons at top, icon navigation below, auth guard, sign out button |
-| Login | src/pages/Login.jsx | Email/password login + signup form with toggle, error/success messages |
+| Login | src/pages/Login.jsx | Email/password sign-in only (no public signup; users created via Supabase dashboard) |
 | Dashboard | src/pages/Dashboard.jsx | Summary cards (Total/Rental/Retail Sales, Commission Due/Paid/Outstanding) + Recent Orders table |
 | Clients | src/pages/Clients.jsx | Client list with search, add client dialog with form (uses ClientContext) |
 | Sales | _(removed)_ | Sales now accessed only via CompanyDetail > Sales tab |
@@ -45,3 +45,5 @@
 | 2026-02-07 | Sales & Commission table UX: sticky first-column edit actions (no scroll needed), removed Documents column, dual document upload in Add Sale dialog, invoice # hyperlinks, "+Note" vs amber icon, $ currency formatting with decimal sanitization, % commission input with no-spinner CSS, 4 clickable summary cards on Sales page, status-aware sticky backgrounds on Commission |
 | 2026-02-07 | Sales UX refinements: replaced inline row editing with modal-based editing (pencil opens pre-filled Add/Edit dialog), unified Add/Edit Sale dialog with isEditMode flag, document uploads moved inline next to Order # and Invoice # labels, Total Sales card reordered to first position |
 | 2026-02-09 | Supabase backend: Added auth (email/password), migrated all contexts from mock data to Supabase (PostgreSQL + RLS), added file storage (logos public, documents private with signed URLs), created AuthContext, ClientContext, Login page, db helpers, constants, SQL schema, seed script, .htaccess for Hostinger SPA routing. Deleted mockData.js. |
+| 2026-02-09 | Rebranded to RepCommish: custom logo on login, favicon, title "REPCOMMISH". Deployed to Hostinger VPS with nginx + SSL (repcommish.com). |
+| 2026-02-09 | Locked down signups: removed sign up UI from login page, disabled signups in Supabase, added robots.txt to block search engines. |
