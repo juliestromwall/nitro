@@ -26,25 +26,31 @@ const getItems = (order) => {
   return ''
 }
 
-// Strip non-numeric chars except decimal point
-const sanitizeCurrency = (val) => val.replace(/[^0-9.]/g, '')
-const formatToTwoDecimals = (val) => {
+// Cents-first currency formatting: raw digits → "$X,XXX.XX"
+// Typing "4424" stores "4424" (cents), displayed as "44.24"
+const centsToDisplay = (raw) => {
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return ''
+  const cents = parseInt(digits, 10)
+  const dollars = (cents / 100).toFixed(2)
+  const [whole, dec] = dollars.split('.')
+  const withCommas = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return `${withCommas}.${dec}`
+}
+
+// Convert stored cents-string back to a float for DB
+const centsToFloat = (raw) => {
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return 0
+  return parseInt(digits, 10) / 100
+}
+
+// Convert a dollar float (e.g. 48750.00) to cents-string for the input state
+const floatToCents = (val) => {
   const num = parseFloat(val)
-  return isNaN(num) ? '' : num.toFixed(2)
+  if (isNaN(num)) return ''
+  return String(Math.round(num * 100))
 }
-
-// Format currency with commas for live display in the Total input
-const formatLiveCurrency = (val) => {
-  const raw = val.replace(/[^0-9.]/g, '')
-  if (!raw) return ''
-  const parts = raw.split('.')
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',')
-  if (parts.length > 1) parts[1] = parts[1].slice(0, 2)
-  return parts.join('.')
-}
-
-// Strip commas for storage
-const stripCommas = (val) => val.replace(/,/g, '')
 
 const HYPE_MESSAGES = [
   "LET'S GOOO! That's",
@@ -259,7 +265,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       stage: order.stage,
       order_document: order.order_document || null,
       invoice_document: order.invoice_document || null,
-      total: String(order.total),
+      total: floatToCents(order.total),
       commission_override: order.commission_override != null ? String(order.commission_override) : '',
       notes: order.notes || '',
     })
@@ -280,7 +286,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     e.preventDefault()
     if (!saleForm.client_id || !saleForm.order_type || !saleForm.stage) return
 
-    const total = parseFloat(stripCommas(saleForm.total)) || 0
+    const total = centsToFloat(saleForm.total)
     const commOverride = saleForm.commission_override.trim() !== '' ? parseFloat(saleForm.commission_override) : null
 
     const orderData = {
@@ -666,6 +672,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
         >
+          {/* Company logo + name banner */}
+          <div className="flex items-center justify-center gap-3 pb-2">
+            {company?.logo_path && (
+              <img src={company.logo_path} alt={company.name} className="w-10 h-10 object-contain" />
+            )}
+            <span className="text-xl font-bold text-zinc-900">{company?.name}</span>
+          </div>
+
           <DialogHeader>
             <DialogTitle>{isEditMode ? 'Edit Sale' : 'Add Sale'}</DialogTitle>
             <DialogDescription>
@@ -830,18 +844,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 />
               </div>
 
-              {/* Total — BIG and exciting */}
+              {/* Total — BIG cents-first input */}
               <div className="space-y-2">
                 <Label>Total <span className="text-red-500">*</span></Label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-3xl font-bold text-zinc-900">$</span>
-                  <Input
-                    inputMode="decimal"
+                <div className="flex items-center border rounded-md h-16 px-4 focus-within:ring-2 focus-within:ring-ring">
+                  <span className="text-4xl font-black text-zinc-900 select-none">$</span>
+                  <input
+                    inputMode="numeric"
                     placeholder="0.00"
-                    value={formatLiveCurrency(saleForm.total)}
-                    onChange={(e) => setSaleForm((p) => ({ ...p, total: stripCommas(sanitizeCurrency(e.target.value)) }))}
-                    onBlur={() => setSaleForm((p) => ({ ...p, total: formatToTwoDecimals(stripCommas(p.total)) }))}
-                    className="pl-12 text-3xl font-bold h-14 tracking-tight"
+                    value={centsToDisplay(saleForm.total)}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '')
+                      setSaleForm((p) => ({ ...p, total: digits }))
+                    }}
+                    className="flex-1 text-4xl font-black tracking-tight bg-transparent outline-none ml-1"
                     required
                   />
                 </div>
@@ -884,20 +900,15 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 />
               </div>
 
-              {/* Company logo + action buttons */}
-              <div className="flex items-center gap-3 pt-2">
-                {company?.logo_path && (
-                  <img src={company.logo_path} alt={company.name} className="w-10 h-10 object-contain opacity-60" />
-                )}
-                <div className="flex gap-2 ml-auto">
-                  <Button type="button" variant="outline" onClick={() => setSaleStep(1)}>
-                    <ChevronLeft className="size-4 mr-1" /> Back
-                  </Button>
-                  <Button type="button" variant="outline" onClick={closeSaleDialog}>Cancel</Button>
-                  <Button type="submit" disabled={!saleForm.client_id || !saleForm.order_type || !saleForm.stage}>
-                    {isEditMode ? 'Save Changes' : 'Add Sale'}
-                  </Button>
-                </div>
+              {/* Action buttons */}
+              <div className="flex justify-end gap-2 pt-2">
+                <Button type="button" variant="outline" onClick={() => setSaleStep(1)}>
+                  <ChevronLeft className="size-4 mr-1" /> Back
+                </Button>
+                <Button type="button" variant="outline" onClick={closeSaleDialog}>Cancel</Button>
+                <Button type="submit" disabled={!saleForm.client_id || !saleForm.order_type || !saleForm.stage}>
+                  {isEditMode ? 'Save Changes' : 'Add Sale'}
+                </Button>
               </div>
             </form>
           )}
