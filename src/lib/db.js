@@ -45,12 +45,21 @@ export async function updateCompanySortOrders(updates) {
 // ── Accounts ──────────────────────────────────────────────
 
 export async function fetchAccounts() {
-  const { data, error } = await supabase
-    .from('clients')
-    .select('*')
-    .order('name', { ascending: true })
-  if (error) throw error
-  return data
+  const rows = []
+  let from = 0
+  const pageSize = 1000
+  while (true) {
+    const { data, error } = await supabase
+      .from('clients')
+      .select('*')
+      .order('name', { ascending: true })
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+    rows.push(...data)
+    if (data.length < pageSize) break
+    from += pageSize
+  }
+  return rows
 }
 
 export async function insertAccount(account) {
@@ -123,12 +132,21 @@ export async function updateSeason(id, updates) {
 // ── Orders ─────────────────────────────────────────────────
 
 export async function fetchOrders() {
-  const { data, error } = await supabase
-    .from('orders')
-    .select('*')
-    .order('created_at', { ascending: false })
-  if (error) throw error
-  return data
+  const rows = []
+  let from = 0
+  const pageSize = 1000
+  while (true) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(from, from + pageSize - 1)
+    if (error) throw error
+    rows.push(...data)
+    if (data.length < pageSize) break
+    from += pageSize
+  }
+  return rows
 }
 
 export async function insertOrder(order) {
