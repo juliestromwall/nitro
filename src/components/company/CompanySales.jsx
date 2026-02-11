@@ -189,7 +189,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       client_id: null, clientName: '', sale_type: 'Prebook', season_id: currentSeason?.id || '',
       order_type: '',
       items: [], order_number: '', invoice_number: '', close_date: '',
-      stage: '', order_document: null, invoice_document: null, total: '', commission_override: '', notes: '',
+      stage: '', order_document: null, invoice_document: null, total: '',
+      commission_override: company?.commission_percent != null ? String(company.commission_percent) : '',
+      notes: '',
     })
     setAccountSearch('')
     setSaleStep(1)
@@ -266,7 +268,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       order_document: order.order_document || null,
       invoice_document: order.invoice_document || null,
       total: floatToCents(order.total),
-      commission_override: order.commission_override != null ? String(order.commission_override) : '',
+      commission_override: order.commission_override != null ? String(order.commission_override) : String(company?.commission_percent ?? ''),
       notes: order.notes || '',
     })
   }
@@ -844,22 +846,40 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 />
               </div>
 
-              {/* Total — cents-first input */}
-              <div className="space-y-2">
-                <Label>Total <span className="text-red-500">*</span></Label>
-                <div className="flex items-center border rounded-md h-12 px-3 focus-within:ring-2 focus-within:ring-ring">
-                  <span className="text-2xl font-bold text-zinc-900 select-none">$</span>
-                  <input
-                    inputMode="numeric"
-                    placeholder="0.00"
-                    value={centsToDisplay(saleForm.total)}
-                    onChange={(e) => {
-                      const digits = e.target.value.replace(/\D/g, '')
-                      setSaleForm((p) => ({ ...p, total: digits }))
-                    }}
-                    className="flex-1 text-2xl font-bold tracking-tight bg-transparent outline-none ml-1"
-                    required
-                  />
+              {/* Total + Commission % side by side */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Total <span className="text-red-500">*</span></Label>
+                  <div className="flex items-center border rounded-md h-9 px-3 focus-within:ring-2 focus-within:ring-ring">
+                    <span className="text-sm font-medium text-zinc-500 select-none">$</span>
+                    <input
+                      inputMode="numeric"
+                      placeholder="0.00"
+                      value={centsToDisplay(saleForm.total)}
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, '')
+                        setSaleForm((p) => ({ ...p, total: digits }))
+                      }}
+                      className="flex-1 text-sm bg-transparent outline-none ml-1"
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Commission %</Label>
+                  <div className="flex items-center border rounded-md h-9 px-3 focus-within:ring-2 focus-within:ring-ring">
+                    <input
+                      inputMode="decimal"
+                      placeholder={String(company?.commission_percent ?? 0)}
+                      value={saleForm.commission_override}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9.]/g, '')
+                        setSaleForm((p) => ({ ...p, commission_override: val }))
+                      }}
+                      className="flex-1 text-sm bg-transparent outline-none"
+                    />
+                    <span className="text-sm font-medium text-zinc-500 select-none">%</span>
+                  </div>
                 </div>
               </div>
 
