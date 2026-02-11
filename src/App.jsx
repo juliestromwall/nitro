@@ -1,5 +1,6 @@
-import { Routes, Route, NavLink } from 'react-router-dom'
-import { Building2, Users, LayoutDashboard, LogOut } from 'lucide-react'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import { Building2, Users, LayoutDashboard, LogOut, Home, RotateCcw } from 'lucide-react'
 import { useAuth } from './context/AuthContext'
 import { CompanyProvider, useCompanies } from './context/CompanyContext'
 import { AccountProvider } from './context/AccountContext'
@@ -15,16 +16,17 @@ function CompanyLinks() {
   const { activeCompanies } = useCompanies()
 
   return (
-    <div className="flex flex-col gap-1 w-full px-3">
+    <div className="flex flex-col gap-2 w-full px-2">
       {activeCompanies.map((company) => (
         <NavLink
           key={company.id}
           to={`/companies/${company.id}`}
+          title={company.name}
           className={({ isActive }) =>
-            `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+            `flex items-center justify-center p-2 rounded-lg transition-colors ${
               isActive
-                ? 'bg-zinc-800 text-white'
-                : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                ? 'bg-[#005b5b]/20 ring-1 ring-[#005b5b]/40'
+                : 'text-zinc-400 hover:text-white hover:bg-zinc-600'
             }`
           }
         >
@@ -32,14 +34,13 @@ function CompanyLinks() {
             <img
               src={company.logo_path}
               alt={company.name}
-              className="w-7 h-7 shrink-0 invert object-contain"
+              className="w-9 h-9 shrink-0 invert object-contain"
             />
           ) : (
-            <div className="w-7 h-7 shrink-0 rounded bg-zinc-700 flex items-center justify-center text-white text-xs font-bold">
+            <div className="w-9 h-9 shrink-0 rounded bg-zinc-700 flex items-center justify-center text-white text-sm font-bold">
               {company.name.charAt(0)}
             </div>
           )}
-          <span className="text-sm font-medium truncate">{company.name}</span>
         </NavLink>
       ))}
     </div>
@@ -48,6 +49,67 @@ function CompanyLinks() {
 
 function App() {
   const { user, loading, signOut } = useAuth()
+  const location = useLocation()
+  const [showHomeMenu, setShowHomeMenu] = useState(false)
+  const [homeConfirm, setHomeConfirm] = useState(null) // 'set' | 'reset'
+  const longPressTimer = useRef(null)
+  const menuRef = useRef(null)
+
+  const homepageKey = user ? `homepage-${user.id}` : null
+
+  const getHomePath = useCallback(() => {
+    if (!homepageKey) return '/'
+    try {
+      const saved = JSON.parse(localStorage.getItem(homepageKey))
+      return saved?.path || '/'
+    } catch {
+      return '/'
+    }
+  }, [homepageKey])
+
+  const handleSetHomepage = () => {
+    const path = location.pathname
+    // Read current tab from CompanyDetail's localStorage if on a company page
+    const companyMatch = path.match(/^\/companies\/(\d+)$/)
+    const homepage = { path }
+    if (companyMatch) {
+      const tab = localStorage.getItem(`activeTab-${companyMatch[1]}`)
+      if (tab) homepage.tab = tab
+    }
+    localStorage.setItem(homepageKey, JSON.stringify(homepage))
+    setShowHomeMenu(false)
+    setHomeConfirm('set')
+    setTimeout(() => setHomeConfirm(null), 1500)
+  }
+
+  const handleResetHomepage = () => {
+    localStorage.removeItem(homepageKey)
+    setShowHomeMenu(false)
+    setHomeConfirm('reset')
+    setTimeout(() => setHomeConfirm(null), 1500)
+  }
+
+  const handlePointerDown = () => {
+    longPressTimer.current = setTimeout(() => {
+      setShowHomeMenu(true)
+    }, 500)
+  }
+
+  const handlePointerUp = () => {
+    clearTimeout(longPressTimer.current)
+  }
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!showHomeMenu) return
+    const handleClick = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setShowHomeMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [showHomeMenu])
 
   if (loading) {
     return (
@@ -61,6 +123,8 @@ function App() {
     return <Login />
   }
 
+  const homePath = getHomePath()
+
   return (
     <CompanyProvider>
     <AccountProvider>
@@ -68,73 +132,115 @@ function App() {
     <TodoProvider>
       <div className="flex h-screen">
         {/* Sidebar */}
-        <aside className="w-56 bg-zinc-900 flex flex-col py-4 shrink-0">
-          {/* App logo */}
-          <NavLink to="/" className="flex items-center justify-center mb-4 px-4">
-            <img src="/repcommish-nav.png" alt="RepCommish" className="h-20 object-contain" />
-          </NavLink>
+        <aside className="w-20 bg-zinc-900 flex flex-col py-4 shrink-0 items-center">
+          {/* App logo — click navigates to homepage, long-press shows menu */}
+          <div className="relative">
+            <NavLink
+              to={homePath}
+              className="flex items-center justify-center mb-1 px-1"
+              onPointerDown={handlePointerDown}
+              onPointerUp={handlePointerUp}
+              onPointerLeave={handlePointerUp}
+              onContextMenu={(e) => {
+                e.preventDefault()
+                setShowHomeMenu(true)
+              }}
+            >
+              <img src="/vertical-logo.png" alt="RepCommish" className="w-14 object-contain" />
+            </NavLink>
 
-          <div className="border-t border-zinc-700 mx-3 mb-3" />
+            {/* Confirmation toast */}
+            {homeConfirm && (
+              <div className="absolute left-full top-1/2 -translate-y-1/2 ml-2 bg-zinc-800 text-white text-xs px-3 py-1.5 rounded-lg whitespace-nowrap shadow-lg z-50 animate-in fade-in slide-in-from-left-2">
+                {homeConfirm === 'set' ? 'Homepage saved!' : 'Reset to Dashboard'}
+              </div>
+            )}
+
+            {/* Long-press popover */}
+            {showHomeMenu && (
+              <div
+                ref={menuRef}
+                className="absolute left-full top-0 ml-2 bg-zinc-800 rounded-lg shadow-xl border border-zinc-700 py-1 z-50 min-w-[200px] animate-in fade-in slide-in-from-left-2"
+              >
+                <button
+                  onClick={handleSetHomepage}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-700 transition-colors"
+                >
+                  <Home className="size-4" />
+                  Set current page as homepage
+                </button>
+                <button
+                  onClick={handleResetHomepage}
+                  className="flex items-center gap-2 w-full px-3 py-2 text-sm text-zinc-400 hover:bg-zinc-700 hover:text-zinc-200 transition-colors"
+                >
+                  <RotateCcw className="size-4" />
+                  Reset to Dashboard
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-zinc-700 w-12 mb-3" />
 
           {/* Company quick links */}
           <CompanyLinks />
 
-          <div className="border-t border-zinc-700 mx-3 my-3" />
+          <div className="border-t border-zinc-700 w-12 my-3" />
 
-          {/* Navigation */}
-          <nav className="flex flex-col gap-1 px-3">
+          {/* Navigation — icon only */}
+          <nav className="flex flex-col gap-2 px-2 w-full mt-auto">
             <NavLink
               to="/"
               end
+              title="Dashboard"
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+                `flex items-center justify-center p-2 rounded-lg transition-colors ${
                   isActive
-                    ? 'bg-white text-zinc-900'
-                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                    ? 'bg-[#005b5b] text-white'
+                    : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
                 }`
               }
             >
-              <LayoutDashboard className="size-5 shrink-0" />
-              <span className="text-sm font-medium">Dashboard</span>
+              <LayoutDashboard className="size-5" />
             </NavLink>
             <NavLink
               to="/companies"
               end
+              title="My Companies"
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+                `flex items-center justify-center p-2 rounded-lg transition-colors ${
                   isActive
-                    ? 'bg-white text-zinc-900'
-                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                    ? 'bg-[#005b5b] text-white'
+                    : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
                 }`
               }
             >
-              <Building2 className="size-5 shrink-0" />
-              <span className="text-sm font-medium">My Companies</span>
+              <Building2 className="size-5" />
             </NavLink>
             <NavLink
               to="/accounts"
               end
+              title="Accounts"
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+                `flex items-center justify-center p-2 rounded-lg transition-colors ${
                   isActive
-                    ? 'bg-white text-zinc-900'
-                    : 'text-zinc-400 hover:text-white hover:bg-zinc-800'
+                    ? 'bg-[#005b5b] text-white'
+                    : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
                 }`
               }
             >
-              <Users className="size-5 shrink-0" />
-              <span className="text-sm font-medium">Accounts</span>
+              <Users className="size-5" />
             </NavLink>
           </nav>
 
           {/* Sign Out — pushed to bottom */}
-          <div className="mt-auto px-3">
+          <div className="mt-4 px-2 w-full">
             <button
               onClick={signOut}
-              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors"
+              title="Sign Out"
+              className="flex items-center justify-center w-full p-2 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-600 transition-colors"
             >
-              <LogOut className="size-5 shrink-0" />
-              <span className="text-sm font-medium">Sign Out</span>
+              <LogOut className="size-6 shrink-0" />
             </button>
           </div>
         </aside>

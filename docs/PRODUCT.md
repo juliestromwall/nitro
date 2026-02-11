@@ -22,7 +22,8 @@
 6. **Track Sales** - Per-company: view orders by season, add/edit/delete, search and filter, upload order/invoice documents (Supabase Storage with signed URLs)
 7. **Track Commission** - Per-company: see what's owed, paid, and outstanding by season; inline pay status editing persisted to Supabase
 8. **Manage To Dos** - Per-company: add, edit, complete, pin/unpin, drag-to-reorder, and delete to-do items with searchable account dropdown, due dates, and overdue highlighting
-9. **Sign Out** - Log out from sidebar; returns to login screen
+9. **Set Homepage** - Long-press or right-click the RepCommish logo to set any page (including a company detail tab) as the default homepage; logo click navigates there instead of Dashboard
+10. **Sign Out** - Log out from sidebar; returns to login screen
 
 ## Terminology
 

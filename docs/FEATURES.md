@@ -4,7 +4,7 @@
 
 | Component | Location | Description |
 |-----------|----------|-------------|
-| App Layout | src/App.jsx | Sidebar nav with company icons at top, icon navigation below, auth guard, sign out button |
+| App Layout | src/App.jsx | Sidebar nav with company icons at top, icon navigation below, auth guard, sign out button, customizable homepage (long-press/right-click logo to set any page as homepage) |
 | Login | src/pages/Login.jsx | Email/password sign-in only (no public signup; users created via Supabase dashboard) |
 | Dashboard | src/pages/Dashboard.jsx | Summary cards (Total/Rental/Retail Sales, Commission Due/Paid/Outstanding) + Recent Orders table |
 | Accounts | src/pages/Accounts.jsx | Account list with search, add/import accounts (CSV import, uses AccountContext) |
@@ -53,3 +53,4 @@
 | 2026-02-10 | Add/Edit Sale modal redesigned as 2-step wizard: Step 1 (Sale Type, Tracker, Account), Step 2 (Order Type, Items, Order #, Total, Stage, Close Date, Notes). Added sale_type column (Prebook/At Once) to orders table and sales table. Removed Invoice # and Commission % Override from modal. Prominent Total input with larger text. Modal prevents outside-click dismiss. |
 | 2026-02-10 | Step 2 UX enhancements: required Order Type and Stage fields (must select, not pre-filled), Stage moved next to Close Date, company logo in modal footer, live comma-formatted Total with large $ sign. Added celebration popup after adding a sale with animated confetti dots, bouncing company logo, random snowboarder hype messages, green commission amount, and "LET'S GO!" dismiss button. |
 | 2026-02-10 | Modal branding: company logo + name header on both wizard steps. Cents-first currency input (typing digits fills from right, e.g. "4424" → $44.24). Reduced Total input to text-2xl. Added max-h-[90vh] overflow-y-auto to modal for small viewports. |
+| 2026-02-10 | Customizable homepage: long-press or right-click the RepCommish logo to set any page as homepage (including company detail with specific tab). Logo click navigates to saved homepage instead of always Dashboard. "Reset to Dashboard" option to clear. Uses localStorage keyed by user ID. |

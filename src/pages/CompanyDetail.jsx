@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { useAuth } from '@/context/AuthContext'
 import { ArrowLeft, Plus } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -16,10 +17,25 @@ const tabs = [
 
 function CompanyDetail() {
   const { id } = useParams()
+  const { user } = useAuth()
   const { companies } = useCompanies()
   const company = companies.find((c) => c.id === parseInt(id))
-  const [activeTab, setActiveTab] = useState('dashboard')
+
+  // Restore tab from homepage setting if this is the saved homepage
+  const [activeTab, setActiveTab] = useState(() => {
+    if (!user) return 'dashboard'
+    try {
+      const saved = JSON.parse(localStorage.getItem(`homepage-${user.id}`))
+      if (saved?.path === `/companies/${id}` && saved?.tab) return saved.tab
+    } catch { /* ignore */ }
+    return 'dashboard'
+  })
   const [addSaleOpen, setAddSaleOpen] = useState(false)
+
+  // Persist active tab so App.jsx can read it when setting homepage
+  useEffect(() => {
+    localStorage.setItem(`activeTab-${id}`, activeTab)
+  }, [id, activeTab])
 
   if (!company) {
     return (
@@ -51,21 +67,21 @@ function CompanyDetail() {
         )}
         <h1 className="text-2xl font-bold">{company.name}</h1>
         <Badge variant="outline">{company.commission_percent}% Commission</Badge>
-        <Button className="bg-green-600 hover:bg-green-700 text-white" onClick={handleAddSaleClick}>
+        <Button className="bg-[#005b5b] hover:bg-[#007a7a] text-white" onClick={handleAddSaleClick}>
           <Plus className="size-4 mr-1" /> Add Sale
         </Button>
       </div>
 
-      {/* Tab bar — pill-style buttons */}
-      <div className="flex items-center gap-2">
+      {/* Tab bar — underline-style */}
+      <div className="flex items-center gap-6 border-b">
         {tabs.map((tab) => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            className={`px-1 py-2 text-sm font-medium transition-colors relative ${
               activeTab === tab.id
-                ? 'bg-zinc-900 text-white'
-                : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                ? 'text-[#005b5b] border-b-2 border-[#005b5b]'
+                : 'text-muted-foreground hover:text-zinc-900'
             }`}
           >
             {tab.label}

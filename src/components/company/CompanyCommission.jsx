@@ -243,7 +243,7 @@ function CompanyCommission({ companyId }) {
                 onClick={() => handleTabChange(season.id)}
                 className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
                   activeTab === season.id
-                    ? 'border-b-2 border-zinc-900 text-zinc-900'
+                    ? 'border-b-2 border-[#005b5b] text-[#005b5b]'
                     : 'text-muted-foreground hover:text-zinc-700'
                 }`}
               >
@@ -348,7 +348,7 @@ function CompanyCommission({ companyId }) {
                   <Button
                     type="button"
                     variant={isArchived ? 'default' : 'destructive'}
-                    className={isArchived ? 'bg-green-600 hover:bg-green-700 mr-auto' : 'mr-auto'}
+                    className={isArchived ? 'bg-[#005b5b] hover:bg-[#007a7a] mr-auto' : 'mr-auto'}
                     onClick={handleArchiveFromModal}
                   >
                     <FolderArchive className="size-4 mr-1" />
