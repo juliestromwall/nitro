@@ -18,7 +18,7 @@ function Dashboard() {
   const currentSeason = activeSeasons.length > 0 ? activeSeasons[activeSeasons.length - 1] : null
   const currentSeasonId = currentSeason?.id || ''
 
-  const seasonOrders = orders.filter((o) => o.season_id === currentSeasonId)
+  const seasonOrders = orders.filter((o) => o.season_id === currentSeasonId && o.stage !== 'Cancelled')
 
   const totalSales = seasonOrders.reduce((sum, o) => sum + (o.total || 0), 0)
 

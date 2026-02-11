@@ -39,7 +39,7 @@ function CompanyDashboard({ companyId }) {
   }
 
   // Summary data
-  const seasonOrders = orders.filter((o) => o.company_id === companyId && o.season_id === selectedSeasonId)
+  const seasonOrders = orders.filter((o) => o.company_id === companyId && o.season_id === selectedSeasonId && o.stage !== 'Cancelled')
   const totalSales = seasonOrders.reduce((sum, o) => sum + (o.total || 0), 0)
   const commissionPct = company?.commission_percent || 0
 

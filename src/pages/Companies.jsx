@@ -30,8 +30,8 @@ function Companies() {
   const [logoFile, setLogoFile] = useState(null)
   const fileInputRef = useRef(null)
   const [newOrderType, setNewOrderType] = useState('')
-  const [newItem, setNewItem] = useState('')
   const [newStage, setNewStage] = useState('')
+  const [newItem, setNewItem] = useState('')
   const [dragIndex, setDragIndex] = useState(null)
   const [dragOverIndex, setDragOverIndex] = useState(null)
 
@@ -314,27 +314,27 @@ function Companies() {
             {/* Stages */}
             <div className="space-y-2">
               <Label>Stages</Label>
-              {form.stages.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {form.stages.map((t, i) => (
-                    <Badge key={i} variant="secondary" className="gap-1 text-sm">
-                      {t}
-                      <button type="button" onClick={() => setForm((p) => ({ ...p, stages: p.stages.filter((_, j) => j !== i) }))} className="ml-0.5 hover:text-red-500">
-                        <X className="size-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-              )}
+              <div className="flex flex-wrap gap-1.5">
+                <Badge variant="outline" className="text-sm bg-zinc-100">Order Placed</Badge>
+                <Badge variant="outline" className="text-sm bg-zinc-100">Cancelled</Badge>
+                {form.stages.filter((s) => s !== 'Order Placed' && s !== 'Cancelled').map((t, i) => (
+                  <Badge key={i} variant="secondary" className="gap-1 text-sm">
+                    {t}
+                    <button type="button" onClick={() => setForm((p) => ({ ...p, stages: p.stages.filter((s) => s !== t) }))} className="ml-0.5 hover:text-red-500">
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
               <div className="flex gap-2">
                 <Input
-                  placeholder="e.g. Prospecting, Negotiation, Closed - Won"
+                  placeholder="Add custom stage..."
                   value={newStage}
                   onChange={(e) => setNewStage(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = newStage.trim(); if (v && !form.stages.includes(v)) { setForm((p) => ({ ...p, stages: [...p.stages, v] })); setNewStage('') } } }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = newStage.trim(); if (v && !form.stages.includes(v) && v !== 'Order Placed' && v !== 'Cancelled') { setForm((p) => ({ ...p, stages: [...p.stages, v] })); setNewStage('') } } }}
                   className="flex-1"
                 />
-                <Button type="button" variant="outline" size="sm" onClick={() => { const v = newStage.trim(); if (v && !form.stages.includes(v)) { setForm((p) => ({ ...p, stages: [...p.stages, v] })); setNewStage('') } }} disabled={!newStage.trim()}>
+                <Button type="button" variant="outline" size="sm" onClick={() => { const v = newStage.trim(); if (v && !form.stages.includes(v) && v !== 'Order Placed' && v !== 'Cancelled') { setForm((p) => ({ ...p, stages: [...p.stages, v] })); setNewStage('') } }} disabled={!newStage.trim()}>
                   <Plus className="size-4" />
                 </Button>
               </div>

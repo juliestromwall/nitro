@@ -105,7 +105,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const company = getCompany(companyId)
   const companyOrderTypes = company?.order_types || []
   const companyItems = company?.items || []
-  const companyStages = company?.stages || []
+  const DEFAULT_STAGES = ['Order Placed', 'Cancelled']
+  const customStages = (company?.stages || []).filter((s) => s !== 'Order Placed' && s !== 'Cancelled')
+  const companyStages = [...DEFAULT_STAGES, ...customStages]
 
   const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
   const [tabDialogOpen, setTabDialogOpen] = useState(false)
@@ -431,7 +433,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         order_number: map.order_number !== undefined ? cols[map.order_number] || '' : '',
         invoice_number: map.invoice_number !== undefined ? (cols[map.invoice_number] || '').replace(/\n/g, ' ') : '',
         close_date: map.close_date !== undefined ? cols[map.close_date] || '' : '',
-        stage: map.stage !== undefined ? cols[map.stage] || companyStages[0] || 'Closed - Won' : companyStages[0] || 'Closed - Won',
+        stage: map.stage !== undefined ? cols[map.stage] || 'Order Placed' : 'Order Placed',
         total,
         commission_override: commOverride,
         notes: map.notes !== undefined ? cols[map.notes] || '' : '',
@@ -512,19 +514,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const uniqueOrderTypes = [...new Set(seasonOrders.map((o) => o.order_type))]
   const uniqueStages = [...new Set(seasonOrders.map((o) => o.stage))]
 
-  // Compute totals — dynamic per order type
-  const totalSales = seasonOrders.reduce((sum, o) => sum + o.total, 0)
-  const totalCommission = seasonOrders.reduce((sum, o) => sum + getCommission(o).amount, 0)
+  // Exclude cancelled orders from totals
+  const activeOrders = seasonOrders.filter((o) => o.stage !== 'Cancelled')
+  const totalSales = activeOrders.reduce((sum, o) => sum + o.total, 0)
+  const totalCommission = activeOrders.reduce((sum, o) => sum + getCommission(o).amount, 0)
 
-  // Per-order-type totals for summary cards
+  // Per-order-type totals for summary cards (excluding cancelled)
   const orderTypeTotals = useMemo(() => {
     const map = {}
-    seasonOrders.forEach((o) => {
+    activeOrders.forEach((o) => {
       if (!map[o.order_type]) map[o.order_type] = 0
       map[o.order_type] += o.total
     })
     return map
-  }, [seasonOrders])
+  }, [activeOrders])
 
   return (
     <div className="space-y-6 min-w-0">
@@ -1233,6 +1236,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 ) : (
                   filteredOrders.map((order) => {
                     const isHovered = hoveredRow === order.id
+                    const isCancelled = order.stage === 'Cancelled'
                     const comm = getCommission(order)
                     const hasNote = order.notes && order.notes.trim().length > 0
 
@@ -1241,9 +1245,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                         key={order.id}
                         onMouseEnter={() => setHoveredRow(order.id)}
                         onMouseLeave={() => setHoveredRow(null)}
-                        className="group"
+                        className={`group ${isCancelled ? 'bg-red-50 text-red-400 line-through' : ''}`}
                       >
-                        <TableCell className="sticky left-0 bg-white z-10 w-10">
+                        <TableCell className={`sticky left-0 z-10 w-10 ${isCancelled ? 'bg-red-50' : 'bg-white'}`}>
                           <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditOrder(order)} title="Edit">
                               <Pencil className="size-3.5" />

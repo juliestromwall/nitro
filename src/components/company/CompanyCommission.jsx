@@ -87,10 +87,10 @@ function CompanyCommission({ companyId }) {
   const company = companies.find((c) => c.id === companyId)
   const commissionPct = company?.commission_percent || 0
 
-  // Get all "Closed - Won" orders for this company + season
+  // Get all non-cancelled orders for this company + season
   const closedWonOrders = currentSeason
     ? orders.filter(
-        (o) => o.company_id === companyId && o.season_id === currentSeason.id && o.stage === 'Closed - Won'
+        (o) => o.company_id === companyId && o.season_id === currentSeason.id && o.stage !== 'Cancelled'
       )
     : []
 
