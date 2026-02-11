@@ -1,5 +1,5 @@
-import { useState, useMemo, useRef } from 'react'
-import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote } from 'lucide-react'
+import { useState, useMemo, useRef, useEffect } from 'react'
+import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -32,6 +32,48 @@ const formatToTwoDecimals = (val) => {
   const num = parseFloat(val)
   return isNaN(num) ? '' : num.toFixed(2)
 }
+
+// Format currency with commas for live display in the Total input
+const formatLiveCurrency = (val) => {
+  const raw = val.replace(/[^0-9.]/g, '')
+  if (!raw) return ''
+  const parts = raw.split('.')
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  if (parts.length > 1) parts[1] = parts[1].slice(0, 2)
+  return parts.join('.')
+}
+
+// Strip commas for storage
+const stripCommas = (val) => val.replace(/,/g, '')
+
+const HYPE_MESSAGES = [
+  "LET'S GOOO! That's",
+  "STACKED! You just earned",
+  "SENDING IT! That's",
+  "FULL SEND! You just locked in",
+  "BOOSTED! That's",
+  "CRUSHED IT! You just banked",
+  "SHREDDING! That's",
+  "STOMPED IT! You just scored",
+  "ON FIRE! That's",
+  "DROPPING IN HOT! You just secured",
+  "BUTTERED THAT DEAL! That's",
+  "CLEAN LANDING! You just pocketed",
+  "POWDER DAY VIBES! That's",
+  "CORK 10 ENERGY! You just earned",
+  "STRAIGHT CHARGING! That's",
+]
+
+const HYPE_CLOSERS = [
+  "in commission! Keep shredding!",
+  "in commission! The mountain is yours!",
+  "in commission! Nothing but freshies!",
+  "in commission! You're on a heater!",
+  "in commission! Ride that wave!",
+  "in commission! Keep stacking!",
+  "in commission! Send it again!",
+  "in commission! No flat days here!",
+]
 
 function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const { accounts, getAccountName } = useAccounts()
@@ -83,12 +125,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     clientName: '',
     sale_type: 'Prebook',
     season_id: '',
-    order_type: companyOrderTypes[0] || '',
+    order_type: '',
     items: [],
     order_number: '',
     invoice_number: '',
     close_date: '',
-    stage: companyStages[0] || '',
+    stage: '',
     order_document: null,
     invoice_document: null,
     total: '',
@@ -109,6 +151,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [csvParsedRows, setCsvParsedRows] = useState([])
   const [csvImporting, setCsvImporting] = useState(false)
   const [csvSkipped, setCsvSkipped] = useState([])
+
+  // Celebration popup state
+  const [celebrationOpen, setCelebrationOpen] = useState(false)
+  const [celebrationData, setCelebrationData] = useState({ commission: 0, hypeMessage: '', hypeCloser: '' })
 
   // Ensure activeTab is valid
   const allVisibleSeasons = showArchived
@@ -135,9 +181,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const resetSaleForm = () => {
     setSaleForm({
       client_id: null, clientName: '', sale_type: 'Prebook', season_id: currentSeason?.id || '',
-      order_type: companyOrderTypes[0] || '',
+      order_type: '',
       items: [], order_number: '', invoice_number: '', close_date: '',
-      stage: companyStages[0] || '', order_document: null, invoice_document: null, total: '', commission_override: '', notes: '',
+      stage: '', order_document: null, invoice_document: null, total: '', commission_override: '', notes: '',
     })
     setAccountSearch('')
     setSaleStep(1)
@@ -232,9 +278,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   // Add or Edit Sale submit
   const handleSaleSubmit = async (e) => {
     e.preventDefault()
-    if (!saleForm.client_id) return
+    if (!saleForm.client_id || !saleForm.order_type || !saleForm.stage) return
 
-    const total = parseFloat(saleForm.total) || 0
+    const total = parseFloat(stripCommas(saleForm.total)) || 0
     const commOverride = saleForm.commission_override.trim() !== '' ? parseFloat(saleForm.commission_override) : null
 
     const orderData = {
@@ -255,6 +301,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       notes: saleForm.notes,
     }
 
+    const wasAdd = !isEditMode
+
     if (isEditMode) {
       await updateOrder(editingOrderId, orderData)
     } else {
@@ -262,6 +310,19 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     }
 
     closeSaleDialog()
+
+    // Show celebration popup for new sales
+    if (wasAdd && total > 0) {
+      const defaultPct = company?.commission_percent || 0
+      const pct = commOverride != null ? commOverride : defaultPct
+      const commission = total * pct / 100
+      setCelebrationData({
+        commission,
+        hypeMessage: HYPE_MESSAGES[Math.floor(Math.random() * HYPE_MESSAGES.length)],
+        hypeCloser: HYPE_CLOSERS[Math.floor(Math.random() * HYPE_CLOSERS.length)],
+      })
+      setCelebrationOpen(true)
+    }
   }
 
   const handleOrderDocUpload = async (e) => {
@@ -701,42 +762,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           ) : (
             /* ── Step 2: Sale Details ── */
             <form onSubmit={handleSaleSubmit} className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                {/* Order Type */}
-                <div className="space-y-2">
-                  <Label>Order Type</Label>
-                  <select
-                    value={saleForm.order_type}
-                    onChange={(e) => setSaleForm((p) => ({ ...p, order_type: e.target.value }))}
-                    className="w-full border rounded-md px-3 py-2 text-sm"
-                  >
-                    {companyOrderTypes.length > 0 ? (
-                      companyOrderTypes.map((type) => (
-                        <option key={type} value={type}>{type}</option>
-                      ))
-                    ) : (
-                      <option value="">No order types configured</option>
-                    )}
-                  </select>
-                </div>
-
-                {/* Stage */}
-                <div className="space-y-2">
-                  <Label>Stage</Label>
-                  <select
-                    value={saleForm.stage}
-                    onChange={(e) => setSaleForm((p) => ({ ...p, stage: e.target.value }))}
-                    className="w-full border rounded-md px-3 py-2 text-sm"
-                  >
-                    {companyStages.length > 0 ? (
-                      companyStages.map((stage) => (
-                        <option key={stage} value={stage}>{stage}</option>
-                      ))
-                    ) : (
-                      <option value="">No stages configured</option>
-                    )}
-                  </select>
-                </div>
+              {/* Order Type — required */}
+              <div className="space-y-2">
+                <Label>Order Type <span className="text-red-500">*</span></Label>
+                <select
+                  value={saleForm.order_type}
+                  onChange={(e) => setSaleForm((p) => ({ ...p, order_type: e.target.value }))}
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  required
+                >
+                  <option value="" disabled>Select order type...</option>
+                  {companyOrderTypes.map((type) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
               </div>
 
               {/* Items Ordered — multi-select checkboxes */}
@@ -791,23 +830,24 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 />
               </div>
 
-              {/* Total — prominent */}
+              {/* Total — BIG and exciting */}
               <div className="space-y-2">
-                <Label>Total</Label>
+                <Label>Total <span className="text-red-500">*</span></Label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg text-muted-foreground">$</span>
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-3xl font-bold text-zinc-900">$</span>
                   <Input
                     inputMode="decimal"
                     placeholder="0.00"
-                    value={saleForm.total}
-                    onChange={(e) => setSaleForm((p) => ({ ...p, total: sanitizeCurrency(e.target.value) }))}
-                    onBlur={() => setSaleForm((p) => ({ ...p, total: formatToTwoDecimals(p.total) }))}
-                    className="pl-8 text-2xl font-semibold h-12"
+                    value={formatLiveCurrency(saleForm.total)}
+                    onChange={(e) => setSaleForm((p) => ({ ...p, total: stripCommas(sanitizeCurrency(e.target.value)) }))}
+                    onBlur={() => setSaleForm((p) => ({ ...p, total: formatToTwoDecimals(stripCommas(p.total)) }))}
+                    className="pl-12 text-3xl font-bold h-14 tracking-tight"
                     required
                   />
                 </div>
               </div>
 
+              {/* Close Date + Stage side by side */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label>Close Date</Label>
@@ -816,6 +856,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                     value={saleForm.close_date}
                     onChange={(e) => setSaleForm((p) => ({ ...p, close_date: e.target.value }))}
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label>Stage <span className="text-red-500">*</span></Label>
+                  <select
+                    value={saleForm.stage}
+                    onChange={(e) => setSaleForm((p) => ({ ...p, stage: e.target.value }))}
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                    required
+                  >
+                    <option value="" disabled>Select stage...</option>
+                    {companyStages.map((stage) => (
+                      <option key={stage} value={stage}>{stage}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
@@ -830,15 +884,21 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 />
               </div>
 
-              <DialogFooter className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setSaleStep(1)}>
-                  <ChevronLeft className="size-4 mr-1" /> Back
-                </Button>
-                <Button type="button" variant="outline" onClick={closeSaleDialog}>Cancel</Button>
-                <Button type="submit" disabled={!saleForm.client_id}>
-                  {isEditMode ? 'Save Changes' : 'Add Sale'}
-                </Button>
-              </DialogFooter>
+              {/* Company logo + action buttons */}
+              <div className="flex items-center gap-3 pt-2">
+                {company?.logo_path && (
+                  <img src={company.logo_path} alt={company.name} className="w-10 h-10 object-contain opacity-60" />
+                )}
+                <div className="flex gap-2 ml-auto">
+                  <Button type="button" variant="outline" onClick={() => setSaleStep(1)}>
+                    <ChevronLeft className="size-4 mr-1" /> Back
+                  </Button>
+                  <Button type="button" variant="outline" onClick={closeSaleDialog}>Cancel</Button>
+                  <Button type="submit" disabled={!saleForm.client_id || !saleForm.order_type || !saleForm.stage}>
+                    {isEditMode ? 'Save Changes' : 'Add Sale'}
+                  </Button>
+                </div>
+              </div>
             </form>
           )}
         </DialogContent>
@@ -905,6 +965,61 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               {csvImporting ? 'Importing...' : `Import ${csvParsedRows.length} Sale${csvParsedRows.length === 1 ? '' : 's'}`}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Celebration popup after adding a sale */}
+      <Dialog open={celebrationOpen} onOpenChange={setCelebrationOpen}>
+        <DialogContent className="max-w-sm text-center overflow-hidden">
+          <DialogTitle className="sr-only">Sale Added</DialogTitle>
+          <DialogDescription className="sr-only">Celebration popup showing commission earned</DialogDescription>
+          <div className="relative py-4">
+            {/* Animated background confetti dots */}
+            <div className="absolute inset-0 pointer-events-none overflow-hidden">
+              {[...Array(12)].map((_, i) => (
+                <div
+                  key={i}
+                  className="absolute w-2 h-2 rounded-full animate-bounce"
+                  style={{
+                    backgroundColor: ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'][i % 6],
+                    left: `${8 + (i * 8)}%`,
+                    top: `${10 + (i % 3) * 30}%`,
+                    animationDelay: `${i * 0.15}s`,
+                    animationDuration: `${0.8 + (i % 3) * 0.4}s`,
+                  }}
+                />
+              ))}
+            </div>
+
+            <div className="relative z-10 space-y-4">
+              <div className="text-5xl animate-bounce" style={{ animationDuration: '1s' }}>
+                {company?.logo_path ? (
+                  <img src={company.logo_path} alt="" className="w-16 h-16 object-contain mx-auto" />
+                ) : (
+                  <PartyPopper className="size-16 mx-auto text-amber-500" />
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-lg font-bold text-zinc-900">
+                  {celebrationData.hypeMessage}
+                </p>
+                <p className="text-4xl font-black text-green-600 tracking-tight animate-pulse">
+                  {fmt(celebrationData.commission)}
+                </p>
+                <p className="text-lg font-bold text-zinc-900">
+                  {celebrationData.hypeCloser}
+                </p>
+              </div>
+
+              <Button
+                onClick={() => setCelebrationOpen(false)}
+                className="mt-4 bg-green-600 hover:bg-green-700 text-white font-bold px-8"
+              >
+                LET'S GO!
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
