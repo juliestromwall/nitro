@@ -34,7 +34,7 @@
 | Rental | Rental equipment orders (boards, boots, bindings) |
 | Retail | Retail/demo product orders |
 | Order Type | Rental or Retail classification |
-| Stage | Order status (Closed - Won, etc.) |
+| Stage | Order status — "Order Placed" and "Cancelled" are permanent defaults; custom stages can be added per company. Cancelled orders are excluded from all totals and commission. |
 | Company | A brand the rep earns commission from (e.g., Nitro, Union, 686) |
 | Commission | Percentage of sales owed to the rep (varies per company) |
 | Pay Status | Whether commission has been paid (Paid, Partial, Unpaid) |

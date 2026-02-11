@@ -298,3 +298,27 @@
 
 **Open questions:**
 - None at this time
+
+## 2026-02-10 (session 3)
+
+**Worked on:** Customizable homepage, brand color consistency, CSV multi-line fix, Supabase pagination, stage system overhaul.
+
+**Changes made:**
+- **Customizable homepage:** Long-press or right-click the RepCommish logo to set any page as homepage (including company detail with specific tab). Logo navigates to saved homepage. "Reset to Dashboard" clears. Uses localStorage keyed by user ID. Tab restoration on CompanyDetail via `activeTab-{companyId}` localStorage.
+- **Brand color consistency:** Unified `#005b5b` across active season tabs, archive/unarchive buttons, celebration popup "LET'S GO!" button. Updated CSS theme `--primary` and `--ring` to `#005b5b`.
+- **Vertical logo:** Added `public/vertical-logo.png` for sidebar branding.
+- **CSV multi-line fix:** Added `splitCSVRows()` to `src/lib/csv.js` that respects multi-line quoted fields (invoice numbers with newlines inside quotes were breaking row parsing). Multi-line values collapsed to spaces on import.
+- **Supabase 1000-row pagination:** `fetchAccounts()` and `fetchOrders()` in `db.js` now paginate with `.range()` to fetch all rows beyond Supabase's default 1000-row limit.
+- **Stage system overhaul:** "Order Placed" and "Cancelled" are permanent default stages on every company (can't be removed); users can still add custom stages. Cancelled orders: excluded from all totals (Sales, Dashboard, Company Dashboard, Commission), rows highlighted red with line-through on Sales table. Commission page now shows all non-cancelled orders (previously only "Closed - Won").
+- **Commission % input:** Switched to `type="number"` with step/min/max, added `no-spinner` class, simplified onChange handler.
+- Updated `docs/FEATURES.md` and `docs/PRODUCT.md`.
+- All changes committed, pushed to GitHub, built and deployed to repcommish.com.
+
+**Next steps:**
+- Adam (adam@foundrydist.com) needs to hard-refresh browser to pick up new deployed code (commission page was filtering for "Closed - Won" in cached JS)
+- Delete duplicate "Nitro Snowboards" company (id=5) from Adam's account (all orders are on id=4)
+- Consider adding commission % override back to Add Sale modal UI
+- Add edit/delete improvements for accounts
+
+**Open questions:**
+- None at this time
