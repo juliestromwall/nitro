@@ -37,6 +37,7 @@
 | Company | A brand the rep earns commission from (e.g., Nitro, Union, 686) |
 | Commission | Percentage of sales owed to the rep (varies per company) |
 | Pay Status | Whether commission has been paid (Paid, Partial, Unpaid) |
+| Sale Type | Prebook or At Once — indicates when the sale was made relative to the season |
 | Region | Geographic area (Rockies, PNW, Southeast, etc.) |
 | Account Type | Ski Shop (Off Site), Resort, Resort SARA Group, Chain |
 | To Do | A per-company task item with title, note, account, phone, and due date |

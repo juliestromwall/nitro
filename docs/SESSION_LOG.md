@@ -270,3 +270,31 @@
 
 **Open questions:**
 - None at this time
+
+## 2026-02-10 (session 2)
+
+**Worked on:** Add Sale modal UX enhancements — 2-step wizard polish, celebration popup, company branding, cents-first currency input.
+
+**Changes made:**
+- Ran `sale_type` column migration on remote Supabase database via SQL Editor (`ALTER TABLE orders ADD COLUMN sale_type text NOT NULL DEFAULT 'Prebook'`)
+- Made Order Type and Stage required fields (must actively select, not pre-filled)
+- Moved Stage field next to Close Date (side-by-side layout)
+- Added celebration popup after adding a sale: animated confetti dots, bouncing company logo, random snowboarder hype messages (15 messages + 8 closers), green commission amount, "LET'S GO!" dismiss button
+- Added company logo + name banner at the top of both Step 1 and Step 2 modals (matching page header style)
+- Replaced live comma formatting with cents-first currency input: typing "4424" displays as "$44.24" (digits fill from right, fixed decimal)
+- Made $ symbol and value text the same size (text-2xl font-bold)
+- Added `max-h-[90vh] overflow-y-auto` to dialog for proper scrolling on smaller viewports
+- Added `DialogTitle` and `DialogDescription` (sr-only) to celebration dialog to fix Radix warnings
+- Removed unused `sanitizeCurrency`, `formatToTwoDecimals`, `formatLiveCurrency`, `stripCommas` helpers
+- Added `centsToDisplay`, `centsToFloat`, `floatToCents` helper functions
+- Updated FEATURES.md changelog
+- Committed and pushed all changes to GitHub
+
+**Next steps:**
+- Deploy latest build to repcommish.com (VPS)
+- Test celebration popup on production
+- Add edit/delete functionality improvements
+- Consider adding commission % override back to the modal (currently removed from JSX but logic preserved)
+
+**Open questions:**
+- None at this time
