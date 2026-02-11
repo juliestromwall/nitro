@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Pencil, Archive, ArchiveRestore, GripVertical, Upload, X } from 'lucide-react'
+import { Pencil, Archive, ArchiveRestore, GripVertical, Upload, X, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,10 +25,13 @@ function Companies() {
   const { orders } = useSales()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState({ name: '', commission_percent: '', logo_path: null })
+  const [form, setForm] = useState({ name: '', commission_percent: '', logo_path: null, order_types: [], items: [], stages: [] })
   const [logoPreview, setLogoPreview] = useState(null)
   const [logoFile, setLogoFile] = useState(null)
   const fileInputRef = useRef(null)
+  const [newOrderType, setNewOrderType] = useState('')
+  const [newItem, setNewItem] = useState('')
+  const [newStage, setNewStage] = useState('')
   const [dragIndex, setDragIndex] = useState(null)
   const [dragOverIndex, setDragOverIndex] = useState(null)
 
@@ -71,47 +74,75 @@ function Companies() {
 
   const openAdd = () => {
     setEditingId(null)
-    setForm({ name: '', commission_percent: '', logo_path: null })
+    setForm({ name: '', commission_percent: '', logo_path: null, order_types: [], items: [], stages: [] })
     setLogoPreview(null)
     setLogoFile(null)
+    setNewOrderType('')
+    setNewItem('')
+    setNewStage('')
     setDialogOpen(true)
   }
 
   const openEdit = (company) => {
     setEditingId(company.id)
-    setForm({ name: company.name, commission_percent: String(company.commission_percent), logo_path: company.logo_path })
+    setForm({
+      name: company.name,
+      commission_percent: String(company.commission_percent),
+      logo_path: company.logo_path,
+      order_types: company.order_types || [],
+      items: company.items || [],
+      stages: company.stages || [],
+    })
     setLogoPreview(company.logo_path)
     setLogoFile(null)
+    setNewOrderType('')
+    setNewItem('')
+    setNewStage('')
     setDialogOpen(true)
   }
 
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(null)
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-    let logoPath = form.logo_path
+    setSaving(true)
+    setSaveError(null)
+    try {
+      let logoPath = form.logo_path
 
-    // Upload logo if a new file was selected
-    if (logoFile) {
-      const companyId = editingId || 'new'
-      logoPath = await uploadLogo(user.id, companyId, logoFile)
+      // Upload logo if a new file was selected
+      if (logoFile) {
+        const companyId = editingId || 'new'
+        logoPath = await uploadLogo(user.id, companyId, logoFile)
+      }
+
+      const data = {
+        name: form.name,
+        commission_percent: parseFloat(form.commission_percent),
+        logo_path: logoPath,
+        order_types: form.order_types,
+        items: form.items,
+        stages: form.stages,
+      }
+
+      if (editingId) {
+        await updateCompany(editingId, data)
+      } else {
+        await addCompany(data)
+      }
+
+      setForm({ name: '', commission_percent: '', logo_path: null, order_types: [], items: [], stages: [] })
+      setLogoPreview(null)
+      setLogoFile(null)
+      setEditingId(null)
+      setDialogOpen(false)
+    } catch (err) {
+      console.error('Failed to save company:', err)
+      setSaveError(err.message || 'Failed to save. Please try again.')
+    } finally {
+      setSaving(false)
     }
-
-    const data = {
-      name: form.name,
-      commission_percent: parseFloat(form.commission_percent),
-      logo_path: logoPath,
-    }
-
-    if (editingId) {
-      await updateCompany(editingId, data)
-    } else {
-      await addCompany(data)
-    }
-
-    setForm({ name: '', commission_percent: '', logo_path: null })
-    setLogoPreview(null)
-    setLogoFile(null)
-    setEditingId(null)
-    setDialogOpen(false)
   }
 
   const handleDragStart = (e, index) => {
@@ -152,8 +183,8 @@ function Companies() {
         <Button onClick={openAdd}>Add Company</Button>
       </div>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
+      <Dialog open={dialogOpen} onOpenChange={() => {}}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto" showCloseButton={false} onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
             <DialogTitle>{editingId ? 'Edit Company' : 'Add Company'}</DialogTitle>
             <DialogDescription>
@@ -221,8 +252,104 @@ function Companies() {
                 required
               />
             </div>
-            <DialogFooter>
-              <Button type="submit">{editingId ? 'Save Changes' : 'Add Company'}</Button>
+
+            {/* Order Types */}
+            <div className="space-y-2">
+              <Label>Order Types</Label>
+              {form.order_types.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {form.order_types.map((t, i) => (
+                    <Badge key={i} variant="secondary" className="gap-1 text-sm">
+                      {t}
+                      <button type="button" onClick={() => setForm((p) => ({ ...p, order_types: p.order_types.filter((_, j) => j !== i) }))} className="ml-0.5 hover:text-red-500">
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g. Rental, Retail, Demo"
+                  value={newOrderType}
+                  onChange={(e) => setNewOrderType(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = newOrderType.trim(); if (v && !form.order_types.includes(v)) { setForm((p) => ({ ...p, order_types: [...p.order_types, v] })); setNewOrderType('') } } }}
+                  className="flex-1"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={() => { const v = newOrderType.trim(); if (v && !form.order_types.includes(v)) { setForm((p) => ({ ...p, order_types: [...p.order_types, v] })); setNewOrderType('') } }} disabled={!newOrderType.trim()}>
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Items */}
+            <div className="space-y-2">
+              <Label>Items</Label>
+              {form.items.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {form.items.map((t, i) => (
+                    <Badge key={i} variant="secondary" className="gap-1 text-sm">
+                      {t}
+                      <button type="button" onClick={() => setForm((p) => ({ ...p, items: p.items.filter((_, j) => j !== i) }))} className="ml-0.5 hover:text-red-500">
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g. Upgraded Boards, Boots, Bindings"
+                  value={newItem}
+                  onChange={(e) => setNewItem(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = newItem.trim(); if (v && !form.items.includes(v)) { setForm((p) => ({ ...p, items: [...p.items, v] })); setNewItem('') } } }}
+                  className="flex-1"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={() => { const v = newItem.trim(); if (v && !form.items.includes(v)) { setForm((p) => ({ ...p, items: [...p.items, v] })); setNewItem('') } }} disabled={!newItem.trim()}>
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Stages */}
+            <div className="space-y-2">
+              <Label>Stages</Label>
+              {form.stages.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {form.stages.map((t, i) => (
+                    <Badge key={i} variant="secondary" className="gap-1 text-sm">
+                      {t}
+                      <button type="button" onClick={() => setForm((p) => ({ ...p, stages: p.stages.filter((_, j) => j !== i) }))} className="ml-0.5 hover:text-red-500">
+                        <X className="size-3" />
+                      </button>
+                    </Badge>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g. Prospecting, Negotiation, Closed - Won"
+                  value={newStage}
+                  onChange={(e) => setNewStage(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = newStage.trim(); if (v && !form.stages.includes(v)) { setForm((p) => ({ ...p, stages: [...p.stages, v] })); setNewStage('') } } }}
+                  className="flex-1"
+                />
+                <Button type="button" variant="outline" size="sm" onClick={() => { const v = newStage.trim(); if (v && !form.stages.includes(v)) { setForm((p) => ({ ...p, stages: [...p.stages, v] })); setNewStage('') } }} disabled={!newStage.trim()}>
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+            </div>
+
+            {saveError && (
+              <p className="text-sm text-red-600">{saveError}</p>
+            )}
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => { setDialogOpen(false); setSaveError(null) }}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={saving}>
+                {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Add Company'}
+              </Button>
             </DialogFooter>
           </form>
         </DialogContent>

@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react'
-import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, Search, Filter, FileText, Upload, AlertTriangle, StickyNote } from 'lucide-react'
+import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
@@ -11,18 +11,18 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { useClients } from '@/context/ClientContext'
+import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useAuth } from '@/context/AuthContext'
 import { uploadDocument, getDocumentUrl } from '@/lib/db'
 import { useSales } from '@/context/SalesContext'
+import { parseCSVLine } from '@/lib/csv'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 
 const getItems = (order) => {
-  if (order.order_type === 'Rental' && order.rental_items) return order.rental_items.join(', ')
-  if (order.order_type === 'Retail' && order.retail_items) return order.retail_items.join(', ')
+  if (order.items && order.items.length > 0) return order.items.join(', ')
   return ''
 }
 
@@ -34,14 +34,14 @@ const formatToTwoDecimals = (val) => {
 }
 
 function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
-  const { clients, getClientName } = useClients()
+  const { accounts, getAccountName } = useAccounts()
   const { companies } = useCompanies()
   const { user } = useAuth()
 
   const {
     activeSeasons, archivedSeasons, orders,
     addSeason, updateSeason, toggleArchiveSeason,
-    addOrder, updateOrder, deleteOrder,
+    addOrder, bulkAddOrders, updateOrder, deleteOrder,
   } = useSales()
 
   const getCompany = (id) => companies.find((c) => c.id === id)
@@ -55,6 +55,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   }
 
   const company = getCompany(companyId)
+  const companyOrderTypes = company?.order_types || []
+  const companyItems = company?.items || []
+  const companyStages = company?.stages || []
 
   const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
   const [tabDialogOpen, setTabDialogOpen] = useState(false)
@@ -72,17 +75,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
 
   // Add/Edit Sale dialog state
   const [editingOrderId, setEditingOrderId] = useState(null)
-  const [clientSearch, setClientSearch] = useState('')
-  const [showClientDropdown, setShowClientDropdown] = useState(false)
+  const [saleStep, setSaleStep] = useState(1)
+  const [accountSearch, setAccountSearch] = useState('')
+  const [showAccountDropdown, setShowAccountDropdown] = useState(false)
   const [saleForm, setSaleForm] = useState({
     client_id: null,
     clientName: '',
-    order_type: 'Rental',
-    items: '',
+    sale_type: 'Prebook',
+    season_id: '',
+    order_type: companyOrderTypes[0] || '',
+    items: [],
     order_number: '',
     invoice_number: '',
     close_date: '',
-    stage: 'Closed - Won',
+    stage: companyStages[0] || '',
     order_document: null,
     invoice_document: null,
     total: '',
@@ -97,16 +103,23 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [noteOrderId, setNoteOrderId] = useState(null)
   const [noteText, setNoteText] = useState('')
 
+  // CSV import state
+  const csvInputRef = useRef(null)
+  const [csvConfirmOpen, setCsvConfirmOpen] = useState(false)
+  const [csvParsedRows, setCsvParsedRows] = useState([])
+  const [csvImporting, setCsvImporting] = useState(false)
+  const [csvSkipped, setCsvSkipped] = useState([])
+
   // Ensure activeTab is valid
   const allVisibleSeasons = showArchived
     ? [...activeSeasons, ...archivedSeasons]
     : activeSeasons
   const currentSeason = allVisibleSeasons.find((s) => s.id === activeTab) || activeSeasons[0]
 
-  // Filtered clients for searchable dropdown
-  const filteredClients = clientSearch.trim()
-    ? clients.filter((c) => c.name.toLowerCase().includes(clientSearch.toLowerCase())).slice(0, 10)
-    : clients.slice(0, 10)
+  // Filtered accounts for searchable dropdown
+  const filteredAccounts = accountSearch.trim()
+    ? accounts.filter((a) => a.name.toLowerCase().includes(accountSearch.toLowerCase())).slice(0, 10)
+    : accounts.slice(0, 10)
 
   // Whether the sale dialog is in "edit" vs "add" mode
   const isEditMode = editingOrderId !== null
@@ -115,16 +128,19 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const closeSaleDialog = () => {
     setAddSaleOpen(false)
     setEditingOrderId(null)
+    setSaleStep(1)
     resetSaleForm()
   }
 
   const resetSaleForm = () => {
     setSaleForm({
-      client_id: null, clientName: '', order_type: 'Rental',
-      items: '', order_number: '', invoice_number: '', close_date: '',
-      stage: 'Closed - Won', order_document: null, invoice_document: null, total: '', commission_override: '', notes: '',
+      client_id: null, clientName: '', sale_type: 'Prebook', season_id: currentSeason?.id || '',
+      order_type: companyOrderTypes[0] || '',
+      items: [], order_number: '', invoice_number: '', close_date: '',
+      stage: companyStages[0] || '', order_document: null, invoice_document: null, total: '', commission_override: '', notes: '',
     })
-    setClientSearch('')
+    setAccountSearch('')
+    setSaleStep(1)
   }
 
   // Tab dialog handlers
@@ -183,11 +199,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   // Open edit modal for an existing order
   const openEditOrder = (order) => {
     setEditingOrderId(order.id)
+    setSaleStep(1)
     setSaleForm({
       client_id: order.client_id,
-      clientName: getClientName(order.client_id),
+      clientName: getAccountName(order.client_id),
+      sale_type: order.sale_type || 'Prebook',
+      season_id: order.season_id || currentSeason?.id || '',
       order_type: order.order_type,
-      items: getItems(order),
+      items: order.items || [],
       order_number: order.order_number,
       invoice_number: order.invoice_number || '',
       close_date: order.close_date,
@@ -200,22 +219,31 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     })
   }
 
+  // Toggle item in checkbox list
+  const toggleItem = (item) => {
+    setSaleForm((p) => ({
+      ...p,
+      items: p.items.includes(item)
+        ? p.items.filter((i) => i !== item)
+        : [...p.items, item],
+    }))
+  }
+
   // Add or Edit Sale submit
   const handleSaleSubmit = async (e) => {
     e.preventDefault()
-    if (!saleForm.client_id || !currentSeason) return
+    if (!saleForm.client_id) return
 
-    const isRental = saleForm.order_type === 'Rental'
-    const items = saleForm.items.split(',').map((s) => s.trim()).filter(Boolean)
     const total = parseFloat(saleForm.total) || 0
     const commOverride = saleForm.commission_override.trim() !== '' ? parseFloat(saleForm.commission_override) : null
 
     const orderData = {
       client_id: saleForm.client_id,
       company_id: companyId,
-      season_id: currentSeason.id,
+      season_id: saleForm.season_id || currentSeason?.id,
+      sale_type: saleForm.sale_type,
       order_type: saleForm.order_type,
-      ...(isRental ? { rental_items: items, retail_items: undefined } : { retail_items: items, rental_items: undefined }),
+      items: saleForm.items,
       order_number: saleForm.order_number,
       invoice_number: saleForm.invoice_number,
       close_date: saleForm.close_date,
@@ -282,6 +310,107 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     await deleteOrder(orderId)
   }
 
+  // CSV import handlers
+  const parseSalesCSV = (text) => {
+    const lines = text.split(/\r?\n/).filter((l) => l.trim())
+    if (lines.length < 2) return { rows: [], skipped: [] }
+
+    const headers = parseCSVLine(lines[0]).map((h) => h.toLowerCase().replace(/['"]/g, ''))
+    const map = {}
+    headers.forEach((h, i) => {
+      if (['account_name', 'account name', 'account'].includes(h)) map.account_name = i
+      else if (['order_type', 'order type', 'type'].includes(h)) map.order_type = i
+      else if (['items', 'items_ordered', 'items ordered'].includes(h)) map.items = i
+      else if (['order_number', 'order number', 'order #', 'order#'].includes(h)) map.order_number = i
+      else if (['invoice_number', 'invoice number', 'invoice #', 'invoice#'].includes(h)) map.invoice_number = i
+      else if (['close_date', 'close date', 'date'].includes(h)) map.close_date = i
+      else if (h === 'stage') map.stage = i
+      else if (h === 'total') map.total = i
+      else if (['commission_override', 'commission override', 'commission %', 'commission'].includes(h)) map.commission_override = i
+      else if (['notes', 'note'].includes(h)) map.notes = i
+    })
+
+    if (map.account_name === undefined) return { rows: [], skipped: [] }
+
+    const rows = []
+    const skipped = []
+
+    lines.slice(1).forEach((line, idx) => {
+      const cols = parseCSVLine(line)
+      const accountName = cols[map.account_name] || ''
+      if (!accountName) return
+
+      const account = accounts.find((a) => a.name.toLowerCase() === accountName.toLowerCase())
+      if (!account) {
+        skipped.push({ line: idx + 2, accountName, reason: 'Account not found' })
+        return
+      }
+
+      const orderType = map.order_type !== undefined ? cols[map.order_type] || companyOrderTypes[0] || '' : companyOrderTypes[0] || ''
+      const itemsStr = map.items !== undefined ? cols[map.items] || '' : ''
+      const items = itemsStr.split(';').map((s) => s.trim()).filter(Boolean)
+      const total = map.total !== undefined ? parseFloat(cols[map.total]?.replace(/[$,]/g, '')) || 0 : 0
+      const commOverride = map.commission_override !== undefined && cols[map.commission_override]?.trim()
+        ? parseFloat(cols[map.commission_override]?.replace(/[%]/g, ''))
+        : null
+
+      rows.push({
+        client_id: account.id,
+        company_id: companyId,
+        season_id: currentSeason.id,
+        order_type: orderType,
+        items: items.length ? items : [],
+        order_number: map.order_number !== undefined ? cols[map.order_number] || '' : '',
+        invoice_number: map.invoice_number !== undefined ? cols[map.invoice_number] || '' : '',
+        close_date: map.close_date !== undefined ? cols[map.close_date] || '' : '',
+        stage: map.stage !== undefined ? cols[map.stage] || companyStages[0] || 'Closed - Won' : companyStages[0] || 'Closed - Won',
+        total,
+        commission_override: commOverride,
+        notes: map.notes !== undefined ? cols[map.notes] || '' : '',
+      })
+    })
+
+    return { rows, skipped }
+  }
+
+  const handleCSVFileSelect = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file || !currentSeason) return
+
+    try {
+      const text = await file.text()
+      const { rows, skipped } = parseSalesCSV(text)
+      if (rows.length === 0) {
+        alert(skipped.length > 0
+          ? `No valid rows found. ${skipped.length} row(s) skipped (accounts not found). Make sure account names match exactly.`
+          : 'No valid rows found. Make sure your CSV has an "account_name" column header.')
+        return
+      }
+      setCsvParsedRows(rows)
+      setCsvSkipped(skipped)
+      setCsvConfirmOpen(true)
+    } catch (err) {
+      console.error('CSV parse failed:', err)
+      alert('Failed to read CSV file.')
+    }
+    if (csvInputRef.current) csvInputRef.current.value = ''
+  }
+
+  const handleCSVConfirm = async () => {
+    setCsvImporting(true)
+    try {
+      await bulkAddOrders(csvParsedRows)
+      setCsvConfirmOpen(false)
+      setCsvParsedRows([])
+      setCsvSkipped([])
+    } catch (err) {
+      console.error('CSV import failed:', err)
+      alert('Import failed. Please try again.')
+    } finally {
+      setCsvImporting(false)
+    }
+  }
+
   // Current season data filtered by companyId
   const seasonOrders = currentSeason
     ? orders.filter((o) => o.season_id === currentSeason.id && o.company_id === companyId)
@@ -293,11 +422,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter((o) => {
-        const clientName = getClientName(o.client_id).toLowerCase()
+        const accountName = getAccountName(o.client_id).toLowerCase()
         const orderNum = (o.order_number || '').toLowerCase()
         const invoiceNum = (o.invoice_number || '').toLowerCase()
         const total = String(o.total)
-        return clientName.includes(q) || orderNum.includes(q) || invoiceNum.includes(q) || total.includes(q)
+        return accountName.includes(q) || orderNum.includes(q) || invoiceNum.includes(q) || total.includes(q)
       })
     }
 
@@ -315,11 +444,19 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const uniqueOrderTypes = [...new Set(seasonOrders.map((o) => o.order_type))]
   const uniqueStages = [...new Set(seasonOrders.map((o) => o.stage))]
 
-  // Compute totals from seasonOrders (unfiltered) so card values stay constant
-  const rentalTotal = seasonOrders.filter((o) => o.order_type === 'Rental').reduce((sum, o) => sum + o.total, 0)
-  const retailTotal = seasonOrders.filter((o) => o.order_type === 'Retail').reduce((sum, o) => sum + o.total, 0)
-  const totalSales = rentalTotal + retailTotal
+  // Compute totals — dynamic per order type
+  const totalSales = seasonOrders.reduce((sum, o) => sum + o.total, 0)
   const totalCommission = seasonOrders.reduce((sum, o) => sum + getCommission(o).amount, 0)
+
+  // Per-order-type totals for summary cards
+  const orderTypeTotals = useMemo(() => {
+    const map = {}
+    seasonOrders.forEach((o) => {
+      if (!map[o.order_type]) map[o.order_type] = 0
+      map[o.order_type] += o.total
+    })
+    return map
+  }, [seasonOrders])
 
   return (
     <div className="space-y-6 min-w-0">
@@ -460,104 +597,173 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         </DialogContent>
       </Dialog>
 
-      {/* Add / Edit Sale dialog */}
+      {/* Add / Edit Sale dialog — 2-step wizard */}
       <Dialog open={saleDialogOpen} onOpenChange={(open) => { if (!open) closeSaleDialog() }}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-lg"
+          showCloseButton={false}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onEscapeKeyDown={(e) => e.preventDefault()}
+        >
           <DialogHeader>
             <DialogTitle>{isEditMode ? 'Edit Sale' : 'Add Sale'}</DialogTitle>
             <DialogDescription>
-              {isEditMode
-                ? `Editing sale for ${saleForm.clientName}.`
-                : `Add a new sale to ${currentSeason?.label}.`}
+              {saleStep === 1
+                ? 'Step 1 of 2 — Sale setup'
+                : 'Step 2 of 2 — Sale details'}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleSaleSubmit} className="space-y-4">
-            {/* Account Name - searchable (disabled in edit mode) */}
-            <div className="space-y-2">
-              <Label>Account Name</Label>
-              {isEditMode ? (
-                <Input value={saleForm.clientName} disabled />
-              ) : (
-                <div className="relative">
-                  <Input
-                    placeholder="Start typing to search..."
-                    value={saleForm.clientName || clientSearch}
-                    onChange={(e) => {
-                      setClientSearch(e.target.value)
-                      setSaleForm((p) => ({ ...p, client_id: null, clientName: '' }))
-                      setShowClientDropdown(true)
-                    }}
-                    onFocus={() => setShowClientDropdown(true)}
-                    required
-                  />
-                  {showClientDropdown && !saleForm.client_id && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
-                      {filteredClients.map((client) => (
-                        <button
-                          key={client.id}
-                          type="button"
-                          onClick={() => {
-                            setSaleForm((p) => ({ ...p, client_id: client.id, clientName: client.name }))
-                            setClientSearch('')
-                            setShowClientDropdown(false)
-                          }}
-                          className="block w-full text-left px-3 py-2 text-sm hover:bg-zinc-50"
-                        >
-                          <span className="font-medium">{client.name}</span>
-                          <span className="text-muted-foreground ml-2">{client.city}, {client.state}</span>
-                        </button>
-                      ))}
-                      {filteredClients.length === 0 && (
-                        <div className="px-3 py-2 text-sm text-muted-foreground">No clients found</div>
-                      )}
-                    </div>
-                  )}
+
+          {saleStep === 1 ? (
+            /* ── Step 1: Sale Setup ── */
+            <div className="space-y-4">
+              {/* Sale Type */}
+              <div className="space-y-2">
+                <Label>Sale Type</Label>
+                <select
+                  value={saleForm.sale_type}
+                  onChange={(e) => setSaleForm((p) => ({ ...p, sale_type: e.target.value }))}
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                >
+                  <option value="Prebook">Prebook</option>
+                  <option value="At Once">At Once</option>
+                </select>
+              </div>
+
+              {/* Tracker */}
+              <div className="space-y-2">
+                <Label>Tracker</Label>
+                <select
+                  value={saleForm.season_id || currentSeason?.id || ''}
+                  onChange={(e) => setSaleForm((p) => ({ ...p, season_id: e.target.value }))}
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                >
+                  {activeSeasons.map((s) => (
+                    <option key={s.id} value={s.id}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Account Name — searchable, collapsed by default */}
+              <div className="space-y-2">
+                <Label>Account</Label>
+                {isEditMode ? (
+                  <Input value={saleForm.clientName} disabled />
+                ) : (
+                  <div className="relative">
+                    <Input
+                      placeholder="Search accounts..."
+                      value={saleForm.clientName || accountSearch}
+                      onChange={(e) => {
+                        setAccountSearch(e.target.value)
+                        setSaleForm((p) => ({ ...p, client_id: null, clientName: '' }))
+                        setShowAccountDropdown(true)
+                      }}
+                      onFocus={() => setShowAccountDropdown(true)}
+                    />
+                    {showAccountDropdown && !saleForm.client_id && (
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                        {filteredAccounts.map((account) => (
+                          <button
+                            key={account.id}
+                            type="button"
+                            onClick={() => {
+                              setSaleForm((p) => ({ ...p, client_id: account.id, clientName: account.name }))
+                              setAccountSearch('')
+                              setShowAccountDropdown(false)
+                            }}
+                            className="block w-full text-left px-3 py-2 text-sm hover:bg-zinc-50"
+                          >
+                            <span className="font-medium">{account.name}</span>
+                            <span className="text-muted-foreground ml-2">{account.city}, {account.state}</span>
+                          </button>
+                        ))}
+                        {filteredAccounts.length === 0 && (
+                          <div className="px-3 py-2 text-sm text-muted-foreground">No accounts found</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter className="flex gap-2">
+                <Button type="button" variant="outline" onClick={closeSaleDialog}>Cancel</Button>
+                <Button
+                  type="button"
+                  disabled={!saleForm.client_id}
+                  onClick={() => { setShowAccountDropdown(false); setSaleStep(2) }}
+                >
+                  Next <ChevronRight className="size-4 ml-1" />
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            /* ── Step 2: Sale Details ── */
+            <form onSubmit={handleSaleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                {/* Order Type */}
+                <div className="space-y-2">
+                  <Label>Order Type</Label>
+                  <select
+                    value={saleForm.order_type}
+                    onChange={(e) => setSaleForm((p) => ({ ...p, order_type: e.target.value }))}
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                  >
+                    {companyOrderTypes.length > 0 ? (
+                      companyOrderTypes.map((type) => (
+                        <option key={type} value={type}>{type}</option>
+                      ))
+                    ) : (
+                      <option value="">No order types configured</option>
+                    )}
+                  </select>
                 </div>
-              )}
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              {/* Order Type */}
-              <div className="space-y-2">
-                <Label>Order Type</Label>
-                <select
-                  value={saleForm.order_type}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, order_type: e.target.value }))}
-                  className="w-full border rounded-md px-3 py-2 text-sm"
-                >
-                  <option value="Rental">Rental</option>
-                  <option value="Retail">Retail</option>
-                </select>
+                {/* Stage */}
+                <div className="space-y-2">
+                  <Label>Stage</Label>
+                  <select
+                    value={saleForm.stage}
+                    onChange={(e) => setSaleForm((p) => ({ ...p, stage: e.target.value }))}
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                  >
+                    {companyStages.length > 0 ? (
+                      companyStages.map((stage) => (
+                        <option key={stage} value={stage}>{stage}</option>
+                      ))
+                    ) : (
+                      <option value="">No stages configured</option>
+                    )}
+                  </select>
+                </div>
               </div>
 
-              {/* Stage */}
+              {/* Items Ordered — multi-select checkboxes */}
               <div className="space-y-2">
-                <Label>Stage</Label>
-                <select
-                  value={saleForm.stage}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, stage: e.target.value }))}
-                  className="w-full border rounded-md px-3 py-2 text-sm"
-                >
-                  <option value="Closed - Won">Closed - Won</option>
-                  <option value="Closed - Lost">Closed - Lost</option>
-                  <option value="Negotiation">Negotiation</option>
-                  <option value="Proposal">Proposal</option>
-                  <option value="Prospecting">Prospecting</option>
-                </select>
+                <Label>Items Ordered</Label>
+                {companyItems.length > 0 ? (
+                  <div className="flex flex-wrap gap-x-4 gap-y-2 border rounded-md p-3">
+                    {companyItems.map((item) => (
+                      <label key={item} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={saleForm.items.includes(item)}
+                          onChange={() => toggleItem(item)}
+                          className="size-4 rounded border-zinc-300"
+                        />
+                        {item}
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-muted-foreground border rounded-md p-3">
+                    No items configured. Add items in the Settings tab.
+                  </p>
+                )}
               </div>
-            </div>
 
-            {/* Items Ordered */}
-            <div className="space-y-2">
-              <Label>Items Ordered</Label>
-              <Input
-                placeholder="e.g. Rental Upgraded Boards, Rental Boots"
-                value={saleForm.items}
-                onChange={(e) => setSaleForm((p) => ({ ...p, items: e.target.value }))}
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+              {/* Order # with Upload Doc */}
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Label>Order #</Label>
@@ -584,93 +790,57 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   onChange={(e) => setSaleForm((p) => ({ ...p, order_number: e.target.value }))}
                 />
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label>Invoice #</Label>
-                  <input ref={invoiceDocRef} type="file" onChange={handleInvoiceDocUpload} className="hidden" />
-                  {saleForm.invoice_document ? (
-                    <Badge variant="secondary" className="gap-1 text-xs">
-                      <FileText className="size-3" /> {saleForm.invoice_document.name}
-                      <button type="button" onClick={() => setSaleForm((p) => ({ ...p, invoice_document: null }))}>
-                        <X className="size-3" />
-                      </button>
-                    </Badge>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => invoiceDocRef.current?.click()}
-                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
-                    >
-                      <Upload className="size-3" /> Upload Doc
-                    </button>
-                  )}
-                </div>
-                <Input
-                  value={saleForm.invoice_number}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, invoice_number: e.target.value }))}
-                />
-              </div>
-            </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Close Date</Label>
-                <Input
-                  type="date"
-                  value={saleForm.close_date}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, close_date: e.target.value }))}
-                />
-              </div>
+              {/* Total — prominent */}
               <div className="space-y-2">
                 <Label>Total</Label>
                 <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-lg text-muted-foreground">$</span>
                   <Input
                     inputMode="decimal"
                     placeholder="0.00"
                     value={saleForm.total}
                     onChange={(e) => setSaleForm((p) => ({ ...p, total: sanitizeCurrency(e.target.value) }))}
-                    onBlur={(e) => setSaleForm((p) => ({ ...p, total: formatToTwoDecimals(p.total) }))}
-                    className="pl-7"
+                    onBlur={() => setSaleForm((p) => ({ ...p, total: formatToTwoDecimals(p.total) }))}
+                    className="pl-8 text-2xl font-semibold h-12"
                     required
                   />
                 </div>
               </div>
-            </div>
 
-            {/* Commission Override */}
-            <div className="space-y-2">
-              <Label>Commission % Override</Label>
-              <div className="relative">
-                <Input
-                  inputMode="decimal"
-                  placeholder={company ? `Default: ${company.commission_percent}` : ''}
-                  value={saleForm.commission_override}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, commission_override: sanitizeCurrency(e.target.value) }))}
-                  className="no-spinner pr-7"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">%</span>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Close Date</Label>
+                  <Input
+                    type="date"
+                    value={saleForm.close_date}
+                    onChange={(e) => setSaleForm((p) => ({ ...p, close_date: e.target.value }))}
+                  />
+                </div>
               </div>
-              <p className="text-xs text-muted-foreground">Leave blank to use the company default.</p>
-            </div>
 
-            {/* Notes */}
-            <div className="space-y-2">
-              <Label>Notes</Label>
-              <textarea
-                className="w-full border rounded-md px-3 py-2 text-sm min-h-16 resize-y"
-                placeholder="Any notes about this sale..."
-                value={saleForm.notes}
-                onChange={(e) => setSaleForm((p) => ({ ...p, notes: e.target.value }))}
-              />
-            </div>
+              {/* Notes */}
+              <div className="space-y-2">
+                <Label>Notes</Label>
+                <textarea
+                  className="w-full border rounded-md px-3 py-2 text-sm min-h-16 resize-y"
+                  placeholder="Any notes about this sale..."
+                  value={saleForm.notes}
+                  onChange={(e) => setSaleForm((p) => ({ ...p, notes: e.target.value }))}
+                />
+              </div>
 
-            <DialogFooter>
-              <Button type="submit" disabled={!saleForm.client_id}>
-                {isEditMode ? 'Save Changes' : 'Add Sale'}
-              </Button>
-            </DialogFooter>
-          </form>
+              <DialogFooter className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setSaleStep(1)}>
+                  <ChevronLeft className="size-4 mr-1" /> Back
+                </Button>
+                <Button type="button" variant="outline" onClick={closeSaleDialog}>Cancel</Button>
+                <Button type="submit" disabled={!saleForm.client_id}>
+                  {isEditMode ? 'Save Changes' : 'Add Sale'}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
 
@@ -682,7 +852,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               {noteOrderId && orders.find((o) => o.id === noteOrderId)?.notes ? 'Edit Note' : 'Add Note'}
             </DialogTitle>
             <DialogDescription>
-              {noteOrderId && getClientName(orders.find((o) => o.id === noteOrderId)?.client_id)}
+              {noteOrderId && getAccountName(orders.find((o) => o.id === noteOrderId)?.client_id)}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -701,11 +871,48 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         </DialogContent>
       </Dialog>
 
+      {/* CSV import confirmation dialog */}
+      <Dialog open={csvConfirmOpen} onOpenChange={(open) => { if (!open) { setCsvConfirmOpen(false); setCsvParsedRows([]); setCsvSkipped([]) } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Import Sales</DialogTitle>
+            <DialogDescription>
+              These sales will be imported to <span className="font-semibold text-foreground">{currentSeason?.label}</span>. Continue?
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm">
+              <span className="font-medium">{csvParsedRows.length}</span> sale{csvParsedRows.length === 1 ? '' : 's'} ready to import.
+            </p>
+            {csvSkipped.length > 0 && (
+              <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3 space-y-1">
+                <p className="font-medium flex items-center gap-1">
+                  <AlertTriangle className="size-3.5" />
+                  {csvSkipped.length} row{csvSkipped.length === 1 ? '' : 's'} will be skipped:
+                </p>
+                <ul className="list-disc pl-5 space-y-0.5">
+                  {csvSkipped.slice(0, 5).map((s, i) => (
+                    <li key={i}>Row {s.line}: "{s.accountName}" — {s.reason}</li>
+                  ))}
+                  {csvSkipped.length > 5 && <li>...and {csvSkipped.length - 5} more</li>}
+                </ul>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setCsvConfirmOpen(false); setCsvParsedRows([]); setCsvSkipped([]) }}>Cancel</Button>
+            <Button onClick={handleCSVConfirm} disabled={csvImporting}>
+              {csvImporting ? 'Importing...' : `Import ${csvParsedRows.length} Sale${csvParsedRows.length === 1 ? '' : 's'}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Search and summary */}
       {currentSeason && (
         <>
-          {/* Summary cards — clickable filters */}
-          <div className="grid grid-cols-4 gap-6">
+          {/* Summary cards — dynamic per order type */}
+          <div className={`grid gap-6`} style={{ gridTemplateColumns: `repeat(${Math.min(Object.keys(orderTypeTotals).length + 2, 5)}, minmax(0, 1fr))` }}>
             <Card
               className={`cursor-pointer transition-shadow hover:shadow-md ${!filterOrderType ? 'ring-2 ring-zinc-900' : ''}`}
               onClick={() => setFilterOrderType('')}
@@ -717,28 +924,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 <p className="text-2xl font-bold">{fmt(totalSales)}</p>
               </CardContent>
             </Card>
-            <Card
-              className={`cursor-pointer transition-shadow hover:shadow-md ${filterOrderType === 'Rental' ? 'ring-2 ring-zinc-900' : ''}`}
-              onClick={() => setFilterOrderType(filterOrderType === 'Rental' ? '' : 'Rental')}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Rental Total</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{fmt(rentalTotal)}</p>
-              </CardContent>
-            </Card>
-            <Card
-              className={`cursor-pointer transition-shadow hover:shadow-md ${filterOrderType === 'Retail' ? 'ring-2 ring-zinc-900' : ''}`}
-              onClick={() => setFilterOrderType(filterOrderType === 'Retail' ? '' : 'Retail')}
-            >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Retail Total</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{fmt(retailTotal)}</p>
-              </CardContent>
-            </Card>
+            {Object.entries(orderTypeTotals).map(([type, total]) => (
+              <Card
+                key={type}
+                className={`cursor-pointer transition-shadow hover:shadow-md ${filterOrderType === type ? 'ring-2 ring-zinc-900' : ''}`}
+                onClick={() => setFilterOrderType(filterOrderType === type ? '' : type)}
+              >
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-medium text-muted-foreground">{type} Total</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-2xl font-bold">{fmt(total)}</p>
+                </CardContent>
+              </Card>
+            ))}
             <Card className="transition-shadow hover:shadow-md">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium text-muted-foreground">Total Commission</CardTitle>
@@ -749,14 +948,26 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
             </Card>
           </div>
 
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <Input
-              placeholder="Search account, order #, invoice #, total..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+          <div className="flex items-center gap-3">
+            <div className="relative max-w-sm flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Search account, order #, invoice #, total..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <input
+              ref={csvInputRef}
+              type="file"
+              accept=".csv"
+              onChange={handleCSVFileSelect}
+              className="hidden"
             />
+            <Button variant="outline" size="sm" onClick={() => csvInputRef.current?.click()}>
+              <Upload className="size-4 mr-1" /> Import CSV
+            </Button>
           </div>
 
           {(filterOrderType || filterStage) && (
@@ -795,6 +1006,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 <TableRow>
                   <TableHead className="w-10 sticky left-0 bg-white z-10"></TableHead>
                   <TableHead className="whitespace-nowrap">Account Name</TableHead>
+                  <TableHead className="whitespace-nowrap">Sale Type</TableHead>
                   <TableHead>
                     <div className="relative">
                       <button
@@ -867,7 +1079,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               <TableBody>
                 {filteredOrders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center text-muted-foreground">
+                    <TableCell colSpan={12} className="text-center text-muted-foreground">
                       {searchQuery || filterOrderType || filterStage
                         ? 'No orders match your search or filters.'
                         : 'No orders for this tab.'}
@@ -896,15 +1108,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                             </Button>
                           </div>
                         </TableCell>
-                        <TableCell className="font-medium whitespace-nowrap">{getClientName(order.client_id)}</TableCell>
+                        <TableCell className="font-medium whitespace-nowrap">{getAccountName(order.client_id)}</TableCell>
+                        <TableCell className="whitespace-nowrap">{order.sale_type || 'Prebook'}</TableCell>
                         <TableCell>
-                          <Badge
-                            className={
-                              order.order_type === 'Rental'
-                                ? 'bg-green-100 text-green-800 border-green-200'
-                                : 'bg-purple-100 text-purple-800 border-purple-200'
-                            }
-                          >
+                          <Badge variant="secondary">
                             {order.order_type}
                           </Badge>
                         </TableCell>

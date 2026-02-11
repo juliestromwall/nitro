@@ -11,6 +11,9 @@ create table companies (
   logo_path text,
   archived boolean not null default false,
   sort_order integer not null default 0,
+  order_types text[] default '{}',
+  items text[] default '{}',
+  stages text[] default '{}',
   created_at timestamptz not null default now()
 );
 
@@ -72,14 +75,14 @@ create table orders (
   company_id bigint references companies(id) not null,
   season_id text references seasons(id) not null,
   order_type text not null default 'Rental',
-  rental_items text[],
-  retail_items text[],
+  items text[] default '{}',
   order_number text,
   invoice_number text,
   close_date text,
   stage text not null default 'Prospecting',
   total numeric(12,2) not null default 0,
   commission_override numeric(5,2),
+  sale_type text not null default 'Prebook',
   order_document jsonb,
   invoice_document jsonb,
   notes text,

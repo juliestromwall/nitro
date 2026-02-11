@@ -7,22 +7,23 @@
 | App Layout | src/App.jsx | Sidebar nav with company icons at top, icon navigation below, auth guard, sign out button |
 | Login | src/pages/Login.jsx | Email/password sign-in only (no public signup; users created via Supabase dashboard) |
 | Dashboard | src/pages/Dashboard.jsx | Summary cards (Total/Rental/Retail Sales, Commission Due/Paid/Outstanding) + Recent Orders table |
-| Clients | src/pages/Clients.jsx | Client list with search, add client dialog with form (uses ClientContext) |
+| Accounts | src/pages/Accounts.jsx | Account list with search, add/import accounts (CSV import, uses AccountContext) |
 | Sales | _(removed)_ | Sales now accessed only via CompanyDetail > Sales tab |
 | Commission | _(removed)_ | Commission now accessed only via CompanyDetail > Sales tab |
 | AuthContext | src/context/AuthContext.jsx | Auth state (user, loading), signUp, signIn, signOut via Supabase Auth |
-| ClientContext | src/context/ClientContext.jsx | Client CRUD via Supabase + getClientName helper |
+| AccountContext | src/context/AccountContext.jsx | Account CRUD (single + bulk CSV import) via Supabase + getAccountName helper |
 | SalesContext | src/context/SalesContext.jsx | Seasons + Orders + Commissions CRUD via Supabase |
 | TodoContext | src/context/TodoContext.jsx | Per-company to-do CRUD via Supabase (add, edit, toggle complete, pin/unpin, reorder, delete) |
 | CompanyContext | src/context/CompanyContext.jsx | Company CRUD via Supabase (add, update, archive, reorder) + logo upload to Storage |
 | Companies | src/pages/Companies.jsx | Company list with add/edit, logo upload to Supabase Storage, archive/restore, drag-to-reorder |
 | CompanyDetail | src/pages/CompanyDetail.jsx | Tab shell: header with Add Sale button + Dashboard/Sales/Commission pill tabs per company |
 | CompanyDashboard | src/components/company/CompanyDashboard.jsx | Season dropdown, 4 summary cards, To Dos with searchable account dropdown, pin/unpin, drag-to-reorder, overdue styling |
-| CompanySales | src/components/company/CompanySales.jsx | Per-company sales: season tabs, sticky first-column edit/delete actions, 4 clickable summary cards (Total Sales/Rental/Retail + Commission) that filter by order type, unified Add/Edit Sale modal (pencil opens pre-filled dialog), dual document upload to Supabase Storage inline next to Order # and Invoice # labels, invoice # hyperlinks with signed URLs when doc uploaded, currency-formatted Total with $ prefix, commission % input with no-spinner and % suffix, "+Note" text button vs amber StickyNote icon, search, filters, notes modal |
+| CompanySales | src/components/company/CompanySales.jsx | Per-company sales: season tabs, sticky first-column edit/delete actions, 4 clickable summary cards that filter by order type, 2-step Add/Edit Sale wizard (Step 1: Sale Type, Tracker, Account; Step 2: Order Type, Items, Order #, Total, Stage, Close Date, Notes), Sale Type column in table (Prebook/At Once), document upload on Order #, invoice # hyperlinks with signed URLs, prominent currency-formatted Total input, "+Note" text button vs amber StickyNote icon, search, filters, notes modal, CSV import with tracker confirmation dialog |
+| CompanySettings | src/components/company/CompanySettings.jsx | Per-company settings: configurable order types, items, and stages lists with add/remove chips and save button |
 | CompanyCommission | src/components/company/CompanyCommission.jsx | Per-company commission: order-driven (Closed - Won orders), sticky first-column edit actions with status-aware backgrounds, clickable summary card filters (Earned/Paid/Outstanding), row highlighting (green=Paid, yellow=Partial), search bar, inline pay status editing persisted to Supabase |
 | Supabase Client | src/lib/supabase.js | Supabase client init (uses VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY) |
 | DB Helpers | src/lib/db.js | All Supabase query helpers (companies, clients, seasons, orders, commissions, todos, storage) |
-| Constants | src/lib/constants.js | Regions, account types, rental/retail item lists (extracted from mock data) |
+| Constants | src/lib/constants.js | Regions and account types (item lists moved to per-company settings) |
 | SQL Schema | scripts/schema.sql | Full PostgreSQL schema with RLS policies and storage buckets |
 | Seed Script | scripts/seed.js | One-time seed script to import mock data for a user |
 
@@ -47,3 +48,6 @@
 | 2026-02-09 | Supabase backend: Added auth (email/password), migrated all contexts from mock data to Supabase (PostgreSQL + RLS), added file storage (logos public, documents private with signed URLs), created AuthContext, ClientContext, Login page, db helpers, constants, SQL schema, seed script, .htaccess for Hostinger SPA routing. Deleted mockData.js. |
 | 2026-02-09 | Rebranded to RepCommish: custom logo on login, favicon, title "REPCOMMISH". Deployed to Hostinger VPS with nginx + SSL (repcommish.com). |
 | 2026-02-09 | Locked down signups: removed sign up UI from login page, disabled signups in Supabase, added robots.txt to block search engines. |
+| 2026-02-10 | Renamed "Clients" to "Accounts" throughout the app (UI, contexts, db helpers, routes). Added CSV import for bulk account creation. Added CSV import for sales (per-tracker with confirmation dialog). |
+| 2026-02-10 | Custom company settings: per-company configurable order types, items, and stages. Settings tab on CompanyDetail. Unified items column on orders (replaced rental_items/retail_items). Multi-select item checkboxes in Add Sale dialog. Dynamic per-order-type summary cards. Removed hardcoded Rental/Retail split from Dashboard and Sales. |
+| 2026-02-10 | Add/Edit Sale modal redesigned as 2-step wizard: Step 1 (Sale Type, Tracker, Account), Step 2 (Order Type, Items, Order #, Total, Stage, Close Date, Notes). Added sale_type column (Prebook/At Once) to orders table and sales table. Removed Invoice # and Commission % Override from modal. Prominent Total input with larger text. Modal prevents outside-click dismiss. |

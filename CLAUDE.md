@@ -33,7 +33,7 @@ See `docs/PRODUCT.md` for terminology, user roles, and flows.
 | `src/lib/db.js` | All Supabase query helpers |
 | `src/lib/constants.js` | Regions, account types, item lists |
 | `src/context/AuthContext.jsx` | Auth state + signIn/signUp/signOut |
-| `src/context/ClientContext.jsx` | Client CRUD via Supabase |
+| `src/context/AccountContext.jsx` | Account CRUD via Supabase |
 | `src/context/CompanyContext.jsx` | Company CRUD via Supabase |
 | `src/context/SalesContext.jsx` | Seasons + Orders + Commissions via Supabase |
 | `src/context/TodoContext.jsx` | To-do CRUD via Supabase |

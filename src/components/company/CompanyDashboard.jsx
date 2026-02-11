@@ -10,7 +10,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { useClients } from '@/context/ClientContext'
+import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
 import { useTodos } from '@/context/TodoContext'
@@ -22,7 +22,7 @@ function CompanyDashboard({ companyId }) {
   const { activeSeasons, orders, commissions } = useSales()
   const { getTodosByCompany, addTodo, updateTodo, toggleComplete, togglePin, reorderTodos, deleteTodo } = useTodos()
   const { companies } = useCompanies()
-  const { clients, getClientName } = useClients()
+  const { accounts, getAccountName } = useAccounts()
   const company = companies.find((c) => c.id === companyId)
 
   // Season selector persisted in localStorage
@@ -63,9 +63,9 @@ function CompanyDashboard({ companyId }) {
   const [accountDropdownOpen, setAccountDropdownOpen] = useState(false)
   const accountRef = useRef(null)
 
-  const filteredClients = accountSearch
-    ? clients.filter((c) => c.name.toLowerCase().includes(accountSearch.toLowerCase()))
-    : clients
+  const filteredAccounts = accountSearch
+    ? accounts.filter((c) => c.name.toLowerCase().includes(accountSearch.toLowerCase()))
+    : accounts
 
   // Close account dropdown on outside click
   useEffect(() => {
@@ -123,17 +123,17 @@ function CompanyDashboard({ companyId }) {
       phone: todo.phone || '',
       due_date: todo.due_date || '',
     })
-    setAccountSearch(todo.client_id ? getClientName(todo.client_id) : '')
+    setAccountSearch(todo.client_id ? getAccountName(todo.client_id) : '')
     setTodoDialogOpen(true)
   }
 
-  const selectClient = (client) => {
-    setTodoForm((p) => ({ ...p, client_id: String(client.id) }))
-    setAccountSearch(client.name)
+  const selectAccount = (account) => {
+    setTodoForm((p) => ({ ...p, client_id: String(account.id) }))
+    setAccountSearch(account.name)
     setAccountDropdownOpen(false)
   }
 
-  const clearClient = () => {
+  const clearAccount = () => {
     setTodoForm((p) => ({ ...p, client_id: '' }))
     setAccountSearch('')
   }
@@ -276,7 +276,7 @@ function CompanyDashboard({ companyId }) {
                     {todo.note || '—'}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">
-                    {todo.client_id ? getClientName(todo.client_id) : '—'}
+                    {todo.client_id ? getAccountName(todo.client_id) : '—'}
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{todo.phone || '—'}</TableCell>
                   <TableCell className={`whitespace-nowrap ${isOverdue(todo) ? 'text-red-600 font-medium' : ''}`}>
@@ -359,7 +359,7 @@ function CompanyDashboard({ companyId }) {
                 {todoForm.client_id && (
                   <button
                     type="button"
-                    onClick={clearClient}
+                    onClick={clearAccount}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                   >
                     <span className="text-xs">✕</span>
@@ -367,14 +367,14 @@ function CompanyDashboard({ companyId }) {
                 )}
                 {accountDropdownOpen && (
                   <div className="absolute z-50 mt-1 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
-                    {filteredClients.length === 0 ? (
+                    {filteredAccounts.length === 0 ? (
                       <div className="px-3 py-2 text-sm text-muted-foreground">No accounts found</div>
                     ) : (
-                      filteredClients.map((c) => (
+                      filteredAccounts.map((c) => (
                         <button
                           key={c.id}
                           type="button"
-                          onClick={() => selectClient(c)}
+                          onClick={() => selectAccount(c)}
                           className={`w-full text-left px-3 py-2 text-sm hover:bg-zinc-100 ${
                             String(c.id) === todoForm.client_id ? 'bg-zinc-50 font-medium' : ''
                           }`}

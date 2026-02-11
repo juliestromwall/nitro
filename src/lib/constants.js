@@ -16,15 +16,3 @@ export const accountTypes = [
   'Chain',
 ]
 
-export const rentalItems = [
-  'Rental Upgraded Boards',
-  'Rental Beginner Boards',
-  'Rental Boots',
-  'Rental Bindings',
-]
-
-export const retailItems = [
-  'Retail Boards',
-  'Retail Boots',
-  'Retail Bindings',
-]

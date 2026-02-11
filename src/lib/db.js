@@ -42,9 +42,9 @@ export async function updateCompanySortOrders(updates) {
   if (firstError?.error) throw firstError.error
 }
 
-// ── Clients ────────────────────────────────────────────────
+// ── Accounts ──────────────────────────────────────────────
 
-export async function fetchClients() {
+export async function fetchAccounts() {
   const { data, error } = await supabase
     .from('clients')
     .select('*')
@@ -53,17 +53,26 @@ export async function fetchClients() {
   return data
 }
 
-export async function insertClient(client) {
+export async function insertAccount(account) {
   const { data, error } = await supabase
     .from('clients')
-    .insert(client)
+    .insert(account)
     .select()
     .single()
   if (error) throw error
   return data
 }
 
-export async function updateClient(id, updates) {
+export async function bulkInsertAccounts(accounts) {
+  const { data, error } = await supabase
+    .from('clients')
+    .insert(accounts)
+    .select()
+  if (error) throw error
+  return data
+}
+
+export async function updateAccount(id, updates) {
   const { data, error } = await supabase
     .from('clients')
     .update(updates)
@@ -74,7 +83,7 @@ export async function updateClient(id, updates) {
   return data
 }
 
-export async function deleteClient(id) {
+export async function deleteAccount(id) {
   const { error } = await supabase.from('clients').delete().eq('id', id)
   if (error) throw error
 }
@@ -128,6 +137,15 @@ export async function insertOrder(order) {
     .insert(order)
     .select()
     .single()
+  if (error) throw error
+  return data
+}
+
+export async function bulkInsertOrders(orders) {
+  const { data, error } = await supabase
+    .from('orders')
+    .insert(orders)
+    .select()
   if (error) throw error
   return data
 }

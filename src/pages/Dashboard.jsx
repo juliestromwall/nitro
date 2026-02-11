@@ -3,7 +3,7 @@ import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from '@/components/ui/table'
 import { useSales } from '@/context/SalesContext'
-import { useClients } from '@/context/ClientContext'
+import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 
 const fmt = (value) =>
@@ -11,7 +11,7 @@ const fmt = (value) =>
 
 function Dashboard() {
   const { orders, commissions, activeSeasons } = useSales()
-  const { getClientName } = useClients()
+  const { getAccountName } = useAccounts()
   const { companies } = useCompanies()
 
   // Use the most recent active season as current
@@ -21,12 +21,6 @@ function Dashboard() {
   const seasonOrders = orders.filter((o) => o.season_id === currentSeasonId)
 
   const totalSales = seasonOrders.reduce((sum, o) => sum + (o.total || 0), 0)
-  const rentalSales = seasonOrders
-    .filter((o) => o.order_type === 'Rental')
-    .reduce((sum, o) => sum + (o.total || 0), 0)
-  const retailSales = seasonOrders
-    .filter((o) => o.order_type === 'Retail')
-    .reduce((sum, o) => sum + (o.total || 0), 0)
 
   // Commission totals from commissions table (joined via order)
   const seasonOrderIds = new Set(seasonOrders.map((o) => o.id))
@@ -47,29 +41,13 @@ function Dashboard() {
       )}
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-3 gap-6">
+      <div className="grid grid-cols-2 gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm text-muted-foreground">Total Sales</CardTitle>
           </CardHeader>
           <CardContent>
             <p className="text-2xl font-bold">{fmt(totalSales)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">Rental Sales</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{fmt(rentalSales)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm text-muted-foreground">Retail Sales</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{fmt(retailSales)}</p>
           </CardContent>
         </Card>
         <Card>
@@ -114,7 +92,7 @@ function Dashboard() {
           <TableBody>
             {recentOrders.map((order) => (
               <TableRow key={order.id}>
-                <TableCell>{getClientName(order.client_id)}</TableCell>
+                <TableCell>{getAccountName(order.client_id)}</TableCell>
                 <TableCell>{order.order_type}</TableCell>
                 <TableCell>{order.order_number}</TableCell>
                 <TableCell>{order.close_date}</TableCell>

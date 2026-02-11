@@ -11,7 +11,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
-import { useClients } from '@/context/ClientContext'
+import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
 
@@ -61,7 +61,7 @@ const stickyBg = (status) => {
 }
 
 function CompanyCommission({ companyId }) {
-  const { getClientName } = useClients()
+  const { getAccountName } = useAccounts()
   const { companies } = useCompanies()
   const { activeSeasons, archivedSeasons, orders, commissions, updateSeason, toggleArchiveSeason, upsertCommission, updateCommission } = useSales()
 
@@ -148,7 +148,7 @@ function CompanyCommission({ companyId }) {
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter((r) => {
-        const clientName = getClientName(r.client_id).toLowerCase()
+        const clientName = getAccountName(r.client_id).toLowerCase()
         const orderNum = (r.order_number || '').toLowerCase()
         const invoiceNum = (r.invoice_number || '').toLowerCase()
         const total = String(r.orderTotal)
@@ -454,7 +454,7 @@ function CompanyCommission({ companyId }) {
                               </Button>
                             </div>
                           </TableCell>
-                          <TableCell className="font-medium whitespace-nowrap">{getClientName(row.client_id)}</TableCell>
+                          <TableCell className="font-medium whitespace-nowrap">{getAccountName(row.client_id)}</TableCell>
                           <TableCell className="whitespace-nowrap">{row.order_number}</TableCell>
                           <TableCell className="whitespace-nowrap">{row.invoice_number}</TableCell>
                           <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
@@ -507,7 +507,7 @@ function CompanyCommission({ companyId }) {
                           </div>
                         </TableCell>
                         <TableCell className="font-medium whitespace-nowrap">
-                          {getClientName(row.client_id)}
+                          {getAccountName(row.client_id)}
                         </TableCell>
                         <TableCell className="whitespace-nowrap">{row.order_number}</TableCell>
                         <TableCell className="whitespace-nowrap">{row.invoice_number}</TableCell>

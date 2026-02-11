@@ -67,6 +67,12 @@ export function SalesProvider({ children }) {
     return row
   }
 
+  const bulkAddOrders = async (rows) => {
+    const inserted = await db.bulkInsertOrders(rows.map((r) => ({ ...r, user_id: user.id })))
+    setOrders((prev) => [...inserted, ...prev])
+    return inserted
+  }
+
   const updateOrder = async (id, data) => {
     const row = await db.updateOrder(id, data)
     setOrders((prev) => prev.map((o) => (o.id === id ? row : o)))
@@ -109,7 +115,7 @@ export function SalesProvider({ children }) {
     <SalesContext.Provider value={{
       seasons, activeSeasons, archivedSeasons, orders, commissions, loading,
       addSeason, updateSeason, toggleArchiveSeason,
-      addOrder, updateOrder, deleteOrder,
+      addOrder, bulkAddOrders, updateOrder, deleteOrder,
       upsertCommission, updateCommission,
     }}>
       {children}
