@@ -667,7 +667,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       {/* Add / Edit Sale dialog — 2-step wizard */}
       <Dialog open={saleDialogOpen} onOpenChange={(open) => { if (!open) closeSaleDialog() }}>
         <DialogContent
-          className="max-w-lg"
+          className="max-w-lg max-h-[90vh] overflow-y-auto"
           showCloseButton={false}
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
@@ -844,11 +844,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 />
               </div>
 
-              {/* Total — BIG cents-first input */}
+              {/* Total — cents-first input */}
               <div className="space-y-2">
                 <Label>Total <span className="text-red-500">*</span></Label>
-                <div className="flex items-center border rounded-md h-16 px-4 focus-within:ring-2 focus-within:ring-ring">
-                  <span className="text-4xl font-black text-zinc-900 select-none">$</span>
+                <div className="flex items-center border rounded-md h-12 px-3 focus-within:ring-2 focus-within:ring-ring">
+                  <span className="text-2xl font-bold text-zinc-900 select-none">$</span>
                   <input
                     inputMode="numeric"
                     placeholder="0.00"
@@ -857,7 +857,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                       const digits = e.target.value.replace(/\D/g, '')
                       setSaleForm((p) => ({ ...p, total: digits }))
                     }}
-                    className="flex-1 text-4xl font-black tracking-tight bg-transparent outline-none ml-1"
+                    className="flex-1 text-2xl font-bold tracking-tight bg-transparent outline-none ml-1"
                     required
                   />
                 </div>
