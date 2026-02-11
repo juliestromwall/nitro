@@ -16,7 +16,7 @@ import { useCompanies } from '@/context/CompanyContext'
 import { useAuth } from '@/context/AuthContext'
 import { uploadDocument, getDocumentUrl } from '@/lib/db'
 import { useSales } from '@/context/SalesContext'
-import { parseCSVLine } from '@/lib/csv'
+import { parseCSVLine, splitCSVRows } from '@/lib/csv'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -380,7 +380,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
 
   // CSV import handlers
   const parseSalesCSV = (text) => {
-    const lines = text.split(/\r?\n/).filter((l) => l.trim())
+    const lines = splitCSVRows(text)
     if (lines.length < 2) return { rows: [], skipped: [] }
 
     const headers = parseCSVLine(lines[0]).map((h) => h.toLowerCase().replace(/['"]/g, ''))
@@ -429,7 +429,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         order_type: orderType,
         items: items.length ? items : [],
         order_number: map.order_number !== undefined ? cols[map.order_number] || '' : '',
-        invoice_number: map.invoice_number !== undefined ? cols[map.invoice_number] || '' : '',
+        invoice_number: map.invoice_number !== undefined ? (cols[map.invoice_number] || '').replace(/\n/g, ' ') : '',
         close_date: map.close_date !== undefined ? cols[map.close_date] || '' : '',
         stage: map.stage !== undefined ? cols[map.stage] || companyStages[0] || 'Closed - Won' : companyStages[0] || 'Closed - Won',
         total,
