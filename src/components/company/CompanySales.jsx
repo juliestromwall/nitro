@@ -291,7 +291,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       order_type: order.order_type,
       items: order.items || [],
       order_number: order.order_number,
-      invoices: getInvoices(order),
+      invoices: getInvoices(order).map((inv) => ({
+        ...inv,
+        amount: typeof inv.amount === 'number' && inv.amount > 0 ? floatToCents(inv.amount) : inv.amount || '',
+      })),
       close_date: order.close_date,
       stage: order.stage,
       order_document: order.order_document || null,
@@ -319,6 +322,13 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     const total = centsToFloat(saleForm.total)
     const commOverride = saleForm.commission_override.trim() !== '' ? parseFloat(saleForm.commission_override) : null
 
+    // Convert invoice amounts from cents-string to float for storage
+    const cleanInvoices = saleForm.invoices.map((inv) => ({
+      number: inv.number || '',
+      amount: inv.amount ? (typeof inv.amount === 'number' ? inv.amount : parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100) : 0,
+      document: inv.document || null,
+    }))
+
     const orderData = {
       client_id: saleForm.client_id,
       company_id: companyId,
@@ -327,12 +337,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       order_type: saleForm.order_type,
       items: saleForm.items,
       order_number: saleForm.order_number,
-      invoice_number: saleForm.invoices.map((inv) => inv.number).filter(Boolean).join(', '),
-      invoices: saleForm.invoices,
+      invoice_number: cleanInvoices.map((inv) => inv.number).filter(Boolean).join(', '),
+      invoices: cleanInvoices,
       close_date: saleForm.close_date,
       stage: saleForm.stage,
       order_document: saleForm.order_document,
-      invoice_document: saleForm.invoices[0]?.document || null,
+      invoice_document: cleanInvoices[0]?.document || null,
       total,
       commission_override: commOverride,
       notes: saleForm.notes,
@@ -340,10 +350,26 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
 
     const wasAdd = !isEditMode
 
-    if (isEditMode) {
-      await updateOrder(editingOrderId, orderData)
-    } else {
-      await addOrder(orderData)
+    try {
+      if (isEditMode) {
+        await updateOrder(editingOrderId, orderData)
+      } else {
+        await addOrder(orderData)
+      }
+    } catch (err) {
+      console.error('Failed to save order:', err)
+      // If invoices column doesn't exist yet, retry without it
+      if (err.message?.includes('invoices')) {
+        const { invoices, ...fallbackData } = orderData
+        if (isEditMode) {
+          await updateOrder(editingOrderId, fallbackData)
+        } else {
+          await addOrder(fallbackData)
+        }
+      } else {
+        alert('Failed to save. Check console for details.')
+        return
+      }
     }
 
     closeSaleDialog()
