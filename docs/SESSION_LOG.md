@@ -322,3 +322,27 @@
 
 **Open questions:**
 - None at this time
+
+## 2026-02-11
+
+**Worked on:** Invoice tracking, partial shipments, stacked table display, new shipping stages, commission report updates, deployment.
+
+**Changes made:**
+- **Invoice tracking (JSONB):** Added `invoices` JSONB column to orders table. Each invoice has number, amount, and optional document. Dynamic invoice list UI in Add/Edit Sale dialog with per-invoice document upload. Legacy `invoice_number`/`invoice_document` backward compatibility via `getInvoices()` helper.
+- **Stacked table display:** Order numbers split on commas and stacked vertically. Invoice numbers stacked with amounts in parentheses. Both link to their attached documents (signed URLs, open in new tab). Pending shipment indicator ("Pending: $X,XXX") shown when invoiced amount < order total.
+- **New default stages:** Added "Partially Shipped" (full total counts in sales/commission) and "Short Shipped" (excluded from totals, amber row styling). Short Shipped has a confirmation dialog before stage change takes effect.
+- **EXCLUDED_STAGES constant:** `['Cancelled', 'Short Shipped']` in `src/lib/constants.js` replaces hardcoded `'Cancelled'` filter in CompanySales, CompanyDashboard, and Dashboard.
+- **Commission report:** Shows Order Placed, Partially Shipped, AND Short Shipped orders (only Cancelled excluded). Stacked order/invoice display with document hyperlinks and pending indicator. Changed paid date from text input to native date picker.
+- **Error handling:** Added try/catch to sale submit with fallback that retries without `invoices` field if column doesn't exist yet.
+- **CSV import:** Converts imported `invoice_number` column into `invoices` array format.
+- **Database migration:** Ran `ALTER TABLE orders ADD COLUMN IF NOT EXISTS invoices jsonb DEFAULT '[]'` in Supabase SQL Editor.
+- Updated `docs/FEATURES.md` and `docs/PRODUCT.md` with new terminology and changelog entries.
+- All changes committed, pushed to GitHub, built and deployed to repcommish.com.
+
+**Next steps:**
+- Delete duplicate "Nitro Snowboards" company (id=5) from Adam's account
+- Add edit/delete improvements for accounts
+- Consider adding commission % override back to Add Sale modal UI
+
+**Open questions:**
+- None at this time
