@@ -14,7 +14,6 @@ import {
 import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
-import { EXCLUDED_STAGES } from '@/lib/constants'
 import { getDocumentUrl } from '@/lib/db'
 
 const fmt = (value) =>
@@ -137,10 +136,10 @@ function CompanyCommission({ companyId }) {
   const company = companies.find((c) => c.id === companyId)
   const commissionPct = company?.commission_percent || 0
 
-  // Get all orders excluding cancelled/short shipped for this company + season
+  // Get all non-cancelled orders for this company + season (includes Partially Shipped & Short Shipped)
   const closedWonOrders = currentSeason
     ? orders.filter(
-        (o) => o.company_id === companyId && o.season_id === currentSeason.id && !EXCLUDED_STAGES.includes(o.stage)
+        (o) => o.company_id === companyId && o.season_id === currentSeason.id && o.stage !== 'Cancelled'
       )
     : []
 
