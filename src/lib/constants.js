@@ -16,3 +16,5 @@ export const accountTypes = [
   'Chain',
 ]
 
+export const EXCLUDED_STAGES = ['Cancelled', 'Short Shipped']
+

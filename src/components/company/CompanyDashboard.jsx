@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Plus, Pencil, Trash2, Pin, PinOff, GripVertical, ChevronDown } from 'lucide-react'
+import { Plus, Pencil, Trash2, Pin, PinOff, GripVertical, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -14,6 +14,7 @@ import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
 import { useTodos } from '@/context/TodoContext'
+import { EXCLUDED_STAGES } from '@/lib/constants'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -39,7 +40,7 @@ function CompanyDashboard({ companyId }) {
   }
 
   // Summary data
-  const seasonOrders = orders.filter((o) => o.company_id === companyId && o.season_id === selectedSeasonId && o.stage !== 'Cancelled')
+  const seasonOrders = orders.filter((o) => o.company_id === companyId && o.season_id === selectedSeasonId && !EXCLUDED_STAGES.includes(o.stage))
   const totalSales = seasonOrders.reduce((sum, o) => sum + (o.total || 0), 0)
   const commissionPct = company?.commission_percent || 0
 
@@ -162,21 +163,38 @@ function CompanyDashboard({ companyId }) {
   return (
     <div className="space-y-6">
       {/* Season selector */}
-      <div className="flex items-center gap-3">
-        <Label className="text-sm text-muted-foreground">Season</Label>
-        <div className="relative">
-          <select
-            value={selectedSeasonId}
-            onChange={(e) => handleSeasonChange(e.target.value)}
-            className="border rounded-md px-3 py-1.5 text-sm pr-8 appearance-none bg-white"
-          >
-            {activeSeasons.map((s) => (
-              <option key={s.id} value={s.id}>{s.label}</option>
-            ))}
-          </select>
-          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground pointer-events-none" />
-        </div>
-      </div>
+      {activeSeasons.length > 0 && (() => {
+        const currentIndex = activeSeasons.findIndex((s) => s.id === selectedSeasonId)
+        const selectedSeason = activeSeasons[currentIndex] || activeSeasons[0]
+        return (
+          <div className="flex items-center gap-3">
+            <Label className="text-sm text-muted-foreground">Season</Label>
+            <div className="flex items-center">
+              <button
+                onClick={() => {
+                  if (currentIndex > 0) handleSeasonChange(activeSeasons[currentIndex - 1].id)
+                }}
+                disabled={currentIndex <= 0}
+                className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-l-md border border-[#005b5b]/30 border-r-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="size-4" />
+              </button>
+              <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold select-none min-w-[120px] text-center">
+                {selectedSeason?.label}
+              </div>
+              <button
+                onClick={() => {
+                  if (currentIndex < activeSeasons.length - 1) handleSeasonChange(activeSeasons[currentIndex + 1].id)
+                }}
+                disabled={currentIndex >= activeSeasons.length - 1}
+                className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-r-md border border-[#005b5b]/30 border-l-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="size-4" />
+              </button>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-6">

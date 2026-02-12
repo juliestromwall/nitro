@@ -1,10 +1,13 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
-import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper } from 'lucide-react'
+import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+} from '@/components/ui/select'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from '@/components/ui/table'
@@ -17,6 +20,7 @@ import { useAuth } from '@/context/AuthContext'
 import { uploadDocument, getDocumentUrl } from '@/lib/db'
 import { useSales } from '@/context/SalesContext'
 import { parseCSVLine, splitCSVRows } from '@/lib/csv'
+import { EXCLUDED_STAGES } from '@/lib/constants'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -24,6 +28,18 @@ const fmt = (value) =>
 const getItems = (order) => {
   if (order.items && order.items.length > 0) return order.items.join(', ')
   return ''
+}
+
+const fmtDate = (dateStr) => {
+  if (!dateStr) return ''
+  const d = new Date(dateStr + 'T00:00:00')
+  if (isNaN(d)) return dateStr
+  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`
+}
+
+const SortIcon = ({ column, sortConfig }) => {
+  if (sortConfig.key !== column) return <ArrowUpDown className="size-3 opacity-40" />
+  return sortConfig.dir === 'asc' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />
 }
 
 // Cents-first currency formatting: raw digits → "$X,XXX.XX"
@@ -50,6 +66,20 @@ const floatToCents = (val) => {
   const num = parseFloat(val)
   if (isNaN(num)) return ''
   return String(Math.round(num * 100))
+}
+
+// Read invoices from new JSONB array, falling back to legacy invoice_number/invoice_document fields
+const getInvoices = (order) => {
+  if (order.invoices && order.invoices.length > 0) return order.invoices
+  if (order.invoice_number) {
+    const nums = order.invoice_number.split(',').map((s) => s.trim()).filter(Boolean)
+    return nums.map((num, i) => ({
+      number: num,
+      amount: 0,
+      document: i === 0 ? order.invoice_document || null : null,
+    }))
+  }
+  return []
 }
 
 const HYPE_MESSAGES = [
@@ -105,14 +135,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const company = getCompany(companyId)
   const companyOrderTypes = company?.order_types || []
   const companyItems = company?.items || []
-  const DEFAULT_STAGES = ['Order Placed', 'Cancelled']
-  const customStages = (company?.stages || []).filter((s) => s !== 'Order Placed' && s !== 'Cancelled')
+  const DEFAULT_STAGES = ['Order Placed', 'Partially Shipped', 'Short Shipped', 'Cancelled']
+  const customStages = (company?.stages || []).filter((s) => !DEFAULT_STAGES.includes(s))
   const companyStages = [...DEFAULT_STAGES, ...customStages]
 
   const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
   const [tabDialogOpen, setTabDialogOpen] = useState(false)
   const [editingTabId, setEditingTabId] = useState(null)
-  const [tabForm, setTabForm] = useState({ label: '', year: '', start_date: '', end_date: '' })
+  const [tabForm, setTabForm] = useState({ label: '', year: '' })
   const [hoveredRow, setHoveredRow] = useState(null)
   const [showArchived, setShowArchived] = useState(false)
 
@@ -122,6 +152,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [filterStage, setFilterStage] = useState('')
   const [showOrderTypeFilter, setShowOrderTypeFilter] = useState(false)
   const [showStageFilter, setShowStageFilter] = useState(false)
+  const [sortConfig, setSortConfig] = useState({ key: null, dir: 'asc' })
 
   // Add/Edit Sale dialog state
   const [editingOrderId, setEditingOrderId] = useState(null)
@@ -136,17 +167,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     order_type: '',
     items: [],
     order_number: '',
-    invoice_number: '',
+    invoices: [],
     close_date: '',
     stage: '',
     order_document: null,
-    invoice_document: null,
     total: '',
     commission_override: '',
     notes: '',
   })
   const orderDocRef = useRef(null)
-  const invoiceDocRef = useRef(null)
+  const invoiceDocRefs = useRef({})
+
+  // Short Shipped confirmation dialog state
+  const [shortShipConfirmOpen, setShortShipConfirmOpen] = useState(false)
+  const [previousStage, setPreviousStage] = useState('')
 
   // Notes modal state
   const [noteModalOpen, setNoteModalOpen] = useState(false)
@@ -190,8 +224,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     setSaleForm({
       client_id: null, clientName: '', sale_type: 'Prebook', season_id: currentSeason?.id || '',
       order_type: '',
-      items: [], order_number: '', invoice_number: '', close_date: '',
-      stage: '', order_document: null, invoice_document: null, total: '',
+      items: [], order_number: '', invoices: [], close_date: '',
+      stage: '', order_document: null, total: '',
       commission_override: String(company?.commission_percent || ''), notes: '',
     })
     setAccountSearch('')
@@ -201,7 +235,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   // Tab dialog handlers
   const openCreateTab = () => {
     setEditingTabId(null)
-    setTabForm({ label: '', year: '', start_date: '', end_date: '' })
+    setTabForm({ label: '', year: '' })
     setTabDialogOpen(true)
   }
 
@@ -210,8 +244,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     setTabForm({
       label: season.label,
       year: season.year || '',
-      start_date: season.start_date || '',
-      end_date: season.end_date || '',
     })
     setTabDialogOpen(true)
   }
@@ -222,19 +254,15 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       await updateSeason(editingTabId, {
         label: tabForm.label,
         year: tabForm.year,
-        start_date: tabForm.start_date,
-        end_date: tabForm.end_date,
       })
     } else {
       const newSeason = await addSeason({
         label: tabForm.label,
         year: tabForm.year,
-        start_date: tabForm.start_date,
-        end_date: tabForm.end_date,
       })
       setActiveTab(newSeason.id)
     }
-    setTabForm({ label: '', year: '', start_date: '', end_date: '' })
+    setTabForm({ label: '', year: '' })
     setEditingTabId(null)
     setTabDialogOpen(false)
   }
@@ -244,7 +272,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     await toggleArchiveSeason(id)
     setTabDialogOpen(false)
     setEditingTabId(null)
-    setTabForm({ label: '', year: '', start_date: '', end_date: '' })
+    setTabForm({ label: '', year: '' })
     if (activeTab === id) {
       const remaining = activeSeasons.filter((s) => s.id !== id)
       setActiveTab(remaining[0]?.id || '')
@@ -263,11 +291,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       order_type: order.order_type,
       items: order.items || [],
       order_number: order.order_number,
-      invoice_number: order.invoice_number || '',
+      invoices: getInvoices(order),
       close_date: order.close_date,
       stage: order.stage,
       order_document: order.order_document || null,
-      invoice_document: order.invoice_document || null,
       total: floatToCents(order.total),
       commission_override: order.commission_override != null ? String(order.commission_override) : String(company?.commission_percent || ''),
       notes: order.notes || '',
@@ -300,11 +327,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       order_type: saleForm.order_type,
       items: saleForm.items,
       order_number: saleForm.order_number,
-      invoice_number: saleForm.invoice_number,
+      invoice_number: saleForm.invoices.map((inv) => inv.number).filter(Boolean).join(', '),
+      invoices: saleForm.invoices,
       close_date: saleForm.close_date,
       stage: saleForm.stage,
       order_document: saleForm.order_document,
-      invoice_document: saleForm.invoice_document,
+      invoice_document: saleForm.invoices[0]?.document || null,
       total,
       commission_override: commOverride,
       notes: saleForm.notes,
@@ -347,17 +375,56 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     if (orderDocRef.current) orderDocRef.current.value = ''
   }
 
-  const handleInvoiceDocUpload = async (e) => {
+  const handleInvoiceDocUpload = async (e, invoiceIndex) => {
     const file = e.target.files?.[0]
     if (file && user) {
       try {
-        const doc = await uploadDocument(user.id, editingOrderId || 'new', 'invoice', file)
-        setSaleForm((p) => ({ ...p, invoice_document: { name: doc.name, path: doc.path } }))
+        const doc = await uploadDocument(user.id, editingOrderId || 'new', `invoice-${invoiceIndex}`, file)
+        setSaleForm((p) => {
+          const updated = [...p.invoices]
+          updated[invoiceIndex] = { ...updated[invoiceIndex], document: { name: doc.name, path: doc.path } }
+          return { ...p, invoices: updated }
+        })
       } catch (err) {
         console.error('Failed to upload invoice document:', err)
       }
     }
-    if (invoiceDocRef.current) invoiceDocRef.current.value = ''
+    const ref = invoiceDocRefs.current[invoiceIndex]
+    if (ref) ref.value = ''
+  }
+
+  // Invoice array helpers
+  const addInvoice = () => {
+    setSaleForm((p) => ({
+      ...p,
+      invoices: [...p.invoices, { number: '', amount: '', document: null }],
+    }))
+  }
+
+  const updateInvoice = (index, field, value) => {
+    setSaleForm((p) => {
+      const updated = [...p.invoices]
+      updated[index] = { ...updated[index], [field]: value }
+      return { ...p, invoices: updated }
+    })
+  }
+
+  const removeInvoice = (index) => {
+    setSaleForm((p) => ({
+      ...p,
+      invoices: p.invoices.filter((_, i) => i !== index),
+    }))
+  }
+
+  // Stage change handler with Short Shipped confirmation
+  const handleStageChange = (newStage) => {
+    if (newStage === 'Short Shipped') {
+      setPreviousStage(saleForm.stage)
+      setSaleForm((p) => ({ ...p, stage: newStage }))
+      setShortShipConfirmOpen(true)
+    } else {
+      setSaleForm((p) => ({ ...p, stage: newStage }))
+    }
   }
 
   // Notes modal
@@ -376,8 +443,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     setNoteText('')
   }
 
-  const handleDelete = async (orderId) => {
-    await deleteOrder(orderId)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
+
+  const handleDelete = async () => {
+    if (!confirmDeleteId) return
+    await deleteOrder(confirmDeleteId)
+    setConfirmDeleteId(null)
   }
 
   // CSV import handlers
@@ -424,6 +495,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         ? parseFloat(cols[map.commission_override]?.replace(/[%]/g, ''))
         : null
 
+      const rawInvoice = map.invoice_number !== undefined ? (cols[map.invoice_number] || '').replace(/\n/g, ' ') : ''
+      const invoiceNums = rawInvoice.split(',').map((s) => s.trim()).filter(Boolean)
+      const invoices = invoiceNums.map((num) => ({ number: num, amount: 0, document: null }))
+
       rows.push({
         client_id: account.id,
         company_id: companyId,
@@ -431,7 +506,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         order_type: orderType,
         items: items.length ? items : [],
         order_number: map.order_number !== undefined ? cols[map.order_number] || '' : '',
-        invoice_number: map.invoice_number !== undefined ? (cols[map.invoice_number] || '').replace(/\n/g, ' ') : '',
+        invoice_number: rawInvoice,
+        invoices,
         close_date: map.close_date !== undefined ? cols[map.close_date] || '' : '',
         stage: map.stage !== undefined ? cols[map.stage] || 'Order Placed' : 'Order Placed',
         total,
@@ -486,6 +562,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     ? orders.filter((o) => o.season_id === currentSeason.id && o.company_id === companyId)
     : []
 
+  const toggleSort = (key) => {
+    setSortConfig((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: 'asc' }
+    )
+  }
+
   const filteredOrders = useMemo(() => {
     let result = seasonOrders
 
@@ -494,9 +578,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       result = result.filter((o) => {
         const accountName = getAccountName(o.client_id).toLowerCase()
         const orderNum = (o.order_number || '').toLowerCase()
-        const invoiceNum = (o.invoice_number || '').toLowerCase()
+        const invoiceNums = getInvoices(o).map((inv) => (inv.number || '').toLowerCase()).join(' ')
         const total = String(o.total)
-        return accountName.includes(q) || orderNum.includes(q) || invoiceNum.includes(q) || total.includes(q)
+        return accountName.includes(q) || orderNum.includes(q) || invoiceNums.includes(q) || total.includes(q)
       })
     }
 
@@ -508,14 +592,34 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       result = result.filter((o) => o.stage === filterStage)
     }
 
+    if (sortConfig.key) {
+      result = [...result].sort((a, b) => {
+        let av, bv
+        switch (sortConfig.key) {
+          case 'account': av = getAccountName(a.client_id); bv = getAccountName(b.client_id); break
+          case 'sale_type': av = a.sale_type || ''; bv = b.sale_type || ''; break
+          case 'order_type': av = a.order_type || ''; bv = b.order_type || ''; break
+          case 'items': av = getItems(a); bv = getItems(b); break
+          case 'order_number': av = a.order_number || ''; bv = b.order_number || ''; break
+          case 'invoice_number': av = getInvoices(a).map((inv) => inv.number).join(', '); bv = getInvoices(b).map((inv) => inv.number).join(', '); break
+          case 'close_date': av = a.close_date || ''; bv = b.close_date || ''; break
+          case 'stage': av = a.stage || ''; bv = b.stage || ''; break
+          case 'total': return sortConfig.dir === 'asc' ? a.total - b.total : b.total - a.total
+          default: return 0
+        }
+        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
+        return sortConfig.dir === 'asc' ? cmp : -cmp
+      })
+    }
+
     return result
-  }, [seasonOrders, searchQuery, filterOrderType, filterStage])
+  }, [seasonOrders, searchQuery, filterOrderType, filterStage, sortConfig])
 
   const uniqueOrderTypes = [...new Set(seasonOrders.map((o) => o.order_type))]
   const uniqueStages = [...new Set(seasonOrders.map((o) => o.stage))]
 
-  // Exclude cancelled orders from totals
-  const activeOrders = seasonOrders.filter((o) => o.stage !== 'Cancelled')
+  // Exclude cancelled and short shipped orders from totals
+  const activeOrders = seasonOrders.filter((o) => !EXCLUDED_STAGES.includes(o.stage))
   const totalSales = activeOrders.reduce((sum, o) => sum + o.total, 0)
   const totalCommission = activeOrders.reduce((sum, o) => sum + getCommission(o).amount, 0)
 
@@ -595,7 +699,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       {/* Create / Edit tab dialog */}
       <Dialog open={tabDialogOpen} onOpenChange={(open) => {
         setTabDialogOpen(open)
-        if (!open) { setEditingTabId(null); setTabForm({ label: '', year: '', start_date: '', end_date: '' }) }
+        if (!open) { setEditingTabId(null); setTabForm({ label: '', year: '' }) }
       }}>
         <DialogContent>
           <DialogHeader>
@@ -617,35 +721,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
             </div>
             <div className="space-y-2">
               <Label htmlFor="tabYear">Year</Label>
-              <Input
-                id="tabYear"
-                placeholder="e.g. 2027"
+              <Select
                 value={tabForm.year}
-                onChange={(e) => setTabForm((p) => ({ ...p, year: e.target.value }))}
+                onValueChange={(val) => setTabForm((p) => ({ ...p, year: val }))}
                 required
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="startDate">Start Date</Label>
-                <Input
-                  id="startDate"
-                  type="date"
-                  value={tabForm.start_date}
-                  onChange={(e) => setTabForm((p) => ({ ...p, start_date: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="endDate">End Date</Label>
-                <Input
-                  id="endDate"
-                  type="date"
-                  value={tabForm.end_date}
-                  onChange={(e) => setTabForm((p) => ({ ...p, end_date: e.target.value }))}
-                  required
-                />
-              </div>
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select year..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {Array.from({ length: 26 }, (_, i) => String(2025 + i)).map((year) => (
+                    <SelectItem key={year} value={year}>{year}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <DialogFooter className="flex gap-2">
               {editingTabId && (() => {
@@ -848,6 +937,98 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 />
               </div>
 
+              {/* Invoices — dynamic list */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label>Invoices</Label>
+                  <button
+                    type="button"
+                    onClick={addInvoice}
+                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                  >
+                    <Plus className="size-3" /> Add Invoice
+                  </button>
+                </div>
+                {saleForm.invoices.length > 0 && (
+                  <div className="space-y-2">
+                    {saleForm.invoices.map((inv, idx) => (
+                      <div key={idx} className="flex items-center gap-2 border rounded-md p-2 bg-zinc-50">
+                        <div className="flex-1 space-y-1">
+                          <Input
+                            placeholder="Invoice #"
+                            value={inv.number}
+                            onChange={(e) => updateInvoice(idx, 'number', e.target.value)}
+                            className="h-8 text-sm"
+                          />
+                          <div className="flex items-center border rounded-md px-2 h-8 bg-white focus-within:ring-2 focus-within:ring-ring">
+                            <span className="text-xs text-muted-foreground select-none">$</span>
+                            <input
+                              inputMode="numeric"
+                              placeholder="0.00"
+                              value={inv.amount ? centsToDisplay(String(inv.amount)) : ''}
+                              onChange={(e) => {
+                                const digits = e.target.value.replace(/\D/g, '')
+                                updateInvoice(idx, 'amount', digits || '')
+                              }}
+                              className="flex-1 text-xs bg-transparent outline-none ml-1"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex flex-col items-center gap-1">
+                          <input
+                            ref={(el) => { invoiceDocRefs.current[idx] = el }}
+                            type="file"
+                            onChange={(e) => handleInvoiceDocUpload(e, idx)}
+                            className="hidden"
+                          />
+                          {inv.document ? (
+                            <Badge variant="secondary" className="gap-1 text-xs">
+                              <FileText className="size-3" />
+                              <span className="max-w-20 truncate">{inv.document.name}</span>
+                              <button type="button" onClick={() => updateInvoice(idx, 'document', null)}>
+                                <X className="size-3" />
+                              </button>
+                            </Badge>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => invoiceDocRefs.current[idx]?.click()}
+                              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                            >
+                              <Upload className="size-3" /> Doc
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeInvoice(idx)}
+                            className="text-xs text-red-500 hover:text-red-700"
+                          >
+                            <Trash2 className="size-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {/* Pending shipment indicator */}
+                    {saleForm.total && (() => {
+                      const orderTotal = centsToFloat(saleForm.total)
+                      const invoicedTotal = saleForm.invoices.reduce((sum, inv) => {
+                        const amt = inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0
+                        return sum + amt
+                      }, 0)
+                      const pending = orderTotal - invoicedTotal
+                      if (pending > 0) {
+                        return (
+                          <p className="text-xs text-amber-600 font-medium">
+                            Pending shipment: {fmt(pending)}
+                          </p>
+                        )
+                      }
+                      return null
+                    })()}
+                  </div>
+                )}
+              </div>
+
               {/* Total + Commission % side by side */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -899,7 +1080,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   <Label>Stage <span className="text-red-500">*</span></Label>
                   <select
                     value={saleForm.stage}
-                    onChange={(e) => setSaleForm((p) => ({ ...p, stage: e.target.value }))}
+                    onChange={(e) => handleStageChange(e.target.value)}
                     className="w-full border rounded-md px-3 py-2 text-sm"
                     required
                   >
@@ -1056,6 +1237,32 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         </DialogContent>
       </Dialog>
 
+      {/* Short Shipped confirmation dialog */}
+      <Dialog open={shortShipConfirmOpen} onOpenChange={(open) => {
+        if (!open) {
+          setSaleForm((p) => ({ ...p, stage: previousStage }))
+          setShortShipConfirmOpen(false)
+        }
+      }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Confirm Short Shipped</DialogTitle>
+            <DialogDescription>
+              Are you sure there are no more items to ship on this order? The pending amount will be excluded from your total sales and commission.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => {
+              setSaleForm((p) => ({ ...p, stage: previousStage }))
+              setShortShipConfirmOpen(false)
+            }}>Cancel</Button>
+            <Button variant="destructive" onClick={() => setShortShipConfirmOpen(false)}>
+              Confirm Short Shipped
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Search and summary */}
       {currentSeason && (
         <>
@@ -1096,74 +1303,81 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
             </Card>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="relative max-w-sm flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <Input
-                placeholder="Search account, order #, invoice #, total..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
+          {/* Sticky search bar */}
+          <div className="sticky top-[123px] z-20 bg-background pb-2 pt-1 space-y-3 border-b border-zinc-100">
+            <div className="flex items-center gap-3">
+              <div className="relative max-w-sm flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search account, order #, invoice #, total..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <input
+                ref={csvInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleCSVFileSelect}
+                className="hidden"
               />
+              <Button variant="outline" size="sm" onClick={() => csvInputRef.current?.click()}>
+                <Upload className="size-4 mr-1" /> Import CSV
+              </Button>
             </div>
-            <input
-              ref={csvInputRef}
-              type="file"
-              accept=".csv"
-              onChange={handleCSVFileSelect}
-              className="hidden"
-            />
-            <Button variant="outline" size="sm" onClick={() => csvInputRef.current?.click()}>
-              <Upload className="size-4 mr-1" /> Import CSV
-            </Button>
+
+            {(filterOrderType || filterStage) && (
+              <div className="flex items-center gap-2 text-sm">
+                <span className="text-muted-foreground">Filters:</span>
+                {filterOrderType && (
+                  <Badge variant="secondary" className="gap-1">
+                    Type: {filterOrderType}
+                    <button onClick={() => setFilterOrderType('')} className="ml-1 hover:text-red-500">
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
+                )}
+                {filterStage && (
+                  <Badge variant="secondary" className="gap-1">
+                    Stage: {filterStage}
+                    <button onClick={() => setFilterStage('')} className="ml-1 hover:text-red-500">
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
+                )}
+                <button
+                  onClick={() => { setFilterOrderType(''); setFilterStage('') }}
+                  className="text-muted-foreground hover:text-zinc-700 text-xs underline"
+                >
+                  Clear all
+                </button>
+              </div>
+            )}
           </div>
 
-          {(filterOrderType || filterStage) && (
-            <div className="flex items-center gap-2 text-sm">
-              <span className="text-muted-foreground">Filters:</span>
-              {filterOrderType && (
-                <Badge variant="secondary" className="gap-1">
-                  Type: {filterOrderType}
-                  <button onClick={() => setFilterOrderType('')} className="ml-1 hover:text-red-500">
-                    <X className="size-3" />
-                  </button>
-                </Badge>
-              )}
-              {filterStage && (
-                <Badge variant="secondary" className="gap-1">
-                  Stage: {filterStage}
-                  <button onClick={() => setFilterStage('')} className="ml-1 hover:text-red-500">
-                    <X className="size-3" />
-                  </button>
-                </Badge>
-              )}
-              <button
-                onClick={() => { setFilterOrderType(''); setFilterStage('') }}
-                className="text-muted-foreground hover:text-zinc-700 text-xs underline"
-              >
-                Clear all
-              </button>
-            </div>
-          )}
-
-          {/* Orders table - scrollable */}
-          <div className="overflow-x-auto -mx-4 px-4">
+          {/* Orders table */}
           <div style={{ minWidth: '1400px' }}>
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10 sticky left-0 bg-white z-10"></TableHead>
-                  <TableHead className="whitespace-nowrap">Account Name</TableHead>
-                  <TableHead className="whitespace-nowrap">Sale Type</TableHead>
-                  <TableHead>
-                    <div className="relative">
+              <TableHeader className="sticky top-[165px] z-[15]">
+                <TableRow className="bg-[#005b5b] hover:bg-[#005b5b]">
+                  <TableHead className="w-10 sticky left-0 bg-[#005b5b] z-[16]"></TableHead>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Account Name <SortIcon column="account" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('sale_type')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Sale Type <SortIcon column="sale_type" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white">
+                    <div className="relative flex items-center gap-1">
                       <button
-                        className="flex items-center gap-1 hover:text-zinc-900 whitespace-nowrap"
+                        className="flex items-center gap-1 hover:text-zinc-200 whitespace-nowrap"
                         onClick={() => { setShowOrderTypeFilter(!showOrderTypeFilter); setShowStageFilter(false) }}
                       >
                         Order Type
-                        <Filter className={`size-3 ${filterOrderType ? 'text-blue-600' : ''}`} />
+                        <Filter className={`size-3 ${filterOrderType ? 'text-amber-300' : ''}`} />
                       </button>
+                      <button onClick={() => toggleSort('order_type')} className="hover:text-zinc-200"><SortIcon column="order_type" sortConfig={sortConfig} /></button>
                       {showOrderTypeFilter && (
                         <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-20 min-w-32">
                           <button
@@ -1185,19 +1399,28 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead className="whitespace-nowrap">Items Ordered</TableHead>
-                  <TableHead className="whitespace-nowrap">Order #</TableHead>
-                  <TableHead className="whitespace-nowrap">Invoice #</TableHead>
-                  <TableHead className="whitespace-nowrap">Close Date</TableHead>
-                  <TableHead>
-                    <div className="relative">
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('items')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Items Ordered <SortIcon column="items" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('order_number')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Order # <SortIcon column="order_number" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('invoice_number')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Invoice # <SortIcon column="invoice_number" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('close_date')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Close Date <SortIcon column="close_date" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white">
+                    <div className="relative flex items-center gap-1">
                       <button
-                        className="flex items-center gap-1 hover:text-zinc-900 whitespace-nowrap"
+                        className="flex items-center gap-1 hover:text-zinc-200 whitespace-nowrap"
                         onClick={() => { setShowStageFilter(!showStageFilter); setShowOrderTypeFilter(false) }}
                       >
                         Stage
-                        <Filter className={`size-3 ${filterStage ? 'text-blue-600' : ''}`} />
+                        <Filter className={`size-3 ${filterStage ? 'text-amber-300' : ''}`} />
                       </button>
+                      <button onClick={() => toggleSort('stage')} className="hover:text-zinc-200"><SortIcon column="stage" sortConfig={sortConfig} /></button>
                       {showStageFilter && (
                         <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-20 min-w-40">
                           <button
@@ -1219,9 +1442,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead className="text-right whitespace-nowrap">Total</TableHead>
-                  <TableHead className="text-right whitespace-nowrap">Commission</TableHead>
-                  <TableHead className="whitespace-nowrap text-center">Notes</TableHead>
+                  <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('total')}>
+                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Total <SortIcon column="total" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white text-right whitespace-nowrap">Commission</TableHead>
+                  <TableHead className="text-white whitespace-nowrap text-center">Notes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1237,22 +1462,34 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   filteredOrders.map((order) => {
                     const isHovered = hoveredRow === order.id
                     const isCancelled = order.stage === 'Cancelled'
+                    const isShortShipped = order.stage === 'Short Shipped'
                     const comm = getCommission(order)
                     const hasNote = order.notes && order.notes.trim().length > 0
+
+                    const rowClass = isCancelled
+                      ? 'bg-red-50 text-red-400 line-through'
+                      : isShortShipped
+                        ? 'bg-amber-50'
+                        : ''
+                    const stickyBgClass = isCancelled
+                      ? 'bg-red-50'
+                      : isShortShipped
+                        ? 'bg-amber-50'
+                        : 'bg-white'
 
                     return (
                       <TableRow
                         key={order.id}
                         onMouseEnter={() => setHoveredRow(order.id)}
                         onMouseLeave={() => setHoveredRow(null)}
-                        className={`group ${isCancelled ? 'bg-red-50 text-red-400 line-through' : ''}`}
+                        className={`group ${rowClass}`}
                       >
-                        <TableCell className={`sticky left-0 z-10 w-10 ${isCancelled ? 'bg-red-50' : 'bg-white'}`}>
+                        <TableCell className={`sticky left-0 z-[5] w-10 ${stickyBgClass}`}>
                           <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditOrder(order)} title="Edit">
                               <Pencil className="size-3.5" />
                             </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => handleDelete(order.id)} title="Delete">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setConfirmDeleteId(order.id)} title="Delete">
                               <Trash2 className="size-3.5 text-red-500" />
                             </Button>
                           </div>
@@ -1264,30 +1501,79 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                             {order.order_type}
                           </Badge>
                         </TableCell>
-                        <TableCell className="max-w-48 truncate">{getItems(order)}</TableCell>
-                        <TableCell className="whitespace-nowrap">{order.order_number}</TableCell>
-                        <TableCell className="whitespace-nowrap">
-                          {order.invoice_document ? (
-                            <a
-                              href="#"
-                              onClick={async (e) => {
-                                e.preventDefault()
-                                try {
-                                  const url = await getDocumentUrl(order.invoice_document.path)
-                                  window.open(url, '_blank')
-                                } catch (err) {
-                                  console.error('Failed to get document URL:', err)
-                                }
-                              }}
-                              className="text-blue-600 underline"
-                            >
-                              {order.invoice_number || '—'}
-                            </a>
-                          ) : (
-                            order.invoice_number || '—'
-                          )}
+                        <TableCell className="max-w-48 truncate" title={getItems(order)}>{getItems(order)}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-0.5">
+                            {(order.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
+                              order.order_document ? (
+                                <a
+                                  key={i}
+                                  href="#"
+                                  onClick={async (e) => {
+                                    e.preventDefault()
+                                    try {
+                                      const url = await getDocumentUrl(order.order_document.path)
+                                      window.open(url, '_blank')
+                                    } catch (err) {
+                                      console.error('Failed to get document URL:', err)
+                                    }
+                                  }}
+                                  className="text-blue-600 underline text-sm whitespace-nowrap"
+                                >
+                                  {num}
+                                </a>
+                              ) : (
+                                <span key={i} className="text-sm whitespace-nowrap">{num}</span>
+                              )
+                            ))}
+                            {!order.order_number && '—'}
+                          </div>
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{order.close_date}</TableCell>
+                        <TableCell>
+                          {(() => {
+                            const invoices = getInvoices(order)
+                            if (invoices.length === 0) return '—'
+                            const invoicedTotal = invoices.reduce((sum, inv) => {
+                              const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
+                              return sum + amt
+                            }, 0)
+                            const pending = order.total - invoicedTotal
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                {invoices.map((inv, i) => {
+                                  const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
+                                  const label = `${inv.number || '—'}${amt > 0 ? ` (${fmt(amt)})` : ''}`
+                                  return inv.document ? (
+                                    <a
+                                      key={i}
+                                      href="#"
+                                      onClick={async (e) => {
+                                        e.preventDefault()
+                                        try {
+                                          const url = await getDocumentUrl(inv.document.path)
+                                          window.open(url, '_blank')
+                                        } catch (err) {
+                                          console.error('Failed to get document URL:', err)
+                                        }
+                                      }}
+                                      className="text-blue-600 underline text-sm whitespace-nowrap"
+                                    >
+                                      {label}
+                                    </a>
+                                  ) : (
+                                    <span key={i} className="text-sm whitespace-nowrap">{label}</span>
+                                  )
+                                })}
+                                {pending > 0 && !EXCLUDED_STAGES.includes(order.stage) && (
+                                  <span className="text-xs text-amber-600 font-medium whitespace-nowrap">
+                                    Pending: {fmt(pending)}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })()}
+                        </TableCell>
+                        <TableCell className="whitespace-nowrap">{fmtDate(order.close_date)}</TableCell>
                         <TableCell className="whitespace-nowrap">{order.stage}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">{fmt(order.total)}</TableCell>
                         <TableCell className="text-right whitespace-nowrap">
@@ -1330,9 +1616,24 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               </TableBody>
             </Table>
           </div>
-          </div>
         </>
       )}
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!confirmDeleteId} onOpenChange={(open) => { if (!open) setConfirmDeleteId(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Sale</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this sale? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

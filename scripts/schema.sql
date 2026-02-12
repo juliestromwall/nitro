@@ -85,6 +85,7 @@ create table orders (
   sale_type text not null default 'Prebook',
   order_document jsonb,
   invoice_document jsonb,
+  invoices jsonb default '[]',
   notes text,
   created_at timestamptz not null default now()
 );

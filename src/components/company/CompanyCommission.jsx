@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { FolderArchive, ChevronDown, Search, Check, X, Pencil } from 'lucide-react'
+import { FolderArchive, ChevronDown, Search, Check, X, Pencil, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -14,6 +14,8 @@ import {
 import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
+import { EXCLUDED_STAGES } from '@/lib/constants'
+import { getDocumentUrl } from '@/lib/db'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -60,6 +62,53 @@ const stickyBg = (status) => {
   return 'bg-white'
 }
 
+const fmtDate = (dateStr) => {
+  if (!dateStr) return ''
+  const d = new Date(dateStr + 'T00:00:00')
+  if (isNaN(d)) return dateStr
+  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`
+}
+
+const centsToDisplay = (raw) => {
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return ''
+  const cents = parseInt(digits, 10)
+  const dollars = (cents / 100).toFixed(2)
+  const [whole, dec] = dollars.split('.')
+  const withCommas = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+  return `${withCommas}.${dec}`
+}
+
+const centsToFloat = (raw) => {
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return 0
+  return parseInt(digits, 10) / 100
+}
+
+const floatToCents = (val) => {
+  const num = parseFloat(val)
+  if (isNaN(num)) return ''
+  return String(Math.round(num * 100))
+}
+
+const getInvoices = (order) => {
+  if (order.invoices && order.invoices.length > 0) return order.invoices
+  if (order.invoice_number) {
+    const nums = order.invoice_number.split(',').map((s) => s.trim()).filter(Boolean)
+    return nums.map((num, i) => ({
+      number: num,
+      amount: 0,
+      document: i === 0 ? order.invoice_document || null : null,
+    }))
+  }
+  return []
+}
+
+const SortIcon = ({ column, sortConfig }) => {
+  if (sortConfig.key !== column) return <ArrowUpDown className="size-3 opacity-40" />
+  return sortConfig.dir === 'asc' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />
+}
+
 function CompanyCommission({ companyId }) {
   const { getAccountName } = useAccounts()
   const { companies } = useCompanies()
@@ -69,6 +118,7 @@ function CompanyCommission({ companyId }) {
   const [cardFilter, setCardFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
+  const [sortConfig, setSortConfig] = useState({ key: null, dir: 'asc' })
 
   // Edit tab dialog state
   const [tabDialogOpen, setTabDialogOpen] = useState(false)
@@ -87,10 +137,10 @@ function CompanyCommission({ companyId }) {
   const company = companies.find((c) => c.id === companyId)
   const commissionPct = company?.commission_percent || 0
 
-  // Get all non-cancelled orders for this company + season
+  // Get all orders excluding cancelled/short shipped for this company + season
   const closedWonOrders = currentSeason
     ? orders.filter(
-        (o) => o.company_id === companyId && o.season_id === currentSeason.id && o.stage !== 'Cancelled'
+        (o) => o.company_id === companyId && o.season_id === currentSeason.id && !EXCLUDED_STAGES.includes(o.stage)
       )
     : []
 
@@ -104,7 +154,8 @@ function CompanyCommission({ companyId }) {
         orderId: order.id,
         client_id: order.client_id,
         order_number: order.order_number,
-        invoice_number: order.invoice_number,
+        order_document: order.order_document,
+        invoices: getInvoices(order),
         orderTotal: order.total,
         commissionDue: commEntry.commission_due,
         pay_status: commEntry.pay_status,
@@ -121,7 +172,8 @@ function CompanyCommission({ companyId }) {
       orderId: order.id,
       client_id: order.client_id,
       order_number: order.order_number,
-      invoice_number: order.invoice_number,
+      order_document: order.order_document,
+      invoices: getInvoices(order),
       orderTotal: order.total,
       commissionDue,
       pay_status: 'pending invoice',
@@ -150,14 +202,34 @@ function CompanyCommission({ companyId }) {
       result = result.filter((r) => {
         const clientName = getAccountName(r.client_id).toLowerCase()
         const orderNum = (r.order_number || '').toLowerCase()
-        const invoiceNum = (r.invoice_number || '').toLowerCase()
+        const invoiceNums = (r.invoices || []).map((inv) => (inv.number || '').toLowerCase()).join(' ')
         const total = String(r.orderTotal)
-        return clientName.includes(q) || orderNum.includes(q) || invoiceNum.includes(q) || total.includes(q)
+        return clientName.includes(q) || orderNum.includes(q) || invoiceNums.includes(q) || total.includes(q)
+      })
+    }
+
+    if (sortConfig.key) {
+      result = [...result].sort((a, b) => {
+        let av, bv
+        switch (sortConfig.key) {
+          case 'account': av = getAccountName(a.client_id); bv = getAccountName(b.client_id); break
+          case 'order_number': av = a.order_number || ''; bv = b.order_number || ''; break
+          case 'invoice_number': av = (a.invoices || []).map((inv) => inv.number).join(', '); bv = (b.invoices || []).map((inv) => inv.number).join(', '); break
+          case 'total': return sortConfig.dir === 'asc' ? a.orderTotal - b.orderTotal : b.orderTotal - a.orderTotal
+          case 'commission_due': return sortConfig.dir === 'asc' ? a.commissionDue - b.commissionDue : b.commissionDue - a.commissionDue
+          case 'pay_status': av = a.pay_status || ''; bv = b.pay_status || ''; break
+          case 'amount_paid': return sortConfig.dir === 'asc' ? a.amount_paid - b.amount_paid : b.amount_paid - a.amount_paid
+          case 'paid_date': av = a.paid_date || ''; bv = b.paid_date || ''; break
+          case 'amount_remaining': return sortConfig.dir === 'asc' ? a.amount_remaining - b.amount_remaining : b.amount_remaining - a.amount_remaining
+          default: return 0
+        }
+        const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
+        return sortConfig.dir === 'asc' ? cmp : -cmp
       })
     }
 
     return result
-  }, [commissionRows, cardFilter, searchQuery])
+  }, [commissionRows, cardFilter, searchQuery, sortConfig])
 
   const handleTabChange = (seasonId) => {
     setActiveTab(seasonId)
@@ -209,7 +281,7 @@ function CompanyCommission({ companyId }) {
     setEditingId(row.id)
     setEditForm({
       payStatus: row.pay_status,
-      amountPaid: String(row.amount_paid ? row.amount_paid.toFixed(2) : '0'),
+      amountPaid: floatToCents(row.amount_paid),
       paidDate: row.paid_date || '',
     })
   }
@@ -220,16 +292,25 @@ function CompanyCommission({ companyId }) {
   }
 
   const saveEdit = async (row) => {
+    const paid = centsToFloat(editForm.amountPaid)
     await upsertCommission({
       order_id: row.orderId,
       commission_due: row.commissionDue,
       pay_status: editForm.payStatus,
-      amount_paid: parseFloat(editForm.amountPaid) || 0,
+      amount_paid: paid,
       paid_date: editForm.paidDate || null,
-      amount_remaining: Math.max(row.commissionDue - (parseFloat(editForm.amountPaid) || 0), 0),
+      amount_remaining: Math.max(row.commissionDue - paid, 0),
     })
     setEditingId(null)
     setEditForm({ payStatus: '', amountPaid: '', paidDate: '' })
+  }
+
+  const toggleSort = (key) => {
+    setSortConfig((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+        : { key, dir: 'asc' }
+    )
   }
 
   return (
@@ -401,32 +482,51 @@ function CompanyCommission({ companyId }) {
             </Card>
           </div>
 
-          {/* Search bar */}
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <Input
-              placeholder="Search account, order #, invoice #, total..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
+          {/* Sticky search bar */}
+          <div className="sticky top-[123px] z-20 bg-background pb-2 pt-1 border-b border-zinc-100">
+            <div className="relative max-w-sm">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Search account, order #, invoice #, total..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
           </div>
 
           {/* Commission table */}
-          <div className="overflow-x-auto">
             <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-10 sticky left-0 bg-white z-10"></TableHead>
-                  <TableHead>Account Name</TableHead>
-                  <TableHead>Order #</TableHead>
-                  <TableHead>Invoice #</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                  <TableHead className="text-right">Commission Due</TableHead>
-                  <TableHead>Pay Status</TableHead>
-                  <TableHead className="text-right">Amount Paid</TableHead>
-                  <TableHead>Paid Date</TableHead>
-                  <TableHead className="text-right">Amount Remaining</TableHead>
+              <TableHeader className="sticky top-[165px] z-[15]">
+                <TableRow className="bg-[#005b5b] hover:bg-[#005b5b]">
+                  <TableHead className="w-10 sticky left-0 bg-[#005b5b] z-[16]"></TableHead>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Account Name <SortIcon column="account" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('order_number')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Order # <SortIcon column="order_number" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('invoice_number')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Invoice # <SortIcon column="invoice_number" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('total')}>
+                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Total <SortIcon column="total" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('commission_due')}>
+                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Commission Due <SortIcon column="commission_due" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('pay_status')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Pay Status <SortIcon column="pay_status" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('amount_paid')}>
+                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Amount Paid <SortIcon column="amount_paid" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('paid_date')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Paid Date <SortIcon column="paid_date" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('amount_remaining')}>
+                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Amount Remaining <SortIcon column="amount_remaining" sortConfig={sortConfig} /></span>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -444,7 +544,7 @@ function CompanyCommission({ companyId }) {
                     if (isEditing) {
                       return (
                         <TableRow key={row.id} className="bg-blue-50/50">
-                          <TableCell className="sticky left-0 bg-blue-50 z-10 w-10">
+                          <TableCell className="sticky left-0 bg-blue-50 z-[5] w-10">
                             <div className="flex gap-1">
                               <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => saveEdit(row)} title="Save">
                                 <Check className="size-4 text-green-600" />
@@ -455,8 +555,21 @@ function CompanyCommission({ companyId }) {
                             </div>
                           </TableCell>
                           <TableCell className="font-medium whitespace-nowrap">{getAccountName(row.client_id)}</TableCell>
-                          <TableCell className="whitespace-nowrap">{row.order_number}</TableCell>
-                          <TableCell className="whitespace-nowrap">{row.invoice_number}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-0.5">
+                              {(row.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
+                                <span key={i} className="text-sm whitespace-nowrap">{num}</span>
+                              ))}
+                              {!row.order_number && '—'}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-0.5">
+                              {(row.invoices || []).length > 0 ? row.invoices.map((inv, i) => (
+                                <span key={i} className="text-sm whitespace-nowrap">{inv.number || '—'}</span>
+                              )) : '—'}
+                            </div>
+                          </TableCell>
                           <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
                           <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
                           <TableCell>
@@ -471,13 +584,18 @@ function CompanyCommission({ companyId }) {
                             </select>
                           </TableCell>
                           <TableCell>
-                            <Input
-                              value={editForm.amountPaid}
-                              onChange={(e) => setEditForm((p) => ({ ...p, amountPaid: e.target.value }))}
-                              className="h-8 text-sm w-24 text-right"
-                              type="number"
-                              step="0.01"
-                            />
+                            <div className="relative w-28">
+                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                              <Input
+                                value={centsToDisplay(editForm.amountPaid)}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/[^0-9]/g, '')
+                                  setEditForm((p) => ({ ...p, amountPaid: raw }))
+                                }}
+                                className="h-8 text-sm text-right pl-5"
+                                inputMode="numeric"
+                              />
+                            </div>
                           </TableCell>
                           <TableCell>
                             <Input
@@ -499,7 +617,7 @@ function CompanyCommission({ companyId }) {
                         onMouseEnter={() => setHoveredRow(row.id)}
                         onMouseLeave={() => setHoveredRow(null)}
                       >
-                        <TableCell className={`sticky left-0 z-10 w-10 ${stickyBg(row.pay_status)}`}>
+                        <TableCell className={`sticky left-0 z-[5] w-10 ${stickyBg(row.pay_status)}`}>
                           <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
                             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(row)} title="Edit">
                               <Pencil className="size-3.5" />
@@ -509,13 +627,83 @@ function CompanyCommission({ companyId }) {
                         <TableCell className="font-medium whitespace-nowrap">
                           {getAccountName(row.client_id)}
                         </TableCell>
-                        <TableCell className="whitespace-nowrap">{row.order_number}</TableCell>
-                        <TableCell className="whitespace-nowrap">{row.invoice_number}</TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-0.5">
+                            {(row.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
+                              row.order_document ? (
+                                <a
+                                  key={i}
+                                  href="#"
+                                  onClick={async (e) => {
+                                    e.preventDefault()
+                                    try {
+                                      const url = await getDocumentUrl(row.order_document.path)
+                                      window.open(url, '_blank')
+                                    } catch (err) {
+                                      console.error('Failed to get document URL:', err)
+                                    }
+                                  }}
+                                  className="text-blue-600 underline text-sm whitespace-nowrap"
+                                >
+                                  {num}
+                                </a>
+                              ) : (
+                                <span key={i} className="text-sm whitespace-nowrap">{num}</span>
+                              )
+                            ))}
+                            {!row.order_number && '—'}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {(() => {
+                            const invoices = row.invoices || []
+                            if (invoices.length === 0) return '—'
+                            const fmt2 = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v)
+                            const invoicedTotal = invoices.reduce((sum, inv) => {
+                              const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
+                              return sum + amt
+                            }, 0)
+                            const pending = row.orderTotal - invoicedTotal
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                {invoices.map((inv, i) => {
+                                  const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
+                                  const label = `${inv.number || '—'}${amt > 0 ? ` (${fmt2(amt)})` : ''}`
+                                  return inv.document ? (
+                                    <a
+                                      key={i}
+                                      href="#"
+                                      onClick={async (e) => {
+                                        e.preventDefault()
+                                        try {
+                                          const url = await getDocumentUrl(inv.document.path)
+                                          window.open(url, '_blank')
+                                        } catch (err) {
+                                          console.error('Failed to get document URL:', err)
+                                        }
+                                      }}
+                                      className="text-blue-600 underline text-sm whitespace-nowrap"
+                                    >
+                                      {label}
+                                    </a>
+                                  ) : (
+                                    <span key={i} className="text-sm whitespace-nowrap">{label}</span>
+                                  )
+                                })}
+                                {pending > 0 && (
+                                  <span className="text-xs text-amber-600 font-medium whitespace-nowrap">
+                                    Pending: {fmt(pending)}
+                                  </span>
+                                )}
+                              </div>
+                            )
+                          })()}
+                        </TableCell>
                         <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
                         <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
                         <TableCell>{statusBadge(row.pay_status)}</TableCell>
                         <TableCell className="text-right">{fmt(row.amount_paid)}</TableCell>
-                        <TableCell>{row.paid_date || '—'}</TableCell>
+                        <TableCell>{row.paid_date ? fmtDate(row.paid_date) : '—'}</TableCell>
                         <TableCell className="text-right">{fmt(row.amount_remaining)}</TableCell>
                       </TableRow>
                     )
@@ -523,7 +711,6 @@ function CompanyCommission({ companyId }) {
                 )}
               </TableBody>
             </Table>
-          </div>
         </>
       )}
     </div>

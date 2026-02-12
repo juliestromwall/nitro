@@ -34,7 +34,9 @@
 | Rental | Rental equipment orders (boards, boots, bindings) |
 | Retail | Retail/demo product orders |
 | Order Type | Rental or Retail classification |
-| Stage | Order status — "Order Placed" and "Cancelled" are permanent defaults; custom stages can be added per company. Cancelled orders are excluded from all totals and commission. |
+| Stage | Order status — "Order Placed", "Partially Shipped", "Short Shipped", and "Cancelled" are permanent defaults; custom stages can be added per company. Cancelled and Short Shipped orders are excluded from all totals and commission. |
+| Invoice | A shipment invoice tied to an order, with invoice number, amount, and optional document. Multiple invoices per order support partial shipments. |
+| Pending Shipment | The difference between order total and sum of invoice amounts — indicates unshipped inventory. |
 | Company | A brand the rep earns commission from (e.g., Nitro, Union, 686) |
 | Commission | Percentage of sales owed to the rep (varies per company) |
 | Pay Status | Whether commission has been paid (Paid, Partial, Unpaid) |
