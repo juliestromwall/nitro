@@ -598,10 +598,10 @@ function CompanyCommission({ companyId }) {
                           </TableCell>
                           <TableCell>
                             <Input
+                              type="date"
                               value={editForm.paidDate}
                               onChange={(e) => setEditForm((p) => ({ ...p, paidDate: e.target.value }))}
-                              className="h-8 text-sm w-28"
-                              placeholder="MM/DD/YYYY"
+                              className="h-8 text-sm w-36"
                             />
                           </TableCell>
                           <TableCell className="text-right text-muted-foreground">—</TableCell>
