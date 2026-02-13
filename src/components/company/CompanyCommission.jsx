@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { FolderArchive, ChevronDown, Search, Check, X, Pencil, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -213,7 +213,6 @@ function CompanyCommission({ companyId }) {
         switch (sortConfig.key) {
           case 'account': av = getAccountName(a.client_id); bv = getAccountName(b.client_id); break
           case 'order_number': av = a.order_number || ''; bv = b.order_number || ''; break
-          case 'invoice_number': av = (a.invoices || []).map((inv) => inv.number).join(', '); bv = (b.invoices || []).map((inv) => inv.number).join(', '); break
           case 'total': return sortConfig.dir === 'asc' ? a.orderTotal - b.orderTotal : b.orderTotal - a.orderTotal
           case 'commission_due': return sortConfig.dir === 'asc' ? a.commissionDue - b.commissionDue : b.commissionDue - a.commissionDue
           case 'pay_status': av = a.pay_status || ''; bv = b.pay_status || ''; break
@@ -229,6 +228,46 @@ function CompanyCommission({ companyId }) {
 
     return result
   }, [commissionRows, cardFilter, searchQuery, sortConfig])
+
+  // Group filtered rows by account
+  const groupedRows = useMemo(() => {
+    const sorted = [...filteredRows].sort((a, b) => {
+      const aName = getAccountName(a.client_id)
+      const bName = getAccountName(b.client_id)
+      return aName.localeCompare(bName, undefined, { numeric: true })
+    })
+
+    const groupMap = new Map()
+    sorted.forEach((row) => {
+      const key = row.client_id
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          clientId: key,
+          accountName: getAccountName(key),
+          rows: [],
+        })
+      }
+      groupMap.get(key).rows.push(row)
+    })
+
+    return Array.from(groupMap.values()).map((group) => {
+      const totalOrder = group.rows.reduce((sum, r) => sum + r.orderTotal, 0)
+      const totalCommDue = group.rows.reduce((sum, r) => sum + r.commissionDue, 0)
+      const allInvoices = group.rows.flatMap((r) => r.invoices || [])
+      const invoicedTotal = allInvoices.reduce((sum, inv) => {
+        const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
+        return sum + amt
+      }, 0)
+      return {
+        ...group,
+        totalOrder,
+        totalCommDue,
+        allInvoices,
+        invoicedTotal,
+        pending: totalOrder - invoicedTotal,
+      }
+    })
+  }, [filteredRows])
 
   const handleTabChange = (seasonId) => {
     setActiveTab(seasonId)
@@ -499,14 +538,8 @@ function CompanyCommission({ companyId }) {
               <TableHeader className="sticky top-[165px] z-[15]">
                 <TableRow className="bg-[#005b5b] hover:bg-[#005b5b]">
                   <TableHead className="w-10 sticky left-0 bg-[#005b5b] z-[16]"></TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Account Name <SortIcon column="account" sortConfig={sortConfig} /></span>
-                  </TableHead>
                   <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('order_number')}>
                     <span className="flex items-center gap-1 whitespace-nowrap">Order # <SortIcon column="order_number" sortConfig={sortConfig} /></span>
-                  </TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('invoice_number')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Invoice # <SortIcon column="invoice_number" sortConfig={sortConfig} /></span>
                   </TableHead>
                   <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('total')}>
                     <span className="flex items-center justify-end gap-1 whitespace-nowrap">Total <SortIcon column="total" sortConfig={sortConfig} /></span>
@@ -529,153 +562,163 @@ function CompanyCommission({ companyId }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRows.length === 0 ? (
+                {groupedRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center text-muted-foreground">
+                    <TableCell colSpan={8} className="text-center text-muted-foreground">
                       {searchQuery ? 'No commissions match your search.' : 'No commission data for this season.'}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredRows.map((row) => {
-                    const isEditing = editingId === row.id
-                    const isHovered = hoveredRow === row.id
-
-                    if (isEditing) {
-                      return (
-                        <TableRow key={row.id} className="bg-blue-50/50">
-                          <TableCell className="sticky left-0 bg-blue-50 z-[5] w-10">
-                            <div className="flex gap-1">
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => saveEdit(row)} title="Save">
-                                <Check className="size-4 text-green-600" />
-                              </Button>
-                              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit} title="Cancel">
-                                <X className="size-4 text-red-500" />
-                              </Button>
+                  groupedRows.map((group) => (
+                    <Fragment key={`group-${group.clientId}`}>
+                      {/* Group header row */}
+                      <TableRow className="bg-zinc-100 border-t-2 hover:bg-zinc-100">
+                        <TableCell colSpan={8} className="py-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-zinc-900">{group.accountName}</span>
+                              <Badge variant="secondary" className="text-xs">{group.rows.length} order{group.rows.length !== 1 ? 's' : ''}</Badge>
                             </div>
-                          </TableCell>
-                          <TableCell className="font-medium whitespace-nowrap">{getAccountName(row.client_id)}</TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-0.5">
-                              {(row.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
-                                <span key={i} className="text-sm whitespace-nowrap">{num}</span>
-                              ))}
-                              {!row.order_number && '—'}
+                            <div className="flex items-center gap-6">
+                              <div className="text-right">
+                                <span className="text-sm text-muted-foreground mr-2">Total:</span>
+                                <span className="font-bold text-zinc-900">{fmt(group.totalOrder)}</span>
+                              </div>
+                              <div className="text-right">
+                                <span className="text-sm text-muted-foreground mr-2">Commission:</span>
+                                <span className="font-bold text-zinc-900">{fmt(group.totalCommDue)}</span>
+                              </div>
+                              <div className="flex flex-col items-end gap-0.5">
+                                {group.allInvoices.length > 0 ? (
+                                  <>
+                                    {group.allInvoices.map((inv, i) => {
+                                      const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
+                                      const label = `${inv.number || '—'}${amt > 0 ? ` (${fmt(amt)})` : ''}`
+                                      return inv.document ? (
+                                        <a
+                                          key={i}
+                                          href="#"
+                                          onClick={async (e) => {
+                                            e.preventDefault()
+                                            try {
+                                              const url = await getDocumentUrl(inv.document.path)
+                                              window.open(url, '_blank')
+                                            } catch (err) {
+                                              console.error('Failed to get document URL:', err)
+                                            }
+                                          }}
+                                          className="text-blue-600 underline text-sm whitespace-nowrap"
+                                        >
+                                          {label}
+                                        </a>
+                                      ) : (
+                                        <span key={i} className="text-sm whitespace-nowrap">{label}</span>
+                                      )
+                                    })}
+                                    {group.pending > 0 && (
+                                      <span className="text-xs text-amber-600 font-medium whitespace-nowrap">
+                                        Pending: {fmt(group.pending)}
+                                      </span>
+                                    )}
+                                  </>
+                                ) : null}
+                              </div>
                             </div>
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-0.5">
-                              {(row.invoices || []).length > 0 ? row.invoices.map((inv, i) => (
-                                <span key={i} className="text-sm whitespace-nowrap">{inv.number || '—'}</span>
-                              )) : '—'}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
-                          <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
-                          <TableCell>
-                            <select
-                              value={editForm.payStatus}
-                              onChange={(e) => setEditForm((p) => ({ ...p, payStatus: e.target.value }))}
-                              className="border rounded px-2 py-1 text-sm w-36"
-                            >
-                              {payStatusOptions.map((opt) => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                              ))}
-                            </select>
-                          </TableCell>
-                          <TableCell>
-                            <div className="relative w-28">
-                              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
-                              <Input
-                                value={centsToDisplay(editForm.amountPaid)}
-                                onChange={(e) => {
-                                  const raw = e.target.value.replace(/[^0-9]/g, '')
-                                  setEditForm((p) => ({ ...p, amountPaid: raw }))
-                                }}
-                                className="h-8 text-sm text-right pl-5"
-                                inputMode="numeric"
-                              />
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="date"
-                              value={editForm.paidDate}
-                              onChange={(e) => setEditForm((p) => ({ ...p, paidDate: e.target.value }))}
-                              className="h-8 text-sm w-36"
-                            />
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">—</TableCell>
-                        </TableRow>
-                      )
-                    }
-
-                    return (
-                      <TableRow
-                        key={row.id}
-                        className={`group ${rowHighlight(row.pay_status)}`}
-                        onMouseEnter={() => setHoveredRow(row.id)}
-                        onMouseLeave={() => setHoveredRow(null)}
-                      >
-                        <TableCell className={`sticky left-0 z-[5] w-10 ${stickyBg(row.pay_status)}`}>
-                          <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(row)} title="Edit">
-                              <Pencil className="size-3.5" />
-                            </Button>
                           </div>
                         </TableCell>
-                        <TableCell className="font-medium whitespace-nowrap">
-                          {getAccountName(row.client_id)}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-0.5">
-                            {(row.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
-                              row.order_document ? (
-                                <a
-                                  key={i}
-                                  href="#"
-                                  onClick={async (e) => {
-                                    e.preventDefault()
-                                    try {
-                                      const url = await getDocumentUrl(row.order_document.path)
-                                      window.open(url, '_blank')
-                                    } catch (err) {
-                                      console.error('Failed to get document URL:', err)
-                                    }
-                                  }}
-                                  className="text-blue-600 underline text-sm whitespace-nowrap"
+                      </TableRow>
+
+                      {/* Sub-rows for each order in the group */}
+                      {group.rows.map((row) => {
+                        const isEditing = editingId === row.id
+                        const isHovered = hoveredRow === row.id
+
+                        if (isEditing) {
+                          return (
+                            <TableRow key={row.id} className="bg-blue-50/50">
+                              <TableCell className="sticky left-0 bg-blue-50 z-[5] w-10">
+                                <div className="flex gap-1">
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => saveEdit(row)} title="Save">
+                                    <Check className="size-4 text-green-600" />
+                                  </Button>
+                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit} title="Cancel">
+                                    <X className="size-4 text-red-500" />
+                                  </Button>
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <div className="flex flex-col gap-0.5">
+                                  {(row.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
+                                    <span key={i} className="text-sm whitespace-nowrap">{num}</span>
+                                  ))}
+                                  {!row.order_number && '—'}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
+                              <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
+                              <TableCell>
+                                <select
+                                  value={editForm.payStatus}
+                                  onChange={(e) => setEditForm((p) => ({ ...p, payStatus: e.target.value }))}
+                                  className="border rounded px-2 py-1 text-sm w-36"
                                 >
-                                  {num}
-                                </a>
-                              ) : (
-                                <span key={i} className="text-sm whitespace-nowrap">{num}</span>
-                              )
-                            ))}
-                            {!row.order_number && '—'}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {(() => {
-                            const invoices = row.invoices || []
-                            if (invoices.length === 0) return '—'
-                            const fmt2 = (v) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(v)
-                            const invoicedTotal = invoices.reduce((sum, inv) => {
-                              const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
-                              return sum + amt
-                            }, 0)
-                            const pending = row.orderTotal - invoicedTotal
-                            return (
+                                  {payStatusOptions.map((opt) => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                  ))}
+                                </select>
+                              </TableCell>
+                              <TableCell>
+                                <div className="relative w-28">
+                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                                  <Input
+                                    value={centsToDisplay(editForm.amountPaid)}
+                                    onChange={(e) => {
+                                      const raw = e.target.value.replace(/[^0-9]/g, '')
+                                      setEditForm((p) => ({ ...p, amountPaid: raw }))
+                                    }}
+                                    className="h-8 text-sm text-right pl-5"
+                                    inputMode="numeric"
+                                  />
+                                </div>
+                              </TableCell>
+                              <TableCell>
+                                <Input
+                                  type="date"
+                                  value={editForm.paidDate}
+                                  onChange={(e) => setEditForm((p) => ({ ...p, paidDate: e.target.value }))}
+                                  className="h-8 text-sm w-36"
+                                />
+                              </TableCell>
+                              <TableCell className="text-right text-muted-foreground">—</TableCell>
+                            </TableRow>
+                          )
+                        }
+
+                        return (
+                          <TableRow
+                            key={row.id}
+                            className={`group ${rowHighlight(row.pay_status)}`}
+                            onMouseEnter={() => setHoveredRow(row.id)}
+                            onMouseLeave={() => setHoveredRow(null)}
+                          >
+                            <TableCell className={`sticky left-0 z-[5] w-10 ${stickyBg(row.pay_status)}`}>
+                              <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(row)} title="Edit">
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                            <TableCell>
                               <div className="flex flex-col gap-0.5">
-                                {invoices.map((inv, i) => {
-                                  const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
-                                  const label = `${inv.number || '—'}${amt > 0 ? ` (${fmt2(amt)})` : ''}`
-                                  return inv.document ? (
+                                {(row.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
+                                  row.order_document ? (
                                     <a
                                       key={i}
                                       href="#"
                                       onClick={async (e) => {
                                         e.preventDefault()
                                         try {
-                                          const url = await getDocumentUrl(inv.document.path)
+                                          const url = await getDocumentUrl(row.order_document.path)
                                           window.open(url, '_blank')
                                         } catch (err) {
                                           console.error('Failed to get document URL:', err)
@@ -683,30 +726,26 @@ function CompanyCommission({ companyId }) {
                                       }}
                                       className="text-blue-600 underline text-sm whitespace-nowrap"
                                     >
-                                      {label}
+                                      {num}
                                     </a>
                                   ) : (
-                                    <span key={i} className="text-sm whitespace-nowrap">{label}</span>
+                                    <span key={i} className="text-sm whitespace-nowrap">{num}</span>
                                   )
-                                })}
-                                {pending > 0 && (
-                                  <span className="text-xs text-amber-600 font-medium whitespace-nowrap">
-                                    Pending: {fmt(pending)}
-                                  </span>
-                                )}
+                                ))}
+                                {!row.order_number && '—'}
                               </div>
-                            )
-                          })()}
-                        </TableCell>
-                        <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
-                        <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
-                        <TableCell>{statusBadge(row.pay_status)}</TableCell>
-                        <TableCell className="text-right">{fmt(row.amount_paid)}</TableCell>
-                        <TableCell>{row.paid_date ? fmtDate(row.paid_date) : '—'}</TableCell>
-                        <TableCell className="text-right">{fmt(row.amount_remaining)}</TableCell>
-                      </TableRow>
-                    )
-                  })
+                            </TableCell>
+                            <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
+                            <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
+                            <TableCell>{statusBadge(row.pay_status)}</TableCell>
+                            <TableCell className="text-right">{fmt(row.amount_paid)}</TableCell>
+                            <TableCell>{row.paid_date ? fmtDate(row.paid_date) : '—'}</TableCell>
+                            <TableCell className="text-right">{fmt(row.amount_remaining)}</TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </Fragment>
+                  ))
                 )}
               </TableBody>
             </Table>

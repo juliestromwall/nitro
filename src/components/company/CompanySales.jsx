@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useEffect } from 'react'
+import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
 import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -167,7 +167,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     order_type: '',
     items: [],
     order_number: '',
-    invoices: [],
     close_date: '',
     stage: '',
     order_document: null,
@@ -176,7 +175,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     notes: '',
   })
   const orderDocRef = useRef(null)
-  const invoiceDocRefs = useRef({})
 
   // Short Shipped confirmation dialog state
   const [shortShipConfirmOpen, setShortShipConfirmOpen] = useState(false)
@@ -193,6 +191,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [csvParsedRows, setCsvParsedRows] = useState([])
   const [csvImporting, setCsvImporting] = useState(false)
   const [csvSkipped, setCsvSkipped] = useState([])
+
+  // Group invoice modal state
+  const [groupInvoiceOpen, setGroupInvoiceOpen] = useState(false)
+  const [groupInvoiceClientId, setGroupInvoiceClientId] = useState(null)
+  const [groupInvoiceList, setGroupInvoiceList] = useState([])
+  const groupInvoiceDocRefs = useRef({})
 
   // Celebration popup state
   const [celebrationOpen, setCelebrationOpen] = useState(false)
@@ -224,7 +228,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     setSaleForm({
       client_id: null, clientName: '', sale_type: 'Prebook', season_id: currentSeason?.id || '',
       order_type: '',
-      items: [], order_number: '', invoices: [], close_date: '',
+      items: [], order_number: '', close_date: '',
       stage: '', order_document: null, total: '',
       commission_override: String(company?.commission_percent || ''), notes: '',
     })
@@ -291,10 +295,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       order_type: order.order_type,
       items: order.items || [],
       order_number: order.order_number,
-      invoices: getInvoices(order).map((inv) => ({
-        ...inv,
-        amount: typeof inv.amount === 'number' && inv.amount > 0 ? floatToCents(inv.amount) : inv.amount || '',
-      })),
       close_date: order.close_date,
       stage: order.stage,
       order_document: order.order_document || null,
@@ -322,13 +322,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     const total = centsToFloat(saleForm.total)
     const commOverride = saleForm.commission_override.trim() !== '' ? parseFloat(saleForm.commission_override) : null
 
-    // Convert invoice amounts from cents-string to float for storage
-    const cleanInvoices = saleForm.invoices.map((inv) => ({
-      number: inv.number || '',
-      amount: inv.amount ? (typeof inv.amount === 'number' ? inv.amount : parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100) : 0,
-      document: inv.document || null,
-    }))
-
     const orderData = {
       client_id: saleForm.client_id,
       company_id: companyId,
@@ -337,12 +330,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       order_type: saleForm.order_type,
       items: saleForm.items,
       order_number: saleForm.order_number,
-      invoice_number: cleanInvoices.map((inv) => inv.number).filter(Boolean).join(', '),
-      invoices: cleanInvoices,
       close_date: saleForm.close_date,
       stage: saleForm.stage,
       order_document: saleForm.order_document,
-      invoice_document: cleanInvoices[0]?.document || null,
       total,
       commission_override: commOverride,
       notes: saleForm.notes,
@@ -358,18 +348,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       }
     } catch (err) {
       console.error('Failed to save order:', err)
-      // If invoices column doesn't exist yet, retry without it
-      if (err.message?.includes('invoices')) {
-        const { invoices, ...fallbackData } = orderData
-        if (isEditMode) {
-          await updateOrder(editingOrderId, fallbackData)
-        } else {
-          await addOrder(fallbackData)
-        }
-      } else {
-        alert('Failed to save. Check console for details.')
-        return
-      }
+      alert('Failed to save. Check console for details.')
+      return
     }
 
     closeSaleDialog()
@@ -399,47 +379,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       }
     }
     if (orderDocRef.current) orderDocRef.current.value = ''
-  }
-
-  const handleInvoiceDocUpload = async (e, invoiceIndex) => {
-    const file = e.target.files?.[0]
-    if (file && user) {
-      try {
-        const doc = await uploadDocument(user.id, editingOrderId || 'new', `invoice-${invoiceIndex}`, file)
-        setSaleForm((p) => {
-          const updated = [...p.invoices]
-          updated[invoiceIndex] = { ...updated[invoiceIndex], document: { name: doc.name, path: doc.path } }
-          return { ...p, invoices: updated }
-        })
-      } catch (err) {
-        console.error('Failed to upload invoice document:', err)
-      }
-    }
-    const ref = invoiceDocRefs.current[invoiceIndex]
-    if (ref) ref.value = ''
-  }
-
-  // Invoice array helpers
-  const addInvoice = () => {
-    setSaleForm((p) => ({
-      ...p,
-      invoices: [...p.invoices, { number: '', amount: '', document: null }],
-    }))
-  }
-
-  const updateInvoice = (index, field, value) => {
-    setSaleForm((p) => {
-      const updated = [...p.invoices]
-      updated[index] = { ...updated[index], [field]: value }
-      return { ...p, invoices: updated }
-    })
-  }
-
-  const removeInvoice = (index) => {
-    setSaleForm((p) => ({
-      ...p,
-      invoices: p.invoices.filter((_, i) => i !== index),
-    }))
   }
 
   // Stage change handler with Short Shipped confirmation
@@ -627,7 +566,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           case 'order_type': av = a.order_type || ''; bv = b.order_type || ''; break
           case 'items': av = getItems(a); bv = getItems(b); break
           case 'order_number': av = a.order_number || ''; bv = b.order_number || ''; break
-          case 'invoice_number': av = getInvoices(a).map((inv) => inv.number).join(', '); bv = getInvoices(b).map((inv) => inv.number).join(', '); break
           case 'close_date': av = a.close_date || ''; bv = b.close_date || ''; break
           case 'stage': av = a.stage || ''; bv = b.stage || ''; break
           case 'total': return sortConfig.dir === 'asc' ? a.total - b.total : b.total - a.total
@@ -640,6 +578,145 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
 
     return result
   }, [seasonOrders, searchQuery, filterOrderType, filterStage, sortConfig])
+
+  // Group filtered orders by account
+  const groupedOrders = useMemo(() => {
+    // Sort by account name first, then by user's sort within groups
+    const sorted = [...filteredOrders].sort((a, b) => {
+      const aName = getAccountName(a.client_id)
+      const bName = getAccountName(b.client_id)
+      const nameCmp = aName.localeCompare(bName, undefined, { numeric: true })
+      if (nameCmp !== 0) return nameCmp
+      return 0 // preserve existing sort within group
+    })
+
+    const groupMap = new Map()
+    sorted.forEach((order) => {
+      const key = order.client_id
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          clientId: key,
+          accountName: getAccountName(key),
+          orders: [],
+        })
+      }
+      groupMap.get(key).orders.push(order)
+    })
+
+    // Calculate totals for each group
+    return Array.from(groupMap.values()).map((group) => {
+      const total = group.orders.reduce((sum, o) => sum + o.total, 0)
+      const allInvoices = group.orders.flatMap((o) => getInvoices(o))
+      const invoicedTotal = allInvoices.reduce((sum, inv) => {
+        const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
+        return sum + amt
+      }, 0)
+      return {
+        ...group,
+        total,
+        allInvoices,
+        invoicedTotal,
+        pending: total - invoicedTotal,
+      }
+    })
+  }, [filteredOrders])
+
+  // Group invoice modal handlers
+  const openGroupInvoiceModal = (group) => {
+    setGroupInvoiceClientId(group.clientId)
+    // Collect all invoices from all orders in the group
+    const allInvoices = group.orders.flatMap((o) => getInvoices(o))
+    setGroupInvoiceList(allInvoices.map((inv) => ({
+      number: inv.number || '',
+      amount: typeof inv.amount === 'number' && inv.amount > 0 ? floatToCents(inv.amount) : inv.amount || '',
+      document: inv.document || null,
+    })))
+    setGroupInvoiceOpen(true)
+  }
+
+  const addGroupInvoice = () => {
+    setGroupInvoiceList((prev) => [...prev, { number: '', amount: '', document: null }])
+  }
+
+  const updateGroupInvoice = (index, field, value) => {
+    setGroupInvoiceList((prev) => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], [field]: value }
+      return updated
+    })
+  }
+
+  const removeGroupInvoice = (index) => {
+    setGroupInvoiceList((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  const handleGroupInvoiceDocUpload = async (e, invoiceIndex) => {
+    const file = e.target.files?.[0]
+    if (file && user) {
+      try {
+        const doc = await uploadDocument(user.id, 'group', `invoice-${invoiceIndex}`, file)
+        setGroupInvoiceList((prev) => {
+          const updated = [...prev]
+          updated[invoiceIndex] = { ...updated[invoiceIndex], document: { name: doc.name, path: doc.path } }
+          return updated
+        })
+      } catch (err) {
+        console.error('Failed to upload invoice document:', err)
+      }
+    }
+    const ref = groupInvoiceDocRefs.current[invoiceIndex]
+    if (ref) ref.value = ''
+  }
+
+  const saveGroupInvoices = async () => {
+    if (!groupInvoiceClientId) return
+
+    // Convert amounts from cents-string to float for storage
+    const cleanInvoices = groupInvoiceList.map((inv) => ({
+      number: inv.number || '',
+      amount: inv.amount ? (typeof inv.amount === 'number' ? inv.amount : parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100) : 0,
+      document: inv.document || null,
+    }))
+
+    // Find all orders in this group (from current season)
+    const groupOrders = seasonOrders.filter((o) => o.client_id === groupInvoiceClientId)
+    if (groupOrders.length === 0) return
+
+    // Save all invoices on the first order, clear from others
+    const firstOrder = groupOrders[0]
+    try {
+      await updateOrder(firstOrder.id, {
+        invoices: cleanInvoices,
+        invoice_number: cleanInvoices.map((inv) => inv.number).filter(Boolean).join(', '),
+        invoice_document: cleanInvoices[0]?.document || null,
+      })
+
+      // Clear invoices from other orders in the group
+      for (let i = 1; i < groupOrders.length; i++) {
+        await updateOrder(groupOrders[i].id, {
+          invoices: [],
+          invoice_number: '',
+          invoice_document: null,
+        })
+      }
+    } catch (err) {
+      console.error('Failed to save group invoices:', err)
+      if (err.message?.includes('invoices')) {
+        // Fallback: just save invoice_number
+        await updateOrder(firstOrder.id, {
+          invoice_number: cleanInvoices.map((inv) => inv.number).filter(Boolean).join(', '),
+          invoice_document: cleanInvoices[0]?.document || null,
+        })
+        for (let i = 1; i < groupOrders.length; i++) {
+          await updateOrder(groupOrders[i].id, { invoice_number: '', invoice_document: null })
+        }
+      }
+    }
+
+    setGroupInvoiceOpen(false)
+    setGroupInvoiceClientId(null)
+    setGroupInvoiceList([])
+  }
 
   const uniqueOrderTypes = [...new Set(seasonOrders.map((o) => o.order_type))]
   const uniqueStages = [...new Set(seasonOrders.map((o) => o.stage))]
@@ -963,98 +1040,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 />
               </div>
 
-              {/* Invoices — dynamic list */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Invoices</Label>
-                  <button
-                    type="button"
-                    onClick={addInvoice}
-                    className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
-                  >
-                    <Plus className="size-3" /> Add Invoice
-                  </button>
-                </div>
-                {saleForm.invoices.length > 0 && (
-                  <div className="space-y-2">
-                    {saleForm.invoices.map((inv, idx) => (
-                      <div key={idx} className="flex items-center gap-2 border rounded-md p-2 bg-zinc-50">
-                        <div className="flex-1 space-y-1">
-                          <Input
-                            placeholder="Invoice #"
-                            value={inv.number}
-                            onChange={(e) => updateInvoice(idx, 'number', e.target.value)}
-                            className="h-8 text-sm"
-                          />
-                          <div className="flex items-center border rounded-md px-2 h-8 bg-white focus-within:ring-2 focus-within:ring-ring">
-                            <span className="text-xs text-muted-foreground select-none">$</span>
-                            <input
-                              inputMode="numeric"
-                              placeholder="0.00"
-                              value={inv.amount ? centsToDisplay(String(inv.amount)) : ''}
-                              onChange={(e) => {
-                                const digits = e.target.value.replace(/\D/g, '')
-                                updateInvoice(idx, 'amount', digits || '')
-                              }}
-                              className="flex-1 text-xs bg-transparent outline-none ml-1"
-                            />
-                          </div>
-                        </div>
-                        <div className="flex flex-col items-center gap-1">
-                          <input
-                            ref={(el) => { invoiceDocRefs.current[idx] = el }}
-                            type="file"
-                            onChange={(e) => handleInvoiceDocUpload(e, idx)}
-                            className="hidden"
-                          />
-                          {inv.document ? (
-                            <Badge variant="secondary" className="gap-1 text-xs">
-                              <FileText className="size-3" />
-                              <span className="max-w-20 truncate">{inv.document.name}</span>
-                              <button type="button" onClick={() => updateInvoice(idx, 'document', null)}>
-                                <X className="size-3" />
-                              </button>
-                            </Badge>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => invoiceDocRefs.current[idx]?.click()}
-                              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
-                            >
-                              <Upload className="size-3" /> Doc
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => removeInvoice(idx)}
-                            className="text-xs text-red-500 hover:text-red-700"
-                          >
-                            <Trash2 className="size-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                    {/* Pending shipment indicator */}
-                    {saleForm.total && (() => {
-                      const orderTotal = centsToFloat(saleForm.total)
-                      const invoicedTotal = saleForm.invoices.reduce((sum, inv) => {
-                        const amt = inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0
-                        return sum + amt
-                      }, 0)
-                      const pending = orderTotal - invoicedTotal
-                      if (pending > 0) {
-                        return (
-                          <p className="text-xs text-amber-600 font-medium">
-                            Pending shipment: {fmt(pending)}
-                          </p>
-                        )
-                      }
-                      return null
-                    })()}
-                  </div>
-                )}
-              </div>
-
               {/* Total + Commission % side by side */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -1289,6 +1274,114 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         </DialogContent>
       </Dialog>
 
+      {/* Group invoice modal */}
+      <Dialog open={groupInvoiceOpen} onOpenChange={(open) => {
+        if (!open) { setGroupInvoiceOpen(false); setGroupInvoiceClientId(null); setGroupInvoiceList([]) }
+      }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Manage Invoices</DialogTitle>
+            <DialogDescription>
+              {groupInvoiceClientId && getAccountName(groupInvoiceClientId)}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {groupInvoiceList.length > 0 && (
+              <div className="space-y-2">
+                {groupInvoiceList.map((inv, idx) => (
+                  <div key={idx} className="flex items-center gap-2 border rounded-md p-2 bg-zinc-50">
+                    <div className="flex-1 space-y-1">
+                      <Input
+                        placeholder="Invoice #"
+                        value={inv.number}
+                        onChange={(e) => updateGroupInvoice(idx, 'number', e.target.value)}
+                        className="h-8 text-sm"
+                      />
+                      <div className="flex items-center border rounded-md px-2 h-8 bg-white focus-within:ring-2 focus-within:ring-ring">
+                        <span className="text-xs text-muted-foreground select-none">$</span>
+                        <input
+                          inputMode="numeric"
+                          placeholder="0.00"
+                          value={inv.amount ? centsToDisplay(String(inv.amount)) : ''}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, '')
+                            updateGroupInvoice(idx, 'amount', digits || '')
+                          }}
+                          className="flex-1 text-xs bg-transparent outline-none ml-1"
+                        />
+                      </div>
+                    </div>
+                    <div className="flex flex-col items-center gap-1">
+                      <input
+                        ref={(el) => { groupInvoiceDocRefs.current[idx] = el }}
+                        type="file"
+                        onChange={(e) => handleGroupInvoiceDocUpload(e, idx)}
+                        className="hidden"
+                      />
+                      {inv.document ? (
+                        <Badge variant="secondary" className="gap-1 text-xs">
+                          <FileText className="size-3" />
+                          <span className="max-w-20 truncate">{inv.document.name}</span>
+                          <button type="button" onClick={() => updateGroupInvoice(idx, 'document', null)}>
+                            <X className="size-3" />
+                          </button>
+                        </Badge>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => groupInvoiceDocRefs.current[idx]?.click()}
+                          className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                        >
+                          <Upload className="size-3" /> Doc
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => removeGroupInvoice(idx)}
+                        className="text-xs text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {/* Pending indicator */}
+                {groupInvoiceClientId && (() => {
+                  const groupOrders = seasonOrders.filter((o) => o.client_id === groupInvoiceClientId)
+                  const groupTotal = groupOrders.reduce((sum, o) => sum + o.total, 0)
+                  const invoicedTotal = groupInvoiceList.reduce((sum, inv) => {
+                    const amt = inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0
+                    return sum + amt
+                  }, 0)
+                  const pending = groupTotal - invoicedTotal
+                  if (pending > 0) {
+                    return (
+                      <p className="text-xs text-amber-600 font-medium">
+                        Pending: {fmt(pending)} of {fmt(groupTotal)}
+                      </p>
+                    )
+                  }
+                  return null
+                })()}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={addGroupInvoice}
+              className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+            >
+              <Plus className="size-4" /> Add Invoice
+            </button>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setGroupInvoiceOpen(false); setGroupInvoiceClientId(null); setGroupInvoiceList([]) }}>
+              Cancel
+            </Button>
+            <Button onClick={saveGroupInvoices}>Save Invoices</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Search and summary */}
       {currentSeason && (
         <>
@@ -1388,9 +1481,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               <TableHeader className="sticky top-[165px] z-[15]">
                 <TableRow className="bg-[#005b5b] hover:bg-[#005b5b]">
                   <TableHead className="w-10 sticky left-0 bg-[#005b5b] z-[16]"></TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Account Name <SortIcon column="account" sortConfig={sortConfig} /></span>
-                  </TableHead>
                   <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('sale_type')}>
                     <span className="flex items-center gap-1 whitespace-nowrap">Sale Type <SortIcon column="sale_type" sortConfig={sortConfig} /></span>
                   </TableHead>
@@ -1430,9 +1520,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   </TableHead>
                   <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('order_number')}>
                     <span className="flex items-center gap-1 whitespace-nowrap">Order # <SortIcon column="order_number" sortConfig={sortConfig} /></span>
-                  </TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('invoice_number')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Invoice # <SortIcon column="invoice_number" sortConfig={sortConfig} /></span>
                   </TableHead>
                   <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('close_date')}>
                     <span className="flex items-center gap-1 whitespace-nowrap">Close Date <SortIcon column="close_date" sortConfig={sortConfig} /></span>
@@ -1476,107 +1563,127 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredOrders.length === 0 ? (
+                {groupedOrders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center text-muted-foreground">
+                    <TableCell colSpan={10} className="text-center text-muted-foreground">
                       {searchQuery || filterOrderType || filterStage
                         ? 'No orders match your search or filters.'
                         : 'No orders for this tab.'}
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredOrders.map((order) => {
-                    const isHovered = hoveredRow === order.id
-                    const isCancelled = order.stage === 'Cancelled'
-                    const isShortShipped = order.stage === 'Short Shipped'
-                    const comm = getCommission(order)
-                    const hasNote = order.notes && order.notes.trim().length > 0
-
-                    const rowClass = isCancelled
-                      ? 'bg-red-50 text-red-400 line-through'
-                      : isShortShipped
-                        ? 'bg-amber-50'
-                        : ''
-                    const stickyBgClass = isCancelled
-                      ? 'bg-red-50'
-                      : isShortShipped
-                        ? 'bg-amber-50'
-                        : 'bg-white'
-
-                    return (
-                      <TableRow
-                        key={order.id}
-                        onMouseEnter={() => setHoveredRow(order.id)}
-                        onMouseLeave={() => setHoveredRow(null)}
-                        className={`group ${rowClass}`}
-                      >
-                        <TableCell className={`sticky left-0 z-[5] w-10 ${stickyBgClass}`}>
-                          <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditOrder(order)} title="Edit">
-                              <Pencil className="size-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setConfirmDeleteId(order.id)} title="Delete">
-                              <Trash2 className="size-3.5 text-red-500" />
-                            </Button>
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium whitespace-nowrap">{getAccountName(order.client_id)}</TableCell>
-                        <TableCell className="whitespace-nowrap">{order.sale_type || 'Prebook'}</TableCell>
-                        <TableCell>
-                          <Badge variant="secondary">
-                            {order.order_type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="max-w-48 truncate" title={getItems(order)}>{getItems(order)}</TableCell>
-                        <TableCell>
-                          <div className="flex flex-col gap-0.5">
-                            {(order.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
-                              order.order_document ? (
-                                <a
-                                  key={i}
-                                  href="#"
-                                  onClick={async (e) => {
-                                    e.preventDefault()
-                                    try {
-                                      const url = await getDocumentUrl(order.order_document.path)
-                                      window.open(url, '_blank')
-                                    } catch (err) {
-                                      console.error('Failed to get document URL:', err)
-                                    }
-                                  }}
-                                  className="text-blue-600 underline text-sm whitespace-nowrap"
+                  groupedOrders.map((group) => (
+                    <Fragment key={`group-${group.clientId}`}>
+                      {/* Group header row */}
+                      <TableRow className="bg-zinc-100 border-t-2 hover:bg-zinc-100">
+                        <TableCell colSpan={10} className="py-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-zinc-900">{group.accountName}</span>
+                              <Badge variant="secondary" className="text-xs">{group.orders.length} order{group.orders.length !== 1 ? 's' : ''}</Badge>
+                            </div>
+                            <div className="flex items-center gap-6">
+                              <span className="font-bold text-zinc-900">{fmt(group.total)}</span>
+                              <div className="flex flex-col items-end gap-0.5">
+                                {group.allInvoices.length > 0 ? (
+                                  <>
+                                    {group.allInvoices.map((inv, i) => {
+                                      const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
+                                      const label = `${inv.number || '—'}${amt > 0 ? ` (${fmt(amt)})` : ''}`
+                                      return inv.document ? (
+                                        <a
+                                          key={i}
+                                          href="#"
+                                          onClick={async (e) => {
+                                            e.preventDefault()
+                                            try {
+                                              const url = await getDocumentUrl(inv.document.path)
+                                              window.open(url, '_blank')
+                                            } catch (err) {
+                                              console.error('Failed to get document URL:', err)
+                                            }
+                                          }}
+                                          className="text-blue-600 underline text-sm whitespace-nowrap"
+                                        >
+                                          {label}
+                                        </a>
+                                      ) : (
+                                        <span key={i} className="text-sm whitespace-nowrap">{label}</span>
+                                      )
+                                    })}
+                                    {group.pending > 0 && (
+                                      <span className="text-xs text-amber-600 font-medium whitespace-nowrap">
+                                        Pending: {fmt(group.pending)}
+                                      </span>
+                                    )}
+                                  </>
+                                ) : null}
+                                <button
+                                  onClick={() => openGroupInvoiceModal(group)}
+                                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
                                 >
-                                  {num}
-                                </a>
-                              ) : (
-                                <span key={i} className="text-sm whitespace-nowrap">{num}</span>
-                              )
-                            ))}
-                            {!order.order_number && '—'}
+                                  <Plus className="size-3" /> Add Invoice
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          {(() => {
-                            const invoices = getInvoices(order)
-                            if (invoices.length === 0) return '—'
-                            const invoicedTotal = invoices.reduce((sum, inv) => {
-                              const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
-                              return sum + amt
-                            }, 0)
-                            const pending = order.total - invoicedTotal
-                            return (
+                      </TableRow>
+
+                      {/* Sub-rows for each order in the group */}
+                      {group.orders.map((order) => {
+                        const isHovered = hoveredRow === order.id
+                        const isCancelled = order.stage === 'Cancelled'
+                        const isShortShipped = order.stage === 'Short Shipped'
+                        const comm = getCommission(order)
+                        const hasNote = order.notes && order.notes.trim().length > 0
+
+                        const rowClass = isCancelled
+                          ? 'bg-red-50 text-red-400 line-through'
+                          : isShortShipped
+                            ? 'bg-amber-50'
+                            : ''
+                        const stickyBgClass = isCancelled
+                          ? 'bg-red-50'
+                          : isShortShipped
+                            ? 'bg-amber-50'
+                            : 'bg-white'
+
+                        return (
+                          <TableRow
+                            key={order.id}
+                            onMouseEnter={() => setHoveredRow(order.id)}
+                            onMouseLeave={() => setHoveredRow(null)}
+                            className={`group ${rowClass}`}
+                          >
+                            <TableCell className={`sticky left-0 z-[5] w-10 ${stickyBgClass}`}>
+                              <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditOrder(order)} title="Edit">
+                                  <Pencil className="size-3.5" />
+                                </Button>
+                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setConfirmDeleteId(order.id)} title="Delete">
+                                  <Trash2 className="size-3.5 text-red-500" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap">{order.sale_type || 'Prebook'}</TableCell>
+                            <TableCell>
+                              <Badge variant="secondary">
+                                {order.order_type}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="max-w-48 truncate" title={getItems(order)}>{getItems(order)}</TableCell>
+                            <TableCell>
                               <div className="flex flex-col gap-0.5">
-                                {invoices.map((inv, i) => {
-                                  const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
-                                  const label = `${inv.number || '—'}${amt > 0 ? ` (${fmt(amt)})` : ''}`
-                                  return inv.document ? (
+                                {(order.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
+                                  order.order_document ? (
                                     <a
                                       key={i}
                                       href="#"
                                       onClick={async (e) => {
                                         e.preventDefault()
                                         try {
-                                          const url = await getDocumentUrl(inv.document.path)
+                                          const url = await getDocumentUrl(order.order_document.path)
                                           window.open(url, '_blank')
                                         } catch (err) {
                                           console.error('Failed to get document URL:', err)
@@ -1584,60 +1691,56 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                                       }}
                                       className="text-blue-600 underline text-sm whitespace-nowrap"
                                     >
-                                      {label}
+                                      {num}
                                     </a>
                                   ) : (
-                                    <span key={i} className="text-sm whitespace-nowrap">{label}</span>
+                                    <span key={i} className="text-sm whitespace-nowrap">{num}</span>
                                   )
-                                })}
-                                {pending > 0 && !EXCLUDED_STAGES.includes(order.stage) && (
-                                  <span className="text-xs text-amber-600 font-medium whitespace-nowrap">
-                                    Pending: {fmt(pending)}
-                                  </span>
-                                )}
+                                ))}
+                                {!order.order_number && '—'}
                               </div>
-                            )
-                          })()}
-                        </TableCell>
-                        <TableCell className="whitespace-nowrap">{fmtDate(order.close_date)}</TableCell>
-                        <TableCell className="whitespace-nowrap">{order.stage}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">{fmt(order.total)}</TableCell>
-                        <TableCell className="text-right whitespace-nowrap">
-                          <div className="flex items-center justify-end gap-1">
-                            {comm.isOverridden && (
-                              <AlertTriangle className="size-3.5 text-amber-500" title={`Overridden from ${comm.defaultPct}%`} />
-                            )}
-                            <span className={comm.isOverridden ? 'text-amber-700 font-medium' : ''}>
-                              {fmt(comm.amount)}
-                            </span>
-                            <span className="text-xs text-muted-foreground ml-0.5">
-                              ({comm.pct}%)
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-center">
-                          {hasNote ? (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => openNoteModal(order)}
-                              title={order.notes}
-                            >
-                              <StickyNote className="size-4 text-amber-500 fill-amber-100" />
-                            </Button>
-                          ) : (
-                            <button
-                              onClick={() => openNoteModal(order)}
-                              className="text-xs text-muted-foreground hover:text-zinc-700 flex items-center gap-0.5 mx-auto"
-                            >
-                              <Plus className="size-3" />Note
-                            </button>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap">{fmtDate(order.close_date)}</TableCell>
+                            <TableCell className="whitespace-nowrap">{order.stage}</TableCell>
+                            <TableCell className="text-right whitespace-nowrap">{fmt(order.total)}</TableCell>
+                            <TableCell className="text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-1">
+                                {comm.isOverridden && (
+                                  <AlertTriangle className="size-3.5 text-amber-500" title={`Overridden from ${comm.defaultPct}%`} />
+                                )}
+                                <span className={comm.isOverridden ? 'text-amber-700 font-medium' : ''}>
+                                  {fmt(comm.amount)}
+                                </span>
+                                <span className="text-xs text-muted-foreground ml-0.5">
+                                  ({comm.pct}%)
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-center">
+                              {hasNote ? (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={() => openNoteModal(order)}
+                                  title={order.notes}
+                                >
+                                  <StickyNote className="size-4 text-amber-500 fill-amber-100" />
+                                </Button>
+                              ) : (
+                                <button
+                                  onClick={() => openNoteModal(order)}
+                                  className="text-xs text-muted-foreground hover:text-zinc-700 flex items-center gap-0.5 mx-auto"
+                                >
+                                  <Plus className="size-3" />Note
+                                </button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      })}
+                    </Fragment>
+                  ))
                 )}
               </TableBody>
             </Table>

@@ -346,3 +346,24 @@
 
 **Open questions:**
 - None at this time
+
+## 2026-02-12
+
+**Worked on:** Account-grouped orders with shared invoices across Sales and Commission tables.
+
+**Changes made:**
+- **Account-grouped Sales table:** Orders grouped by `client_id` with group header rows showing account name, order count, group total, stacked invoices with doc links, pending amount, and "Add Invoice" button. Sub-rows show individual orders without account name or invoice columns.
+- **Group invoice modal:** New modal to manage invoices at the account level (add/remove invoices with number, amount, document upload). Invoices stored on the first order in the group; other orders' invoices cleared on save.
+- **Removed per-order invoices from Add/Edit Sale dialog:** Invoice section removed from Step 2 wizard. `invoices` field removed from `saleForm` state, `resetSaleForm`, and `handleSaleSubmit`.
+- **Account-grouped Commission table:** Same grouping approach — group header rows show account name, order count, combined total, combined commission due, invoices with doc links, and pending amount. Sub-rows show individual orders without account name or invoice columns.
+- **Removed columns:** "Account Name" and "Invoice #" column headers removed from both Sales and Commission tables (now displayed in group headers).
+- **Sort cleanup:** Removed `invoice_number` from sort cases in both files.
+- Updated `docs/FEATURES.md` with new component descriptions and changelog entry.
+
+**Next steps:**
+- Deploy latest build to repcommish.com
+- Test account grouping with real data
+- Consider adding ability to sort/collapse groups
+
+**Open questions:**
+- None at this time
