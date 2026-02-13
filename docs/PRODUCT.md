@@ -39,7 +39,8 @@
 | Pending Amount | The difference between account group total and sum of invoice amounts — indicates unshipped/uninvoiced inventory. |
 | Company | A brand the rep earns commission from (e.g., Nitro, Union, 686) |
 | Commission | Percentage of sales owed to the rep (varies per company) |
-| Pay Status | Whether commission has been paid (Paid, Partial, Unpaid) |
+| Pay Status | Whether commission has been paid (Paid, Partial, Unpaid, Invoice Sent, Pending Invoice) — managed at the account level, not per-order |
+| Payment | An individual commission payment with amount and date, tracked at the account-group level. Multiple payments supported per account. Stored as JSONB on the first order's commission record. |
 | Sale Type | Prebook or At Once — indicates when the sale was made relative to the season |
 | Region | Geographic area (Rockies, PNW, Southeast, etc.) |
 | Account Type | Ski Shop (Off Site), Resort, Resort SARA Group, Chain |

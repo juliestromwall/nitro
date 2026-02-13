@@ -367,3 +367,24 @@
 
 **Open questions:**
 - None at this time
+
+## 2026-02-12 (session 2)
+
+**Worked on:** Clickable account rows, account-level payment management, sidebar logo fix, deployment.
+
+**Changes made:**
+- **Clickable account group rows:** Entire group header row is now clickable to expand/collapse on both Sales and Commission pages (not just the account name text). Added `e.stopPropagation()` on interactive elements within rows (invoice links, Add Invoice button, + Payment button).
+- **Account-level payment management (Commission):** Replaced per-order inline editing with account-level payment modal. "+ Payment" button on group header rows opens a modal with Pay Status dropdown, summary (Commission Due/Total Paid/Remaining), and a list of payments (amount + date inputs). Supports multiple payments per account. Payment data stored on first order's commission record; other orders get same status with cleared payment data. Auto pay status calculation (paid if total >= due, partial if > 0).
+- **Sidebar logo fix:** Added white rounded background containers (`bg-white rounded p-0.5`) around all sidebar brand logos so logos with dark/transparent backgrounds (like L1 Premium Goods) are visible against the dark sidebar.
+- **Payment modal UX fix:** Modal now opens with one empty payment row pre-populated when no existing payments exist, so users can immediately enter amount and date without clicking "Add Payment" first.
+- **Schema update:** Added `payments jsonb default '[]'` column to commissions table in schema.sql. User needs to run `ALTER TABLE commissions ADD COLUMN IF NOT EXISTS payments jsonb DEFAULT '[]';` in Supabase SQL Editor.
+- **Deployment:** Built and deployed to repcommish.com. Fixed deploy path (nginx serves from `/var/www/nitro/`, not `/var/www/repcommish.com/`). Cleaned old assets before deploying fresh.
+- Committed and pushed all changes to GitHub.
+
+**Next steps:**
+- Run `ALTER TABLE commissions ADD COLUMN IF NOT EXISTS payments jsonb DEFAULT '[]';` in Supabase SQL Editor
+- Test payment tracking with real data
+- Add edit/delete improvements for accounts
+
+**Open questions:**
+- None at this time
