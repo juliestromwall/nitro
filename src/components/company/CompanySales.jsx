@@ -198,6 +198,17 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [groupInvoiceList, setGroupInvoiceList] = useState([])
   const groupInvoiceDocRefs = useRef({})
 
+  // Collapsed/expanded groups
+  const [expandedGroups, setExpandedGroups] = useState(new Set())
+  const toggleGroup = (clientId) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(clientId)) next.delete(clientId)
+      else next.add(clientId)
+      return next
+    })
+  }
+
   // Celebration popup state
   const [celebrationOpen, setCelebrationOpen] = useState(false)
   const [celebrationData, setCelebrationData] = useState({ commission: 0, hypeMessage: '', hypeCloser: '' })
@@ -1423,7 +1434,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           </div>
 
           {/* Sticky search bar */}
-          <div className="sticky top-[123px] z-20 bg-background pb-2 pt-1 space-y-3 border-b border-zinc-100" style={{ minWidth: '1400px' }}>
+          <div className="sticky top-[123px] z-20 bg-background pb-2 pt-1 space-y-3 border-b border-zinc-100">
             <div className="flex items-center gap-3">
               <div className="relative max-w-sm flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -1575,7 +1586,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   groupedOrders.map((group) => (
                     <Fragment key={`group-${group.clientId}`}>
                       {/* Group header row */}
-                      <TableRow className="bg-zinc-100 border-t-2 hover:bg-zinc-100">
+                      <TableRow className="bg-zinc-100 border-t-2 hover:bg-zinc-200 cursor-pointer" onClick={() => toggleGroup(group.clientId)}>
                         <TableCell colSpan={10} className="py-3">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
@@ -1596,6 +1607,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                                           href="#"
                                           onClick={async (e) => {
                                             e.preventDefault()
+                                            e.stopPropagation()
                                             try {
                                               const url = await getDocumentUrl(inv.document.path)
                                               window.open(url, '_blank')
@@ -1619,7 +1631,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                                   </>
                                 ) : null}
                                 <button
-                                  onClick={() => openGroupInvoiceModal(group)}
+                                  onClick={(e) => { e.stopPropagation(); openGroupInvoiceModal(group) }}
                                   className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
                                 >
                                   <Plus className="size-3" /> Add Invoice
@@ -1630,8 +1642,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                         </TableCell>
                       </TableRow>
 
-                      {/* Sub-rows for each order in the group */}
-                      {group.orders.map((order) => {
+                      {/* Sub-rows for each order in the group — collapsed by default */}
+                      {expandedGroups.has(group.clientId) && group.orders.map((order) => {
                         const isHovered = hoveredRow === order.id
                         const isCancelled = order.stage === 'Cancelled'
                         const isShortShipped = order.stage === 'Short Shipped'

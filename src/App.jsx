@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
-import { Building2, Users, LayoutDashboard, LogOut, Home, RotateCcw } from 'lucide-react'
+import { Tag, Store, BarChart3, LogOut, Home, RotateCcw } from 'lucide-react'
 import { useAuth } from './context/AuthContext'
 import { CompanyProvider, useCompanies } from './context/CompanyContext'
 import { AccountProvider } from './context/AccountContext'
@@ -16,7 +16,7 @@ function CompanyLinks() {
   const { activeCompanies } = useCompanies()
 
   return (
-    <div className="flex flex-col gap-2 w-full px-2">
+    <div className="flex flex-col gap-2 w-full px-2 overflow-y-auto scrollbar-none">
       {activeCompanies.map((company) => (
         <NavLink
           key={company.id}
@@ -25,17 +25,19 @@ function CompanyLinks() {
           className={({ isActive }) =>
             `flex items-center justify-center p-2 rounded-lg transition-colors ${
               isActive
-                ? 'bg-[#005b5b]/20 ring-1 ring-[#005b5b]/40'
+                ? 'bg-[#005b5b]'
                 : 'text-zinc-400 hover:text-white hover:bg-zinc-600'
             }`
           }
         >
           {company.logo_path ? (
-            <img
-              src={company.logo_path}
-              alt={company.name}
-              className="w-9 h-9 shrink-0 invert object-contain"
-            />
+            <div className="w-9 h-9 shrink-0 rounded bg-white flex items-center justify-center p-0.5">
+              <img
+                src={company.logo_path}
+                alt={company.name}
+                className="w-full h-full object-contain"
+              />
+            </div>
           ) : (
             <div className="w-9 h-9 shrink-0 rounded bg-zinc-700 flex items-center justify-center text-white text-sm font-bold">
               {company.name.charAt(0)}
@@ -182,7 +184,7 @@ function App() {
 
           <div className="border-t border-zinc-700 w-12 mb-3" />
 
-          {/* Company quick links */}
+          {/* Brand quick links */}
           <CompanyLinks />
 
           <div className="border-t border-zinc-700 w-12 my-3" />
@@ -201,12 +203,12 @@ function App() {
                 }`
               }
             >
-              <LayoutDashboard className="size-5" />
+              <BarChart3 className="size-5" />
             </NavLink>
             <NavLink
               to="/companies"
               end
-              title="My Companies"
+              title="My Brands"
               className={({ isActive }) =>
                 `flex items-center justify-center p-2 rounded-lg transition-colors ${
                   isActive
@@ -215,7 +217,7 @@ function App() {
                 }`
               }
             >
-              <Building2 className="size-5" />
+              <Tag className="size-5" />
             </NavLink>
             <NavLink
               to="/accounts"
@@ -229,7 +231,7 @@ function App() {
                 }`
               }
             >
-              <Users className="size-5" />
+              <Store className="size-5" />
             </NavLink>
           </nav>
 
@@ -246,7 +248,7 @@ function App() {
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-y-auto bg-background">
+        <main className="flex-1 overflow-auto bg-background">
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/companies" element={<Companies />} />

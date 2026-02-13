@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Upload } from 'lucide-react'
+import { Upload, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -48,19 +48,15 @@ function parseCSV(text) {
 }
 
 function Accounts() {
-  const { accounts, addAccount, addAccounts } = useAccounts()
+  const { accounts, addAccount, addAccounts, updateAccount, removeAccount } = useAccounts()
   const [search, setSearch] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null)
   const fileInputRef = useRef(null)
-  const [form, setForm] = useState({
-    name: '',
-    account_number: '',
-    region: '',
-    type: '',
-    city: '',
-    state: '',
-  })
+  const emptyForm = { name: '', account_number: '', region: '', type: '', city: '', state: '' }
+  const [form, setForm] = useState(emptyForm)
 
   const filteredAccounts = accounts.filter((a) =>
     a.name.toLowerCase().includes(search.toLowerCase())
@@ -70,10 +66,28 @@ function Accounts() {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  const openEdit = (account) => {
+    setEditingId(account.id)
+    setForm({
+      name: account.name || '',
+      account_number: account.account_number || '',
+      region: account.region || '',
+      type: account.type || '',
+      city: account.city || '',
+      state: account.state || '',
+    })
+    setDialogOpen(true)
+  }
+
   const handleSubmit = async (e) => {
     e.preventDefault()
-    await addAccount(form)
-    setForm({ name: '', account_number: '', region: '', type: '', city: '', state: '' })
+    if (editingId) {
+      await updateAccount(editingId, form)
+    } else {
+      await addAccount(form)
+    }
+    setForm(emptyForm)
+    setEditingId(null)
     setDialogOpen(false)
   }
 
@@ -115,14 +129,17 @@ function Accounts() {
             <Upload className="size-4 mr-1" />
             {importing ? 'Importing...' : 'Import CSV'}
           </Button>
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <Dialog open={dialogOpen} onOpenChange={(open) => {
+            setDialogOpen(open)
+            if (!open) { setEditingId(null); setForm(emptyForm) }
+          }}>
             <DialogTrigger asChild>
               <Button>Add Account</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Add Account</DialogTitle>
-                <DialogDescription>Add a new account.</DialogDescription>
+                <DialogTitle>{editingId ? 'Edit Account' : 'Add Account'}</DialogTitle>
+                <DialogDescription>{editingId ? 'Update account details.' : 'Add a new account.'}</DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
@@ -190,7 +207,7 @@ function Accounts() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button type="submit">Save Account</Button>
+                  <Button type="submit">{editingId ? 'Save Changes' : 'Save Account'}</Button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -208,6 +225,7 @@ function Accounts() {
       <Table>
         <TableHeader>
           <TableRow>
+            <TableHead className="w-10"></TableHead>
             <TableHead>Account Name</TableHead>
             <TableHead>Account #</TableHead>
             <TableHead>Region</TableHead>
@@ -218,7 +236,29 @@ function Accounts() {
         </TableHeader>
         <TableBody>
           {filteredAccounts.map((account) => (
-            <TableRow key={account.id}>
+            <TableRow key={account.id} className="group">
+              <TableCell className="w-10">
+                <div className="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => openEdit(account)}
+                    title="Edit"
+                  >
+                    <Pencil className="size-3.5 text-muted-foreground" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => setConfirmDeleteId(account.id)}
+                    title="Delete"
+                  >
+                    <Trash2 className="size-3.5 text-red-500" />
+                  </Button>
+                </div>
+              </TableCell>
               <TableCell className="font-medium">{account.name}</TableCell>
               <TableCell>{account.account_number}</TableCell>
               <TableCell>{account.region}</TableCell>
@@ -229,6 +269,30 @@ function Accounts() {
           ))}
         </TableBody>
       </Table>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={!!confirmDeleteId} onOpenChange={(open) => { if (!open) setConfirmDeleteId(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Account</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete this account? This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                await removeAccount(confirmDeleteId)
+                setConfirmDeleteId(null)
+              }}
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

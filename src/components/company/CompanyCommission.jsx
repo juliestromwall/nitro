@@ -1,5 +1,5 @@
 import { useState, useMemo, Fragment } from 'react'
-import { FolderArchive, ChevronDown, Search, Check, X, Pencil, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -124,10 +124,22 @@ function CompanyCommission({ companyId }) {
   const [editingTabId, setEditingTabId] = useState(null)
   const [tabForm, setTabForm] = useState({ label: '', year: '', start_date: '', end_date: '' })
 
-  // Inline editing state — keyed by order id
-  const [editingId, setEditingId] = useState(null)
-  const [editForm, setEditForm] = useState({ payStatus: '', amountPaid: '', paidDate: '' })
-  const [hoveredRow, setHoveredRow] = useState(null)
+  // Payment modal state — account-level
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [paymentGroupId, setPaymentGroupId] = useState(null)
+  const [paymentStatus, setPaymentStatus] = useState('pending invoice')
+  const [paymentList, setPaymentList] = useState([])
+
+  // Collapsed/expanded groups
+  const [expandedGroups, setExpandedGroups] = useState(new Set())
+  const toggleGroup = (clientId) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(clientId)) next.delete(clientId)
+      else next.add(clientId)
+      return next
+    })
+  }
 
   const allVisibleSeasons = showArchived
     ? [...activeSeasons, ...archivedSeasons]
@@ -154,6 +166,7 @@ function CompanyCommission({ companyId }) {
         client_id: order.client_id,
         order_number: order.order_number,
         order_document: order.order_document,
+        close_date: order.close_date,
         invoices: getInvoices(order),
         orderTotal: order.total,
         commissionDue: commEntry.commission_due,
@@ -172,6 +185,7 @@ function CompanyCommission({ companyId }) {
       client_id: order.client_id,
       order_number: order.order_number,
       order_document: order.order_document,
+      close_date: order.close_date,
       invoices: getInvoices(order),
       orderTotal: order.total,
       commissionDue,
@@ -253,15 +267,34 @@ function CompanyCommission({ companyId }) {
     return Array.from(groupMap.values()).map((group) => {
       const totalOrder = group.rows.reduce((sum, r) => sum + r.orderTotal, 0)
       const totalCommDue = group.rows.reduce((sum, r) => sum + r.commissionDue, 0)
+      const totalPaid = group.rows.reduce((sum, r) => sum + r.amount_paid, 0)
+      const totalRemaining = group.rows.reduce((sum, r) => sum + r.amount_remaining, 0)
       const allInvoices = group.rows.flatMap((r) => r.invoices || [])
       const invoicedTotal = allInvoices.reduce((sum, inv) => {
         const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
         return sum + amt
       }, 0)
+
+      // Aggregate pay status
+      const allPaid = group.rows.every(r => r.pay_status === 'paid')
+      const anyPaidOrPartial = group.rows.some(r => r.pay_status === 'paid' || r.pay_status === 'partial')
+      const anyInvoiceSent = group.rows.some(r => r.pay_status === 'invoice sent')
+      let aggPayStatus = 'pending invoice'
+      if (allPaid) aggPayStatus = 'paid'
+      else if (anyPaidOrPartial) aggPayStatus = 'partial'
+      else if (anyInvoiceSent) aggPayStatus = 'invoice sent'
+
+      const paidDates = group.rows.filter(r => r.paid_date).map(r => r.paid_date).sort()
+      const latestPaidDate = paidDates.length > 0 ? paidDates[paidDates.length - 1] : null
+
       return {
         ...group,
         totalOrder,
         totalCommDue,
+        totalPaid,
+        totalRemaining,
+        aggPayStatus,
+        latestPaidDate,
         allInvoices,
         invoicedTotal,
         pending: totalOrder - invoicedTotal,
@@ -314,33 +347,117 @@ function CompanyCommission({ companyId }) {
     }
   }
 
-  // Inline editing
-  const startEdit = (row) => {
-    setEditingId(row.id)
-    setEditForm({
-      payStatus: row.pay_status,
-      amountPaid: floatToCents(row.amount_paid),
-      paidDate: row.paid_date || '',
+  // Payment modal handlers — account-level
+  const openPaymentModal = (group) => {
+    setPaymentGroupId(group.clientId)
+    setPaymentStatus(group.aggPayStatus)
+    // Load existing payments from first order's commission record
+    const firstRow = group.rows[0]
+    const commEntry = commissions.find(c => c.order_id === firstRow.orderId)
+    const storedPayments = commEntry?.payments || []
+
+    if (storedPayments.length > 0) {
+      setPaymentList(storedPayments.map(p => ({
+        amount: floatToCents(p.amount),
+        date: p.date || '',
+      })))
+    } else {
+      // Fallback: collect from per-order commission records
+      const existing = group.rows
+        .filter(r => r.amount_paid > 0)
+        .map(r => ({
+          amount: floatToCents(r.amount_paid),
+          date: r.paid_date || '',
+        }))
+      // If no existing payments, start with one empty row
+      setPaymentList(existing.length > 0 ? existing : [{ amount: '', date: '' }])
+    }
+    setPaymentModalOpen(true)
+  }
+
+  const addPayment = () => {
+    setPaymentList(prev => [...prev, { amount: '', date: '' }])
+  }
+
+  const updatePayment = (index, field, value) => {
+    setPaymentList(prev => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], [field]: value }
+      return updated
     })
   }
 
-  const cancelEdit = () => {
-    setEditingId(null)
-    setEditForm({ payStatus: '', amountPaid: '', paidDate: '' })
+  const removePayment = (index) => {
+    setPaymentList(prev => prev.filter((_, i) => i !== index))
   }
 
-  const saveEdit = async (row) => {
-    const paid = centsToFloat(editForm.amountPaid)
-    await upsertCommission({
-      order_id: row.orderId,
-      commission_due: row.commissionDue,
-      pay_status: editForm.payStatus,
-      amount_paid: paid,
-      paid_date: editForm.paidDate || null,
-      amount_remaining: Math.max(row.commissionDue - paid, 0),
-    })
-    setEditingId(null)
-    setEditForm({ payStatus: '', amountPaid: '', paidDate: '' })
+  const savePayments = async () => {
+    const group = groupedRows.find(g => g.clientId === paymentGroupId)
+    if (!group) return
+
+    const payments = paymentList
+      .filter(p => p.amount)
+      .map(p => ({
+        amount: centsToFloat(p.amount),
+        date: p.date || null,
+      }))
+
+    const totalPaidAmt = payments.reduce((sum, p) => sum + p.amount, 0)
+    const latestDate = payments
+      .filter(p => p.date)
+      .map(p => p.date)
+      .sort()
+      .pop() || null
+
+    // Determine auto pay status based on payments
+    let status = paymentStatus
+    if (totalPaidAmt >= group.totalCommDue && group.totalCommDue > 0) {
+      status = 'paid'
+    } else if (totalPaidAmt > 0 && totalPaidAmt < group.totalCommDue) {
+      status = 'partial'
+    }
+
+    // Save all payment data on first order's commission
+    const firstRow = group.rows[0]
+    try {
+      await upsertCommission({
+        order_id: firstRow.orderId,
+        commission_due: firstRow.commissionDue,
+        pay_status: status,
+        amount_paid: totalPaidAmt,
+        paid_date: latestDate,
+        amount_remaining: Math.max(group.totalCommDue - totalPaidAmt, 0),
+        payments,
+      })
+    } catch (err) {
+      // Fallback if payments column doesn't exist yet
+      console.error('Saving with payments failed, retrying without:', err)
+      await upsertCommission({
+        order_id: firstRow.orderId,
+        commission_due: firstRow.commissionDue,
+        pay_status: status,
+        amount_paid: totalPaidAmt,
+        paid_date: latestDate,
+        amount_remaining: Math.max(group.totalCommDue - totalPaidAmt, 0),
+      })
+    }
+
+    // Set same status on other orders, clear their individual payment data
+    for (let i = 1; i < group.rows.length; i++) {
+      const row = group.rows[i]
+      await upsertCommission({
+        order_id: row.orderId,
+        commission_due: row.commissionDue,
+        pay_status: status,
+        amount_paid: 0,
+        paid_date: null,
+        amount_remaining: row.commissionDue,
+      })
+    }
+
+    setPaymentModalOpen(false)
+    setPaymentGroupId(null)
+    setPaymentList([])
   }
 
   const toggleSort = (key) => {
@@ -538,8 +655,8 @@ function CompanyCommission({ companyId }) {
               <TableHeader className="sticky top-[165px] z-[15]">
                 <TableRow className="bg-[#005b5b] hover:bg-[#005b5b]">
                   <TableHead className="w-10 sticky left-0 bg-[#005b5b] z-[16]"></TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('order_number')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Order # <SortIcon column="order_number" sortConfig={sortConfig} /></span>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Account Name <SortIcon column="account" sortConfig={sortConfig} /></span>
                   </TableHead>
                   <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('total')}>
                     <span className="flex items-center justify-end gap-1 whitespace-nowrap">Total <SortIcon column="total" sortConfig={sortConfig} /></span>
@@ -571,184 +688,159 @@ function CompanyCommission({ companyId }) {
                 ) : (
                   groupedRows.map((group) => (
                     <Fragment key={`group-${group.clientId}`}>
-                      {/* Group header row */}
-                      <TableRow className="bg-zinc-100 border-t-2 hover:bg-zinc-100">
-                        <TableCell colSpan={8} className="py-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-zinc-900">{group.accountName}</span>
-                              <Badge variant="secondary" className="text-xs">{group.rows.length} order{group.rows.length !== 1 ? 's' : ''}</Badge>
-                            </div>
-                            <div className="flex items-center gap-6">
-                              <div className="text-right">
-                                <span className="text-sm text-muted-foreground mr-2">Total:</span>
-                                <span className="font-bold text-zinc-900">{fmt(group.totalOrder)}</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="text-sm text-muted-foreground mr-2">Commission:</span>
-                                <span className="font-bold text-zinc-900">{fmt(group.totalCommDue)}</span>
-                              </div>
-                              <div className="flex flex-col items-end gap-0.5">
-                                {group.allInvoices.length > 0 ? (
-                                  <>
-                                    {group.allInvoices.map((inv, i) => {
-                                      const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
-                                      const label = `${inv.number || '—'}${amt > 0 ? ` (${fmt(amt)})` : ''}`
-                                      return inv.document ? (
-                                        <a
-                                          key={i}
-                                          href="#"
-                                          onClick={async (e) => {
-                                            e.preventDefault()
-                                            try {
-                                              const url = await getDocumentUrl(inv.document.path)
-                                              window.open(url, '_blank')
-                                            } catch (err) {
-                                              console.error('Failed to get document URL:', err)
-                                            }
-                                          }}
-                                          className="text-blue-600 underline text-sm whitespace-nowrap"
-                                        >
-                                          {label}
-                                        </a>
-                                      ) : (
-                                        <span key={i} className="text-sm whitespace-nowrap">{label}</span>
-                                      )
-                                    })}
-                                    {group.pending > 0 && (
-                                      <span className="text-xs text-amber-600 font-medium whitespace-nowrap">
-                                        Pending: {fmt(group.pending)}
-                                      </span>
-                                    )}
-                                  </>
-                                ) : null}
-                              </div>
-                            </div>
+                      {/* Group header row — shows all aggregated column data */}
+                      <TableRow className="bg-zinc-100 border-t-2 hover:bg-zinc-200 cursor-pointer" onClick={() => toggleGroup(group.clientId)}>
+                        <TableCell className="w-10"></TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-zinc-900">{group.accountName}</span>
+                            <Badge variant="secondary" className="text-xs">{group.rows.length} order{group.rows.length !== 1 ? 's' : ''}</Badge>
                           </div>
+                        </TableCell>
+                        <TableCell className="text-right"><span className="font-bold">{fmt(group.totalOrder)}</span></TableCell>
+                        <TableCell className="text-right"><span className="font-bold">{fmt(group.totalCommDue)}</span></TableCell>
+                        <TableCell>{statusBadge(group.aggPayStatus)}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <span className="font-bold">{fmt(group.totalPaid)}</span>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); openPaymentModal(group) }}
+                              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5 whitespace-nowrap"
+                            >
+                              <Plus className="size-3" /> Payment
+                            </button>
+                          </div>
+                        </TableCell>
+                        <TableCell>{group.latestPaidDate ? fmtDate(group.latestPaidDate) : '—'}</TableCell>
+                        <TableCell className="text-right">
+                          <span className={`font-bold ${group.totalRemaining > 0 ? 'text-red-600' : ''}`}>{fmt(group.totalRemaining)}</span>
                         </TableCell>
                       </TableRow>
 
-                      {/* Sub-rows for each order in the group */}
-                      {group.rows.map((row) => {
-                        const isEditing = editingId === row.id
-                        const isHovered = hoveredRow === row.id
-
-                        if (isEditing) {
-                          return (
-                            <TableRow key={row.id} className="bg-blue-50/50">
-                              <TableCell className="sticky left-0 bg-blue-50 z-[5] w-10">
-                                <div className="flex gap-1">
-                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => saveEdit(row)} title="Save">
-                                    <Check className="size-4 text-green-600" />
-                                  </Button>
-                                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={cancelEdit} title="Cancel">
-                                    <X className="size-4 text-red-500" />
-                                  </Button>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex flex-col gap-0.5">
-                                  {(row.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
-                                    <span key={i} className="text-sm whitespace-nowrap">{num}</span>
-                                  ))}
-                                  {!row.order_number && '—'}
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
-                              <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
-                              <TableCell>
-                                <select
-                                  value={editForm.payStatus}
-                                  onChange={(e) => setEditForm((p) => ({ ...p, payStatus: e.target.value }))}
-                                  className="border rounded px-2 py-1 text-sm w-36"
-                                >
-                                  {payStatusOptions.map((opt) => (
-                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                                  ))}
-                                </select>
-                              </TableCell>
-                              <TableCell>
-                                <div className="relative w-28">
-                                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
-                                  <Input
-                                    value={centsToDisplay(editForm.amountPaid)}
-                                    onChange={(e) => {
-                                      const raw = e.target.value.replace(/[^0-9]/g, '')
-                                      setEditForm((p) => ({ ...p, amountPaid: raw }))
-                                    }}
-                                    className="h-8 text-sm text-right pl-5"
-                                    inputMode="numeric"
-                                  />
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <Input
-                                  type="date"
-                                  value={editForm.paidDate}
-                                  onChange={(e) => setEditForm((p) => ({ ...p, paidDate: e.target.value }))}
-                                  className="h-8 text-sm w-36"
-                                />
-                              </TableCell>
-                              <TableCell className="text-right text-muted-foreground">—</TableCell>
-                            </TableRow>
-                          )
-                        }
-
-                        return (
-                          <TableRow
-                            key={row.id}
-                            className={`group ${rowHighlight(row.pay_status)}`}
-                            onMouseEnter={() => setHoveredRow(row.id)}
-                            onMouseLeave={() => setHoveredRow(null)}
-                          >
-                            <TableCell className={`sticky left-0 z-[5] w-10 ${stickyBg(row.pay_status)}`}>
-                              <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-                                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => startEdit(row)} title="Edit">
-                                  <Pencil className="size-3.5" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="flex flex-col gap-0.5">
-                                {(row.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
-                                  row.order_document ? (
-                                    <a
-                                      key={i}
-                                      href="#"
-                                      onClick={async (e) => {
-                                        e.preventDefault()
-                                        try {
-                                          const url = await getDocumentUrl(row.order_document.path)
-                                          window.open(url, '_blank')
-                                        } catch (err) {
-                                          console.error('Failed to get document URL:', err)
-                                        }
-                                      }}
-                                      className="text-blue-600 underline text-sm whitespace-nowrap"
-                                    >
-                                      {num}
-                                    </a>
-                                  ) : (
-                                    <span key={i} className="text-sm whitespace-nowrap">{num}</span>
-                                  )
-                                ))}
-                                {!row.order_number && '—'}
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right">{fmt(row.orderTotal)}</TableCell>
-                            <TableCell className="text-right">{fmt(row.commissionDue)}</TableCell>
-                            <TableCell>{statusBadge(row.pay_status)}</TableCell>
-                            <TableCell className="text-right">{fmt(row.amount_paid)}</TableCell>
-                            <TableCell>{row.paid_date ? fmtDate(row.paid_date) : '—'}</TableCell>
-                            <TableCell className="text-right">{fmt(row.amount_remaining)}</TableCell>
-                          </TableRow>
-                        )
-                      })}
+                      {/* Sub-rows — collapsed by default, show order #, date, amount only */}
+                      {expandedGroups.has(group.clientId) && group.rows.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="w-10"></TableCell>
+                          <TableCell className="pl-8 text-muted-foreground">{row.order_number || '—'}</TableCell>
+                          <TableCell className="text-right text-muted-foreground">{fmt(row.orderTotal)}</TableCell>
+                          <TableCell className="text-muted-foreground">{row.close_date ? fmtDate(row.close_date) : '—'}</TableCell>
+                          <TableCell colSpan={4}></TableCell>
+                        </TableRow>
+                      ))}
                     </Fragment>
                   ))
                 )}
               </TableBody>
             </Table>
+
+          {/* Payment modal — account-level */}
+          <Dialog open={paymentModalOpen} onOpenChange={(open) => {
+            if (!open) { setPaymentModalOpen(false); setPaymentGroupId(null); setPaymentList([]) }
+          }}>
+            <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Manage Payments</DialogTitle>
+                <DialogDescription>
+                  {paymentGroupId && getAccountName(paymentGroupId)}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                {/* Pay Status */}
+                <div className="space-y-2">
+                  <Label>Pay Status</Label>
+                  <select
+                    value={paymentStatus}
+                    onChange={(e) => setPaymentStatus(e.target.value)}
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                  >
+                    {payStatusOptions.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Summary */}
+                {paymentGroupId && (() => {
+                  const group = groupedRows.find(g => g.clientId === paymentGroupId)
+                  if (!group) return null
+                  const totalPaidNow = paymentList.reduce((sum, p) => {
+                    const digits = String(p.amount).replace(/\D/g, '')
+                    return sum + (digits ? parseInt(digits, 10) / 100 : 0)
+                  }, 0)
+                  const remaining = group.totalCommDue - totalPaidNow
+                  return (
+                    <div className="bg-zinc-50 rounded-lg p-3 space-y-1 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Commission Due:</span>
+                        <span className="font-bold">{fmt(group.totalCommDue)}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total Paid:</span>
+                        <span className="font-bold text-green-700">{fmt(totalPaidNow)}</span>
+                      </div>
+                      <div className="flex justify-between border-t pt-1">
+                        <span className="text-muted-foreground">Remaining:</span>
+                        <span className={`font-bold ${remaining > 0 ? 'text-red-600' : ''}`}>{fmt(remaining)}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
+
+                {/* Payment list */}
+                {paymentList.length > 0 && (
+                  <div className="space-y-2">
+                    <Label>Payments</Label>
+                    {paymentList.map((payment, idx) => (
+                      <div key={idx} className="flex items-center gap-2 border rounded-md p-2 bg-white">
+                        <div className="flex-1 space-y-1">
+                          <div className="flex items-center border rounded-md px-2 h-8 focus-within:ring-2 focus-within:ring-ring">
+                            <span className="text-xs text-muted-foreground select-none">$</span>
+                            <input
+                              inputMode="numeric"
+                              placeholder="0.00"
+                              value={payment.amount ? centsToDisplay(String(payment.amount)) : ''}
+                              onChange={(e) => {
+                                const digits = e.target.value.replace(/\D/g, '')
+                                updatePayment(idx, 'amount', digits || '')
+                              }}
+                              className="flex-1 text-sm bg-transparent outline-none ml-1"
+                            />
+                          </div>
+                          <Input
+                            type="date"
+                            value={payment.date}
+                            onChange={(e) => updatePayment(idx, 'date', e.target.value)}
+                            className="h-8 text-sm"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removePayment(idx)}
+                          className="text-red-500 hover:text-red-700 p-1"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={addPayment}
+                  className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                >
+                  <Plus className="size-4" /> Add Payment
+                </button>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setPaymentModalOpen(false); setPaymentGroupId(null); setPaymentList([]) }}>
+                  Cancel
+                </Button>
+                <Button onClick={savePayments}>Save</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </>
       )}
     </div>

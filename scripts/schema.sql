@@ -108,6 +108,7 @@ create table commissions (
   amount_paid numeric(12,2) not null default 0,
   paid_date text,
   amount_remaining numeric(12,2) not null default 0,
+  payments jsonb default '[]',
   created_at timestamptz not null default now()
 );
 

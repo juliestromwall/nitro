@@ -179,16 +179,16 @@ function Companies() {
   return (
     <div className="px-6 py-8 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Companies</h1>
-        <Button onClick={openAdd}>Add Company</Button>
+        <h1 className="text-2xl font-bold">Brands</h1>
+        <Button onClick={openAdd}>Add Brand</Button>
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={() => {}}>
         <DialogContent className="max-h-[90vh] overflow-y-auto" showCloseButton={false} onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()} onInteractOutside={(e) => e.preventDefault()}>
           <DialogHeader>
-            <DialogTitle>{editingId ? 'Edit Company' : 'Add Company'}</DialogTitle>
+            <DialogTitle>{editingId ? 'Edit Brand' : 'Add Brand'}</DialogTitle>
             <DialogDescription>
-              {editingId ? 'Update the company details.' : 'Add a company you earn commission from.'}
+              {editingId ? 'Update the brand details.' : 'Add a brand you earn commission from.'}
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -231,7 +231,7 @@ function Companies() {
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="companyName">Company Name</Label>
+              <Label htmlFor="companyName">Brand Name</Label>
               <Input
                 id="companyName"
                 value={form.name}
@@ -348,7 +348,7 @@ function Companies() {
                 Cancel
               </Button>
               <Button type="submit" disabled={saving}>
-                {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Add Company'}
+                {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Add Brand'}
               </Button>
             </DialogFooter>
           </form>
@@ -360,7 +360,7 @@ function Companies() {
           <TableRow>
             <TableHead className="w-10"></TableHead>
             <TableHead className="w-14">Logo</TableHead>
-            <TableHead>Company Name</TableHead>
+            <TableHead>Brand Name</TableHead>
             <TableHead className="text-right">Commission %</TableHead>
             <TableHead className="text-right">YTD Sales</TableHead>
             <TableHead className="text-right">All Time Sales</TableHead>
@@ -404,7 +404,7 @@ function Companies() {
                       variant="ghost"
                       size="icon"
                       onClick={() => openEdit(company)}
-                      title="Edit company"
+                      title="Edit brand"
                     >
                       <Pencil className="size-4" />
                     </Button>
@@ -412,7 +412,7 @@ function Companies() {
                       variant="ghost"
                       size="icon"
                       onClick={() => toggleArchive(company.id)}
-                      title="Archive company"
+                      title="Archive brand"
                     >
                       <Archive className="size-4" />
                     </Button>
@@ -451,7 +451,7 @@ function Companies() {
                         variant="ghost"
                         size="icon"
                         onClick={() => toggleArchive(company.id)}
-                        title="Restore company"
+                        title="Restore brand"
                       >
                         <ArchiveRestore className="size-4" />
                       </Button>
