@@ -1423,7 +1423,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           </div>
 
           {/* Sticky search bar */}
-          <div className="sticky top-[123px] z-20 bg-background pb-2 pt-1 space-y-3 border-b border-zinc-100">
+          <div className="sticky top-[123px] z-20 bg-background pb-2 pt-1 space-y-3 border-b border-zinc-100" style={{ minWidth: '1400px' }}>
             <div className="flex items-center gap-3">
               <div className="relative max-w-sm flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
