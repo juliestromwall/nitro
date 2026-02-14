@@ -1,5 +1,5 @@
 import { useState, useMemo, Fragment } from 'react'
-import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
 import { getDocumentUrl } from '@/lib/db'
+import { EXCLUDED_STAGES } from '@/lib/constants'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -25,40 +26,14 @@ const payStatusOptions = [
   { value: 'unpaid', label: 'Unpaid' },
   { value: 'invoice sent', label: 'Invoice Sent' },
   { value: 'pending invoice', label: 'Pending Invoice' },
+  { value: 'short shipped', label: 'Short Shipped' },
 ]
-
-const statusBadge = (status) => {
-  const styles = {
-    paid: 'bg-green-100 text-green-800 border-green-200',
-    partial: 'bg-yellow-100 text-yellow-800 border-yellow-200',
-    unpaid: 'bg-red-100 text-red-800 border-red-200',
-    'invoice sent': 'bg-blue-100 text-blue-800 border-blue-200',
-    'pending invoice': 'bg-zinc-100 text-zinc-700 border-zinc-200',
-  }
-  const labels = {
-    paid: 'Paid',
-    partial: 'Partial',
-    unpaid: 'Unpaid',
-    'invoice sent': 'Invoice Sent',
-    'pending invoice': 'Pending Invoice',
-  }
-  return (
-    <Badge className={styles[status] || 'bg-zinc-100 text-zinc-700 border-zinc-200'}>
-      {labels[status] || status}
-    </Badge>
-  )
-}
 
 const rowHighlight = (status) => {
   if (status === 'paid') return 'bg-green-50'
+  if (status === 'short shipped') return 'bg-green-50'
   if (status === 'partial') return 'bg-yellow-50'
   return ''
-}
-
-const stickyBg = (status) => {
-  if (status === 'paid') return 'bg-green-50'
-  if (status === 'partial') return 'bg-yellow-50'
-  return 'bg-white'
 }
 
 const fmtDate = (dateStr) => {
@@ -111,7 +86,7 @@ const SortIcon = ({ column, sortConfig }) => {
 function CompanyCommission({ companyId }) {
   const { getAccountName } = useAccounts()
   const { companies } = useCompanies()
-  const { activeSeasons, archivedSeasons, orders, commissions, updateSeason, toggleArchiveSeason, upsertCommission, updateCommission } = useSales()
+  const { activeSeasons, archivedSeasons, orders, commissions, updateSeason, toggleArchiveSeason, upsertCommission, updateCommission, updateOrder } = useSales()
 
   const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
   const [cardFilter, setCardFilter] = useState('all')
@@ -130,7 +105,15 @@ function CompanyCommission({ companyId }) {
   const [paymentStatus, setPaymentStatus] = useState('pending invoice')
   const [paymentList, setPaymentList] = useState([])
 
-  // Collapsed/expanded groups
+  // Short Shipped confirmation state
+  const [shortShipConfirmOpen, setShortShipConfirmOpen] = useState(false)
+  const [shortShipOrderId, setShortShipOrderId] = useState(null)
+  const [shortShipPrevStage, setShortShipPrevStage] = useState('')
+  // Account-level short ship confirmation
+  const [shortShipAccountConfirmOpen, setShortShipAccountConfirmOpen] = useState(false)
+  const [shortShipAccountGroupId, setShortShipAccountGroupId] = useState(null)
+
+  // Collapsed/expanded groups — collapsed by default
   const [expandedGroups, setExpandedGroups] = useState(new Set())
   const toggleGroup = (clientId) => {
     setExpandedGroups(prev => {
@@ -148,14 +131,14 @@ function CompanyCommission({ companyId }) {
   const company = companies.find((c) => c.id === companyId)
   const commissionPct = company?.commission_percent || 0
 
-  // Get all non-cancelled orders for this company + season (includes Partially Shipped & Short Shipped)
+  // Get all non-cancelled orders for this company + season
   const closedWonOrders = currentSeason
     ? orders.filter(
         (o) => o.company_id === companyId && o.season_id === currentSeason.id && o.stage !== 'Cancelled'
       )
     : []
 
-  // Build commission rows from orders, looking up commissions by order_id
+  // Build commission rows from orders
   const commissionRows = closedWonOrders.map((order) => {
     const commEntry = commissions.find((c) => c.order_id === order.id)
 
@@ -167,6 +150,7 @@ function CompanyCommission({ companyId }) {
         order_number: order.order_number,
         order_document: order.order_document,
         close_date: order.close_date,
+        stage: order.stage,
         invoices: getInvoices(order),
         orderTotal: order.total,
         commissionDue: commEntry.commission_due,
@@ -177,7 +161,6 @@ function CompanyCommission({ companyId }) {
       }
     }
 
-    // No commission record yet — calculate defaults
     const commissionDue = order.total * (commissionPct / 100)
     return {
       id: order.id,
@@ -186,6 +169,7 @@ function CompanyCommission({ companyId }) {
       order_number: order.order_number,
       order_document: order.order_document,
       close_date: order.close_date,
+      stage: order.stage,
       invoices: getInvoices(order),
       orderTotal: order.total,
       commissionDue,
@@ -196,20 +180,13 @@ function CompanyCommission({ companyId }) {
     }
   })
 
-  // Summary totals (always computed from all rows, not filtered)
-  const totalEarned = commissionRows.reduce((sum, r) => sum + r.commissionDue, 0)
-  const totalPaid = commissionRows.reduce((sum, r) => sum + r.amount_paid, 0)
-  const totalOutstanding = commissionRows.reduce((sum, r) => sum + r.amount_remaining, 0)
-
   // Apply card filter + search
   const filteredRows = useMemo(() => {
     let result = commissionRows
 
-    // Card filter
-    if (cardFilter === 'paid') result = result.filter((r) => r.pay_status === 'paid' || r.pay_status === 'partial')
-    if (cardFilter === 'outstanding') result = result.filter((r) => r.pay_status !== 'paid')
+    if (cardFilter === 'paid') result = result.filter((r) => r.pay_status === 'paid' || r.pay_status === 'partial' || r.pay_status === 'short shipped')
+    if (cardFilter === 'outstanding') result = result.filter((r) => r.pay_status !== 'paid' && r.pay_status !== 'short shipped')
 
-    // Search
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase()
       result = result.filter((r) => {
@@ -245,14 +222,8 @@ function CompanyCommission({ companyId }) {
 
   // Group filtered rows by account
   const groupedRows = useMemo(() => {
-    const sorted = [...filteredRows].sort((a, b) => {
-      const aName = getAccountName(a.client_id)
-      const bName = getAccountName(b.client_id)
-      return aName.localeCompare(bName, undefined, { numeric: true })
-    })
-
     const groupMap = new Map()
-    sorted.forEach((row) => {
+    filteredRows.forEach((row) => {
       const key = row.client_id
       if (!groupMap.has(key)) {
         groupMap.set(key, {
@@ -264,28 +235,49 @@ function CompanyCommission({ companyId }) {
       groupMap.get(key).rows.push(row)
     })
 
-    return Array.from(groupMap.values()).map((group) => {
+    let groups = Array.from(groupMap.values()).map((group) => {
+      // Full totals from ALL orders (not excluding Short Shipped stages)
       const totalOrder = group.rows.reduce((sum, r) => sum + r.orderTotal, 0)
       const totalCommDue = group.rows.reduce((sum, r) => sum + r.commissionDue, 0)
       const totalPaid = group.rows.reduce((sum, r) => sum + r.amount_paid, 0)
-      const totalRemaining = group.rows.reduce((sum, r) => sum + r.amount_remaining, 0)
+      const totalRemaining = group.rows.some(r => r.pay_status === 'short shipped')
+        ? 0
+        : Math.max(totalCommDue - totalPaid, 0)
+
       const allInvoices = group.rows.flatMap((r) => r.invoices || [])
       const invoicedTotal = allInvoices.reduce((sum, inv) => {
         const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
         return sum + amt
       }, 0)
 
-      // Aggregate pay status
-      const allPaid = group.rows.every(r => r.pay_status === 'paid')
-      const anyPaidOrPartial = group.rows.some(r => r.pay_status === 'paid' || r.pay_status === 'partial')
-      const anyInvoiceSent = group.rows.some(r => r.pay_status === 'invoice sent')
+      // Aggregate pay status — check if any row has 'short shipped'
+      const anyShortShipped = group.rows.some(r => r.pay_status === 'short shipped')
       let aggPayStatus = 'pending invoice'
-      if (allPaid) aggPayStatus = 'paid'
-      else if (anyPaidOrPartial) aggPayStatus = 'partial'
-      else if (anyInvoiceSent) aggPayStatus = 'invoice sent'
+      if (anyShortShipped) {
+        aggPayStatus = 'short shipped'
+      } else {
+        const allPaid = group.rows.every(r => r.pay_status === 'paid')
+        const anyPaidOrPartial = group.rows.some(r => r.pay_status === 'paid' || r.pay_status === 'partial')
+        const anyInvoiceSent = group.rows.some(r => r.pay_status === 'invoice sent')
+        if (allPaid) aggPayStatus = 'paid'
+        else if (anyPaidOrPartial) aggPayStatus = 'partial'
+        else if (anyInvoiceSent) aggPayStatus = 'invoice sent'
+      }
 
       const paidDates = group.rows.filter(r => r.paid_date).map(r => r.paid_date).sort()
       const latestPaidDate = paidDates.length > 0 ? paidDates[paidDates.length - 1] : null
+
+      // Account-level short ship: calculate unshipped sales from commission gap
+      const isShortShipped = aggPayStatus === 'short shipped'
+      let unshippedSales = 0
+      let adjustedSale = totalOrder
+      let adjustedCommission = totalCommDue
+      if (isShortShipped && totalPaid < totalCommDue && commissionPct > 0) {
+        const commissionGap = totalCommDue - totalPaid
+        unshippedSales = commissionGap / (commissionPct / 100)
+        adjustedSale = totalOrder - unshippedSales
+        adjustedCommission = totalPaid
+      }
 
       return {
         ...group,
@@ -298,9 +290,57 @@ function CompanyCommission({ companyId }) {
         allInvoices,
         invoicedTotal,
         pending: totalOrder - invoicedTotal,
+        isShortShipped,
+        unshippedSales,
+        adjustedSale,
+        adjustedCommission,
       }
     })
-  }, [filteredRows])
+
+    // Sort groups based on sortConfig
+    if (sortConfig.key) {
+      groups.sort((a, b) => {
+        switch (sortConfig.key) {
+          case 'account': {
+            const cmp = a.accountName.localeCompare(b.accountName, undefined, { numeric: true })
+            return sortConfig.dir === 'asc' ? cmp : -cmp
+          }
+          case 'total':
+            return sortConfig.dir === 'asc' ? a.totalOrder - b.totalOrder : b.totalOrder - a.totalOrder
+          case 'commission_due':
+            return sortConfig.dir === 'asc' ? a.totalCommDue - b.totalCommDue : b.totalCommDue - a.totalCommDue
+          case 'pay_status': {
+            const cmp = a.aggPayStatus.localeCompare(b.aggPayStatus)
+            return sortConfig.dir === 'asc' ? cmp : -cmp
+          }
+          case 'amount_paid':
+            return sortConfig.dir === 'asc' ? a.totalPaid - b.totalPaid : b.totalPaid - a.totalPaid
+          case 'paid_date': {
+            const av = a.latestPaidDate || ''
+            const bv = b.latestPaidDate || ''
+            const cmp = av.localeCompare(bv)
+            return sortConfig.dir === 'asc' ? cmp : -cmp
+          }
+          case 'amount_remaining':
+            return sortConfig.dir === 'asc' ? a.totalRemaining - b.totalRemaining : b.totalRemaining - a.totalRemaining
+          default: return 0
+        }
+      })
+    } else {
+      groups.sort((a, b) => a.accountName.localeCompare(b.accountName, undefined, { numeric: true }))
+    }
+
+    return groups
+  }, [filteredRows, sortConfig, commissionPct])
+
+  // Summary totals — use adjusted values for short shipped accounts
+  const totalEarned = useMemo(() => {
+    return groupedRows.reduce((sum, g) => sum + (g.isShortShipped ? g.adjustedCommission : g.totalCommDue), 0)
+  }, [groupedRows])
+  const totalPaid = useMemo(() => {
+    return groupedRows.reduce((sum, g) => sum + g.totalPaid, 0)
+  }, [groupedRows])
+  const totalOutstanding = Math.max(totalEarned - totalPaid, 0)
 
   const handleTabChange = (seasonId) => {
     setActiveTab(seasonId)
@@ -351,7 +391,6 @@ function CompanyCommission({ companyId }) {
   const openPaymentModal = (group) => {
     setPaymentGroupId(group.clientId)
     setPaymentStatus(group.aggPayStatus)
-    // Load existing payments from first order's commission record
     const firstRow = group.rows[0]
     const commEntry = commissions.find(c => c.order_id === firstRow.orderId)
     const storedPayments = commEntry?.payments || []
@@ -362,14 +401,12 @@ function CompanyCommission({ companyId }) {
         date: p.date || '',
       })))
     } else {
-      // Fallback: collect from per-order commission records
       const existing = group.rows
         .filter(r => r.amount_paid > 0)
         .map(r => ({
           amount: floatToCents(r.amount_paid),
           date: r.paid_date || '',
         }))
-      // If no existing payments, start with one empty row
       setPaymentList(existing.length > 0 ? existing : [{ amount: '', date: '' }])
     }
     setPaymentModalOpen(true)
@@ -409,13 +446,17 @@ function CompanyCommission({ companyId }) {
       .sort()
       .pop() || null
 
-    // Determine auto pay status based on payments
+    // Use the manually selected status — only auto-calculate if not explicitly set
     let status = paymentStatus
-    if (totalPaidAmt >= group.totalCommDue && group.totalCommDue > 0) {
-      status = 'paid'
-    } else if (totalPaidAmt > 0 && totalPaidAmt < group.totalCommDue) {
-      status = 'partial'
+    if (status !== 'short shipped') {
+      if (totalPaidAmt >= group.totalCommDue && group.totalCommDue > 0) {
+        status = 'paid'
+      } else if (totalPaidAmt > 0 && totalPaidAmt < group.totalCommDue) {
+        status = 'partial'
+      }
     }
+
+    const groupRemaining = Math.max(group.totalCommDue - totalPaidAmt, 0)
 
     // Save all payment data on first order's commission
     const firstRow = group.rows[0]
@@ -426,11 +467,10 @@ function CompanyCommission({ companyId }) {
         pay_status: status,
         amount_paid: totalPaidAmt,
         paid_date: latestDate,
-        amount_remaining: Math.max(group.totalCommDue - totalPaidAmt, 0),
+        amount_remaining: groupRemaining,
         payments,
       })
     } catch (err) {
-      // Fallback if payments column doesn't exist yet
       console.error('Saving with payments failed, retrying without:', err)
       await upsertCommission({
         order_id: firstRow.orderId,
@@ -438,11 +478,11 @@ function CompanyCommission({ companyId }) {
         pay_status: status,
         amount_paid: totalPaidAmt,
         paid_date: latestDate,
-        amount_remaining: Math.max(group.totalCommDue - totalPaidAmt, 0),
+        amount_remaining: groupRemaining,
       })
     }
 
-    // Set same status on other orders, clear their individual payment data
+    // Set same status on other orders — amount_paid=0 but same status
     for (let i = 1; i < group.rows.length; i++) {
       const row = group.rows[i]
       await upsertCommission({
@@ -451,7 +491,7 @@ function CompanyCommission({ companyId }) {
         pay_status: status,
         amount_paid: 0,
         paid_date: null,
-        amount_remaining: row.commissionDue,
+        amount_remaining: 0,
       })
     }
 
@@ -466,6 +506,70 @@ function CompanyCommission({ companyId }) {
         ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
         : { key, dir: 'asc' }
     )
+  }
+
+  // Inline pay status change — saves immediately for all orders in group
+  const handleInlinePayStatus = async (group, newStatus) => {
+    // If changing to short shipped, show confirmation
+    if (newStatus === 'short shipped') {
+      setShortShipAccountGroupId(group.clientId)
+      setShortShipAccountConfirmOpen(true)
+      return
+    }
+    for (const row of group.rows) {
+      await upsertCommission({
+        order_id: row.orderId,
+        commission_due: row.commissionDue,
+        pay_status: newStatus,
+        amount_paid: row.amount_paid,
+        paid_date: row.paid_date,
+        amount_remaining: Math.max(row.commissionDue - row.amount_paid, 0),
+      })
+    }
+  }
+
+  // Confirm account-level short ship from inline dropdown
+  const confirmAccountShortShip = async () => {
+    const group = groupedRows.find(g => g.clientId === shortShipAccountGroupId)
+    if (!group) return
+    for (const row of group.rows) {
+      await upsertCommission({
+        order_id: row.orderId,
+        commission_due: row.commissionDue,
+        pay_status: 'short shipped',
+        amount_paid: row.amount_paid,
+        paid_date: row.paid_date,
+        amount_remaining: Math.max(row.commissionDue - row.amount_paid, 0),
+      })
+    }
+    setShortShipAccountConfirmOpen(false)
+    setShortShipAccountGroupId(null)
+  }
+
+  // Stage change handler for individual orders (from payment modal)
+  const handleOrderStageChange = async (orderId, newStage, currentStage) => {
+    if (newStage === 'Short Shipped') {
+      setShortShipOrderId(orderId)
+      setShortShipPrevStage(currentStage)
+      setShortShipConfirmOpen(true)
+    } else {
+      await updateOrder(orderId, { stage: newStage })
+    }
+  }
+
+  const confirmShortShip = async () => {
+    if (shortShipOrderId) {
+      await updateOrder(shortShipOrderId, { stage: 'Short Shipped' })
+    }
+    setShortShipConfirmOpen(false)
+    setShortShipOrderId(null)
+    setShortShipPrevStage('')
+  }
+
+  const cancelShortShip = () => {
+    setShortShipConfirmOpen(false)
+    setShortShipOrderId(null)
+    setShortShipPrevStage('')
   }
 
   return (
@@ -674,7 +778,7 @@ function CompanyCommission({ companyId }) {
                     <span className="flex items-center gap-1 whitespace-nowrap">Paid Date <SortIcon column="paid_date" sortConfig={sortConfig} /></span>
                   </TableHead>
                   <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('amount_remaining')}>
-                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Amount Remaining <SortIcon column="amount_remaining" sortConfig={sortConfig} /></span>
+                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Remaining <SortIcon column="amount_remaining" sortConfig={sortConfig} /></span>
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -688,8 +792,17 @@ function CompanyCommission({ companyId }) {
                 ) : (
                   groupedRows.map((group) => (
                     <Fragment key={`group-${group.clientId}`}>
-                      {/* Group header row — shows all aggregated column data */}
-                      <TableRow className="bg-zinc-100 border-t-2 hover:bg-zinc-200 cursor-pointer" onClick={() => toggleGroup(group.clientId)}>
+                      {/* Group header row */}
+                      <TableRow
+                        className={`border-t-2 cursor-pointer ${
+                          group.aggPayStatus === 'paid' || group.aggPayStatus === 'short shipped'
+                            ? 'bg-green-200 hover:bg-green-300'
+                            : group.aggPayStatus === 'partial'
+                              ? 'bg-yellow-50 hover:bg-yellow-100'
+                              : 'bg-zinc-100 hover:bg-zinc-200'
+                        }`}
+                        onClick={() => toggleGroup(group.clientId)}
+                      >
                         <TableCell className="w-10"></TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -697,9 +810,37 @@ function CompanyCommission({ companyId }) {
                             <Badge variant="secondary" className="text-xs">{group.rows.length} order{group.rows.length !== 1 ? 's' : ''}</Badge>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right"><span className="font-bold">{fmt(group.totalOrder)}</span></TableCell>
-                        <TableCell className="text-right"><span className="font-bold">{fmt(group.totalCommDue)}</span></TableCell>
-                        <TableCell>{statusBadge(group.aggPayStatus)}</TableCell>
+                        <TableCell className="text-right">
+                          <span className="font-bold">{fmt(group.totalOrder)}</span>
+                          {group.isShortShipped && group.unshippedSales > 0 && (
+                            <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedSale)}</div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <span className="font-bold">{fmt(group.totalCommDue)}</span>
+                          {group.isShortShipped && group.unshippedSales > 0 && (
+                            <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedCommission)}</div>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <select
+                            value={group.aggPayStatus}
+                            onChange={(e) => handleInlinePayStatus(group, e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className={`text-xs font-medium rounded-md px-2 py-1 border cursor-pointer ${
+                              group.aggPayStatus === 'paid' ? 'bg-green-100 text-green-800 border-green-200' :
+                              group.aggPayStatus === 'partial' ? 'bg-yellow-100 text-yellow-800 border-yellow-200' :
+                              group.aggPayStatus === 'unpaid' ? 'bg-red-100 text-red-800 border-red-200' :
+                              group.aggPayStatus === 'invoice sent' ? 'bg-blue-100 text-blue-800 border-blue-200' :
+                              group.aggPayStatus === 'short shipped' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                              'bg-zinc-100 text-zinc-700 border-zinc-200'
+                            }`}
+                          >
+                            {payStatusOptions.map((opt) => (
+                              <option key={opt.value} value={opt.value}>{opt.label}</option>
+                            ))}
+                          </select>
+                        </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
                             <span className="font-bold">{fmt(group.totalPaid)}</span>
@@ -714,24 +855,88 @@ function CompanyCommission({ companyId }) {
                         <TableCell>{group.latestPaidDate ? fmtDate(group.latestPaidDate) : '—'}</TableCell>
                         <TableCell className="text-right">
                           <span className={`font-bold ${group.totalRemaining > 0 ? 'text-red-600' : ''}`}>{fmt(group.totalRemaining)}</span>
+                          {group.isShortShipped && group.unshippedSales > 0 && (
+                            <div className="text-xs text-purple-600 font-medium">{fmt(group.unshippedSales)} did not ship</div>
+                          )}
                         </TableCell>
                       </TableRow>
 
-                      {/* Sub-rows — collapsed by default, show order #, date, amount only */}
-                      {expandedGroups.has(group.clientId) && group.rows.map((row) => (
-                        <TableRow key={row.id}>
-                          <TableCell className="w-10"></TableCell>
-                          <TableCell className="pl-8 text-muted-foreground">{row.order_number || '—'}</TableCell>
-                          <TableCell className="text-right text-muted-foreground">{fmt(row.orderTotal)}</TableCell>
-                          <TableCell className="text-muted-foreground">{row.close_date ? fmtDate(row.close_date) : '—'}</TableCell>
-                          <TableCell colSpan={4}></TableCell>
-                        </TableRow>
-                      ))}
+                      {/* Sub-rows — collapsed by default */}
+                      {expandedGroups.has(group.clientId) && group.rows.map((row) => {
+                        const isExcluded = EXCLUDED_STAGES.includes(row.stage)
+                        return (
+                          <TableRow key={row.id} className={isExcluded ? 'bg-purple-50' : ''}>
+                            <TableCell className="w-10"></TableCell>
+                            <TableCell className="pl-8">
+                              <div className="flex items-center gap-2">
+                                <span className={isExcluded ? 'text-purple-600' : 'text-muted-foreground'}>{row.order_number || '—'}</span>
+                                {row.stage && (
+                                  <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                    row.stage === 'Short Shipped' ? 'bg-purple-100 text-purple-700' :
+                                    row.stage === 'Partially Shipped' ? 'bg-amber-100 text-amber-700' :
+                                    'bg-zinc-100 text-zinc-500'
+                                  }`}>
+                                    {row.stage}
+                                  </span>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className={`text-right ${isExcluded ? 'text-purple-600' : 'text-muted-foreground'}`}>
+                              {fmt(row.orderTotal)}
+                            </TableCell>
+                            <TableCell className={`text-right ${isExcluded ? 'text-purple-600' : 'text-muted-foreground'}`}>
+                              {fmt(row.commissionDue)}
+                            </TableCell>
+                            <TableCell className="text-muted-foreground text-xs">{row.close_date ? fmtDate(row.close_date) : '—'}</TableCell>
+                            <TableCell colSpan={3}></TableCell>
+                          </TableRow>
+                        )
+                      })}
                     </Fragment>
                   ))
                 )}
               </TableBody>
             </Table>
+
+          {/* Short Shipped confirmation dialog — individual order */}
+          <Dialog open={shortShipConfirmOpen} onOpenChange={(open) => { if (!open) cancelShortShip() }}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Confirm Short Shipped</DialogTitle>
+                <DialogDescription>
+                  Are you sure there are no more items to ship on this order? The order total will be excluded from total sales and commission due.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={cancelShortShip}>Cancel</Button>
+                <Button variant="destructive" onClick={confirmShortShip}>
+                  Confirm Short Shipped
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Short Shipped confirmation dialog — account-level */}
+          <Dialog open={shortShipAccountConfirmOpen} onOpenChange={(open) => {
+            if (!open) { setShortShipAccountConfirmOpen(false); setShortShipAccountGroupId(null) }
+          }}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Mark Account as Short Shipped</DialogTitle>
+                <DialogDescription>
+                  This marks the account's commission as final. The system will calculate the unshipped sales amount based on the remaining commission gap and deduct it from your totals.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => { setShortShipAccountConfirmOpen(false); setShortShipAccountGroupId(null) }}>
+                  Cancel
+                </Button>
+                <Button className="bg-purple-600 hover:bg-purple-700 text-white" onClick={confirmAccountShortShip}>
+                  Confirm Short Shipped
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* Payment modal — account-level */}
           <Dialog open={paymentModalOpen} onOpenChange={(open) => {
@@ -768,6 +973,10 @@ function CompanyCommission({ companyId }) {
                     return sum + (digits ? parseInt(digits, 10) / 100 : 0)
                   }, 0)
                   const remaining = group.totalCommDue - totalPaidNow
+                  const isShortShipStatus = paymentStatus === 'short shipped'
+                  const unshippedCalc = isShortShipStatus && remaining > 0 && commissionPct > 0
+                    ? remaining / (commissionPct / 100)
+                    : 0
                   return (
                     <div className="bg-zinc-50 rounded-lg p-3 space-y-1 text-sm">
                       <div className="flex justify-between">
@@ -781,6 +990,58 @@ function CompanyCommission({ companyId }) {
                       <div className="flex justify-between border-t pt-1">
                         <span className="text-muted-foreground">Remaining:</span>
                         <span className={`font-bold ${remaining > 0 ? 'text-red-600' : ''}`}>{fmt(remaining)}</span>
+                      </div>
+                      {isShortShipStatus && unshippedCalc > 0 && (
+                        <div className="border-t pt-2 mt-2 space-y-1">
+                          <div className="flex justify-between text-purple-600">
+                            <span className="font-medium">Sales that did not ship:</span>
+                            <span className="font-bold">{fmt(unshippedCalc)}</span>
+                          </div>
+                          <div className="flex justify-between text-purple-600">
+                            <span className="font-medium">Updated Sale:</span>
+                            <span className="font-bold">{fmt(group.totalOrder - unshippedCalc)}</span>
+                          </div>
+                          <div className="flex justify-between text-purple-600">
+                            <span className="font-medium">Updated Commission:</span>
+                            <span className="font-bold">{fmt(totalPaidNow)}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                {/* Order stages — update shipment status */}
+                {paymentGroupId && (() => {
+                  const group = groupedRows.find(g => g.clientId === paymentGroupId)
+                  if (!group || group.rows.length === 0) return null
+                  return (
+                    <div className="space-y-2">
+                      <Label>Order Shipment Status</Label>
+                      <div className="space-y-1.5">
+                        {group.rows.map((row) => (
+                          <div key={row.id} className={`flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm ${
+                            EXCLUDED_STAGES.includes(row.stage) ? 'bg-purple-50 border border-purple-200' : 'bg-zinc-50 border'
+                          }`}>
+                            <div className="flex-1 min-w-0">
+                              <span className="font-medium">{row.order_number || '—'}</span>
+                              <span className="text-muted-foreground ml-2">{fmt(row.orderTotal)}</span>
+                            </div>
+                            <select
+                              value={row.stage}
+                              onChange={(e) => handleOrderStageChange(row.orderId, e.target.value, row.stage)}
+                              className={`text-xs rounded-md px-2 py-1 border cursor-pointer ${
+                                row.stage === 'Short Shipped' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                                row.stage === 'Partially Shipped' ? 'bg-amber-100 text-amber-700 border-amber-200' :
+                                'bg-white border-zinc-200'
+                              }`}
+                            >
+                              <option value={row.stage}>{row.stage}</option>
+                              {row.stage !== 'Partially Shipped' && <option value="Partially Shipped">Partially Shipped</option>}
+                              {row.stage !== 'Short Shipped' && <option value="Short Shipped">Short Shipped</option>}
+                            </select>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )

@@ -117,7 +117,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const { user } = useAuth()
 
   const {
-    activeSeasons, archivedSeasons, orders,
+    activeSeasons, archivedSeasons, orders, commissions,
     addSeason, updateSeason, toggleArchiveSeason,
     addOrder, bulkAddOrders, updateOrder, deleteOrder,
   } = useSales()
@@ -133,6 +133,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   }
 
   const company = getCompany(companyId)
+  const commissionPct = company?.commission_percent || 0
   const companyOrderTypes = company?.order_types || []
   const companyItems = company?.items || []
   const DEFAULT_STAGES = ['Order Placed', 'Partially Shipped', 'Short Shipped', 'Cancelled']
@@ -197,17 +198,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [groupInvoiceClientId, setGroupInvoiceClientId] = useState(null)
   const [groupInvoiceList, setGroupInvoiceList] = useState([])
   const groupInvoiceDocRefs = useRef({})
-
-  // Collapsed/expanded groups
-  const [expandedGroups, setExpandedGroups] = useState(new Set())
-  const toggleGroup = (clientId) => {
-    setExpandedGroups(prev => {
-      const next = new Set(prev)
-      if (next.has(clientId)) next.delete(clientId)
-      else next.add(clientId)
-      return next
-    })
-  }
 
   // Celebration popup state
   const [celebrationOpen, setCelebrationOpen] = useState(false)
@@ -592,17 +582,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
 
   // Group filtered orders by account
   const groupedOrders = useMemo(() => {
-    // Sort by account name first, then by user's sort within groups
-    const sorted = [...filteredOrders].sort((a, b) => {
-      const aName = getAccountName(a.client_id)
-      const bName = getAccountName(b.client_id)
-      const nameCmp = aName.localeCompare(bName, undefined, { numeric: true })
-      if (nameCmp !== 0) return nameCmp
-      return 0 // preserve existing sort within group
-    })
-
     const groupMap = new Map()
-    sorted.forEach((order) => {
+    filteredOrders.forEach((order) => {
       const key = order.client_id
       if (!groupMap.has(key)) {
         groupMap.set(key, {
@@ -615,22 +596,79 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     })
 
     // Calculate totals for each group
-    return Array.from(groupMap.values()).map((group) => {
+    let groups = Array.from(groupMap.values()).map((group) => {
       const total = group.orders.reduce((sum, o) => sum + o.total, 0)
+      const commissionTotal = group.orders.reduce((sum, o) => {
+        if (EXCLUDED_STAGES.includes(o.stage)) return sum
+        return sum + getCommission(o).amount
+      }, 0)
       const allInvoices = group.orders.flatMap((o) => getInvoices(o))
       const invoicedTotal = allInvoices.reduce((sum, inv) => {
         const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
         return sum + amt
       }, 0)
+
+      // Check if commission is marked as short shipped for this account
+      const groupComm = commissions.find(c => group.orders.some(o => o.id === c.order_id) && c.pay_status === 'short shipped')
+      const isShortShipped = !!groupComm
+      let unshippedSales = 0
+      let adjustedSale = total
+      let adjustedCommission = commissionTotal
+      if (isShortShipped && commissionPct > 0) {
+        const firstOrderComm = commissions.find(c => c.order_id === group.orders[0]?.id)
+        const totalPaid = firstOrderComm?.amount_paid || 0
+        if (totalPaid < commissionTotal) {
+          const commissionGap = commissionTotal - totalPaid
+          unshippedSales = commissionGap / (commissionPct / 100)
+          adjustedSale = total - unshippedSales
+          adjustedCommission = totalPaid
+        }
+      }
+
       return {
         ...group,
         total,
+        commissionTotal,
         allInvoices,
         invoicedTotal,
         pending: total - invoicedTotal,
+        isShortShipped,
+        unshippedSales,
+        adjustedSale,
+        adjustedCommission,
       }
     })
-  }, [filteredOrders])
+
+    // Sort groups based on sortConfig
+    if (sortConfig.key) {
+      groups.sort((a, b) => {
+        switch (sortConfig.key) {
+          case 'total':
+            return sortConfig.dir === 'asc' ? a.total - b.total : b.total - a.total
+          default: {
+            let av, bv
+            const aOrder = a.orders[0] || {}
+            const bOrder = b.orders[0] || {}
+            switch (sortConfig.key) {
+              case 'sale_type': av = aOrder.sale_type || ''; bv = bOrder.sale_type || ''; break
+              case 'order_type': av = aOrder.order_type || ''; bv = bOrder.order_type || ''; break
+              case 'items': av = getItems(aOrder); bv = getItems(bOrder); break
+              case 'order_number': av = aOrder.order_number || ''; bv = bOrder.order_number || ''; break
+              case 'close_date': av = aOrder.close_date || ''; bv = bOrder.close_date || ''; break
+              case 'stage': av = aOrder.stage || ''; bv = bOrder.stage || ''; break
+              default: av = a.accountName; bv = b.accountName; break
+            }
+            const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
+            return sortConfig.dir === 'asc' ? cmp : -cmp
+          }
+        }
+      })
+    } else {
+      groups.sort((a, b) => a.accountName.localeCompare(b.accountName, undefined, { numeric: true }))
+    }
+
+    return groups
+  }, [filteredOrders, sortConfig, commissions, commissionPct])
 
   // Group invoice modal handlers
   const openGroupInvoiceModal = (group) => {
@@ -1585,65 +1623,67 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 ) : (
                   groupedOrders.map((group) => (
                     <Fragment key={`group-${group.clientId}`}>
-                      {/* Group header row */}
-                      <TableRow className="bg-zinc-100 border-t-2 hover:bg-zinc-200 cursor-pointer" onClick={() => toggleGroup(group.clientId)}>
-                        <TableCell colSpan={10} className="py-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-zinc-900">{group.accountName}</span>
-                              <Badge variant="secondary" className="text-xs">{group.orders.length} order{group.orders.length !== 1 ? 's' : ''}</Badge>
-                            </div>
-                            <div className="flex items-center gap-6">
-                              <span className="font-bold text-zinc-900">{fmt(group.total)}</span>
-                              <div className="flex flex-col items-end gap-0.5">
-                                {group.allInvoices.length > 0 ? (
-                                  <>
-                                    {group.allInvoices.map((inv, i) => {
-                                      const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
-                                      const label = `${inv.number || '—'}${amt > 0 ? ` (${fmt(amt)})` : ''}`
-                                      return inv.document ? (
-                                        <a
-                                          key={i}
-                                          href="#"
-                                          onClick={async (e) => {
-                                            e.preventDefault()
-                                            e.stopPropagation()
-                                            try {
-                                              const url = await getDocumentUrl(inv.document.path)
-                                              window.open(url, '_blank')
-                                            } catch (err) {
-                                              console.error('Failed to get document URL:', err)
-                                            }
-                                          }}
-                                          className="text-blue-600 underline text-sm whitespace-nowrap"
-                                        >
-                                          {label}
-                                        </a>
-                                      ) : (
-                                        <span key={i} className="text-sm whitespace-nowrap">{label}</span>
-                                      )
-                                    })}
-                                    {group.pending > 0 && (
-                                      <span className="text-xs text-amber-600 font-medium whitespace-nowrap">
-                                        Pending: {fmt(group.pending)}
-                                      </span>
-                                    )}
-                                  </>
-                                ) : null}
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); openGroupInvoiceModal(group) }}
-                                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
-                                >
-                                  <Plus className="size-3" /> Add Invoice
-                                </button>
-                              </div>
-                            </div>
+                      {/* Group header row — always expanded, aligned with table columns */}
+                      <TableRow className="bg-zinc-50 border-t-4 border-zinc-300 hover:bg-zinc-100">
+                        <TableCell className="sticky left-0 z-[5] bg-zinc-50"></TableCell>
+                        <TableCell colSpan={6} className="py-3">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold text-zinc-900 text-base">{group.accountName}</span>
+                            <Badge variant="secondary" className="text-xs">{group.orders.length} order{group.orders.length !== 1 ? 's' : ''}</Badge>
+                            {group.allInvoices.length > 0 && (
+                              <>
+                                <span className="text-muted-foreground text-xs">|</span>
+                                {group.allInvoices.map((inv, i) => {
+                                  const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
+                                  const label = `Inv ${inv.number || '—'}${amt > 0 ? ` (${fmt(amt)})` : ''}`
+                                  return inv.document ? (
+                                    <a
+                                      key={i}
+                                      href="#"
+                                      onClick={async (e) => {
+                                        e.preventDefault()
+                                        try {
+                                          const url = await getDocumentUrl(inv.document.path)
+                                          window.open(url, '_blank')
+                                        } catch (err) {
+                                          console.error('Failed to get document URL:', err)
+                                        }
+                                      }}
+                                      className="text-blue-600 underline text-xs whitespace-nowrap"
+                                    >
+                                      {label}
+                                    </a>
+                                  ) : (
+                                    <span key={i} className="text-xs text-zinc-600 whitespace-nowrap">{label}</span>
+                                  )
+                                })}
+                              </>
+                            )}
+                            <button
+                              onClick={() => openGroupInvoiceModal(group)}
+                              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                            >
+                              <Plus className="size-3" /> Add Invoice
+                            </button>
                           </div>
                         </TableCell>
+                        <TableCell className="text-right py-3">
+                          <span className="font-bold text-zinc-900">{fmt(group.total)}</span>
+                          {group.isShortShipped && group.unshippedSales > 0 && (
+                            <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedSale)}</div>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-right py-3">
+                          <span className="font-bold text-zinc-900">{fmt(group.commissionTotal)}</span>
+                          {group.isShortShipped && group.unshippedSales > 0 && (
+                            <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedCommission)}</div>
+                          )}
+                        </TableCell>
+                        <TableCell></TableCell>
                       </TableRow>
 
-                      {/* Sub-rows for each order in the group — collapsed by default */}
-                      {expandedGroups.has(group.clientId) && group.orders.map((order) => {
+                      {/* Sub-rows for each order in the group — always visible */}
+                      {group.orders.map((order) => {
                         const isHovered = hoveredRow === order.id
                         const isCancelled = order.stage === 'Cancelled'
                         const isShortShipped = order.stage === 'Short Shipped'
