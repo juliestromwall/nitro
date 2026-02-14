@@ -570,6 +570,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           case 'close_date': av = a.close_date || ''; bv = b.close_date || ''; break
           case 'stage': av = a.stage || ''; bv = b.stage || ''; break
           case 'total': return sortConfig.dir === 'asc' ? a.total - b.total : b.total - a.total
+          case 'commission': return sortConfig.dir === 'asc' ? getCommission(a).amount - getCommission(b).amount : getCommission(b).amount - getCommission(a).amount
           default: return 0
         }
         const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true })
@@ -645,16 +646,13 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         switch (sortConfig.key) {
           case 'total':
             return sortConfig.dir === 'asc' ? a.total - b.total : b.total - a.total
+          case 'commission':
+            return sortConfig.dir === 'asc' ? a.commissionTotal - b.commissionTotal : b.commissionTotal - a.commissionTotal
           default: {
             let av, bv
             const aOrder = a.orders[0] || {}
             const bOrder = b.orders[0] || {}
             switch (sortConfig.key) {
-              case 'sale_type': av = aOrder.sale_type || ''; bv = bOrder.sale_type || ''; break
-              case 'order_type': av = aOrder.order_type || ''; bv = bOrder.order_type || ''; break
-              case 'items': av = getItems(aOrder); bv = getItems(bOrder); break
-              case 'order_number': av = aOrder.order_number || ''; bv = bOrder.order_number || ''; break
-              case 'close_date': av = aOrder.close_date || ''; bv = bOrder.close_date || ''; break
               case 'stage': av = aOrder.stage || ''; bv = bOrder.stage || ''; break
               default: av = a.accountName; bv = b.accountName; break
             }
@@ -937,9 +935,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           {saleStep === 1 ? (
             /* ── Step 1: Sale Setup ── */
             <div className="space-y-4">
-              {/* Sale Type */}
+              {/* Order Type */}
               <div className="space-y-2">
-                <Label>Sale Type</Label>
+                <Label>Order Type</Label>
                 <select
                   value={saleForm.sale_type}
                   onChange={(e) => setSaleForm((p) => ({ ...p, sale_type: e.target.value }))}
@@ -1021,16 +1019,16 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           ) : (
             /* ── Step 2: Sale Details ── */
             <form onSubmit={handleSaleSubmit} className="space-y-4">
-              {/* Order Type — required */}
+              {/* Category — required */}
               <div className="space-y-2">
-                <Label>Order Type <span className="text-red-500">*</span></Label>
+                <Label>Category <span className="text-red-500">*</span></Label>
                 <select
                   value={saleForm.order_type}
                   onChange={(e) => setSaleForm((p) => ({ ...p, order_type: e.target.value }))}
                   className="w-full border rounded-md px-3 py-2 text-sm"
                   required
                 >
-                  <option value="" disabled>Select order type...</option>
+                  <option value="" disabled>Select category...</option>
                   {companyOrderTypes.map((type) => (
                     <option key={type} value={type}>{type}</option>
                   ))}
@@ -1500,7 +1498,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 <span className="text-muted-foreground">Filters:</span>
                 {filterOrderType && (
                   <Badge variant="secondary" className="gap-1">
-                    Type: {filterOrderType}
+                    Category: {filterOrderType}
                     <button onClick={() => setFilterOrderType('')} className="ml-1 hover:text-red-500">
                       <X className="size-3" />
                     </button>
@@ -1530,8 +1528,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               <TableHeader className="sticky top-[165px] z-[15]">
                 <TableRow className="bg-[#005b5b] hover:bg-[#005b5b]">
                   <TableHead className="w-10 sticky left-0 bg-[#005b5b] z-[16]"></TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('sale_type')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Sale Type <SortIcon column="sale_type" sortConfig={sortConfig} /></span>
+                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
+                    <span className="flex items-center gap-1 whitespace-nowrap">Account <SortIcon column="account" sortConfig={sortConfig} /></span>
+                  </TableHead>
+                  <TableHead className="text-white">
+                    <span className="whitespace-nowrap">Order Type</span>
                   </TableHead>
                   <TableHead className="text-white">
                     <div className="relative flex items-center gap-1">
@@ -1539,10 +1540,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                         className="flex items-center gap-1 hover:text-zinc-200 whitespace-nowrap"
                         onClick={() => { setShowOrderTypeFilter(!showOrderTypeFilter); setShowStageFilter(false) }}
                       >
-                        Order Type
+                        Category
                         <Filter className={`size-3 ${filterOrderType ? 'text-amber-300' : ''}`} />
                       </button>
-                      <button onClick={() => toggleSort('order_type')} className="hover:text-zinc-200"><SortIcon column="order_type" sortConfig={sortConfig} /></button>
                       {showOrderTypeFilter && (
                         <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-20 min-w-32">
                           <button
@@ -1564,14 +1564,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                       )}
                     </div>
                   </TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('items')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Items Ordered <SortIcon column="items" sortConfig={sortConfig} /></span>
+                  <TableHead className="text-white">
+                    <span className="whitespace-nowrap">Items Ordered</span>
                   </TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('order_number')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Order # <SortIcon column="order_number" sortConfig={sortConfig} /></span>
+                  <TableHead className="text-white">
+                    <span className="whitespace-nowrap">Order #</span>
                   </TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('close_date')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Close Date <SortIcon column="close_date" sortConfig={sortConfig} /></span>
+                  <TableHead className="text-white">
+                    <span className="whitespace-nowrap">Close Date</span>
                   </TableHead>
                   <TableHead className="text-white">
                     <div className="relative flex items-center gap-1">
@@ -1607,14 +1607,16 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('total')}>
                     <span className="flex items-center justify-end gap-1 whitespace-nowrap">Total <SortIcon column="total" sortConfig={sortConfig} /></span>
                   </TableHead>
-                  <TableHead className="text-white text-right whitespace-nowrap">Commission</TableHead>
+                  <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('commission')}>
+                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Commission <SortIcon column="commission" sortConfig={sortConfig} /></span>
+                  </TableHead>
                   <TableHead className="text-white whitespace-nowrap text-center">Notes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {groupedOrders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center text-muted-foreground">
+                    <TableCell colSpan={11} className="text-center text-muted-foreground">
                       {searchQuery || filterOrderType || filterStage
                         ? 'No orders match your search or filters.'
                         : 'No orders for this tab.'}
@@ -1626,10 +1628,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                       {/* Group header row — always expanded, aligned with table columns */}
                       <TableRow className="bg-zinc-50 border-t-4 border-zinc-300 hover:bg-zinc-100">
                         <TableCell className="sticky left-0 z-[5] bg-zinc-50"></TableCell>
-                        <TableCell colSpan={6} className="py-3">
+                        <TableCell colSpan={7} className="py-3">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-zinc-900 text-base">{group.accountName}</span>
-                            <Badge variant="secondary" className="text-xs">{group.orders.length} order{group.orders.length !== 1 ? 's' : ''}</Badge>
+                            <Badge variant="secondary" className="text-xs">{group.orders.length}</Badge>
                             {group.allInvoices.length > 0 && (
                               <>
                                 <span className="text-muted-foreground text-xs">|</span>
@@ -1718,6 +1720,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                                 </Button>
                               </div>
                             </TableCell>
+                            <TableCell></TableCell>
                             <TableCell className="whitespace-nowrap">{order.sale_type || 'Prebook'}</TableCell>
                             <TableCell>
                               <Badge variant="secondary">

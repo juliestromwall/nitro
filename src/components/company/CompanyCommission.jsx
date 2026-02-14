@@ -796,7 +796,7 @@ function CompanyCommission({ companyId }) {
                       <TableRow
                         className={`border-t-2 cursor-pointer ${
                           group.aggPayStatus === 'paid' || group.aggPayStatus === 'short shipped'
-                            ? 'bg-green-200 hover:bg-green-300'
+                            ? 'bg-green-50 hover:bg-green-100'
                             : group.aggPayStatus === 'partial'
                               ? 'bg-yellow-50 hover:bg-yellow-100'
                               : 'bg-zinc-100 hover:bg-zinc-200'

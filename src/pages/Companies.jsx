@@ -253,9 +253,9 @@ function Companies() {
               />
             </div>
 
-            {/* Order Types */}
+            {/* Categories */}
             <div className="space-y-2">
-              <Label>Order Types</Label>
+              <Label>Categories</Label>
               {form.order_types.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {form.order_types.map((t, i) => (
