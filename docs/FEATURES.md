@@ -10,7 +10,10 @@
 | Accounts | src/pages/Accounts.jsx | Account list with search, add/import accounts (CSV import, uses AccountContext) |
 | Sales | _(removed)_ | Sales now accessed only via CompanyDetail > Sales tab |
 | Commission | _(removed)_ | Commission now accessed only via CompanyDetail > Sales tab |
-| AuthContext | src/context/AuthContext.jsx | Auth state (user, loading), signUp, signIn, signOut via Supabase Auth |
+| TopBar | src/components/TopBar.jsx | Top-right bar with dark mode toggle (Moon/Sun icon) and user avatar button (opens UserSettingsDialog) |
+| UserSettingsDialog | src/components/UserSettingsDialog.jsx | Dialog for avatar upload (Supabase Storage), email change (sends confirmation), and password change |
+| useTheme | src/hooks/useTheme.js | Dark mode hook: reads/writes localStorage, toggles `.dark` class on document root |
+| AuthContext | src/context/AuthContext.jsx | Auth state (user, loading), signUp, signIn, signOut, updateEmail, updatePassword, updateAvatar via Supabase Auth |
 | AccountContext | src/context/AccountContext.jsx | Account CRUD (single + bulk CSV import) via Supabase + getAccountName helper |
 | SalesContext | src/context/SalesContext.jsx | Seasons + Orders + Commissions CRUD via Supabase |
 | TodoContext | src/context/TodoContext.jsx | Per-company to-do CRUD via Supabase (add, edit, toggle complete, pin/unpin, reorder, delete) |
@@ -64,3 +67,4 @@
 | 2026-02-12 | Account-grouped orders with shared invoices: Sales and Commission tables now group orders by account. Group header rows show account name, order count, group total, invoices (with doc links), pending amount, and "Add Invoice" button. Invoices managed at account level via group invoice modal (stored on first order in group). Removed per-order invoice editing from Add/Edit Sale dialog. Removed Account Name and Invoice # columns from table headers (now in group header). |
 | 2026-02-12 | Clickable account rows, account-level payments, sidebar logo fix: Entire group header rows are clickable to expand/collapse (Sales + Commission). Commission page: replaced per-order inline editing with account-level payment modal ("+ Payment" button on group rows opens modal with Pay Status, payment list with amount + date, auto status calculation). Sidebar brand logos now have white background containers for visibility. Deployed to repcommish.com. |
 | 2026-02-14 | Per-category commission rates: Companies can set different commission % per category (e.g., Rental 7%, Retail 4%) via the Edit Brand form. Category rates are used as the expected rate — only manual per-order overrides show the hazard icon. Add Sale form auto-updates commission % when category changes. Short-shipped logic uses weighted average rate. Fixed "Unpaid" pay status not persisting in commission aggregation. Deployed to repcommish.com. |
+| 2026-02-14 | User settings & dark mode: TopBar with dark mode toggle and user avatar. UserSettingsDialog for avatar upload, email change, password change. useTheme hook with localStorage persistence and anti-flash script. Full dark mode cleanup across all 8+ component files with dark: variants on cards, tables, dropdowns, badges, modals, forms, and more. Supabase avatars storage bucket. Deployed to repcommish.com. |

@@ -1,5 +1,27 @@
 # Session Log
 
+## 2026-02-14 (Session 4)
+
+**Worked on:** User settings, dark mode toggle, card styling, and full dark mode cleanup across all components.
+
+**Changes made:**
+- **User settings dialog:** New `UserSettingsDialog.jsx` with avatar upload (Supabase Storage `avatars` bucket), email change (sends confirmation), and password change. Auth context extended with `updateEmail`, `updatePassword`, `updateAvatar` methods.
+- **TopBar component:** New `TopBar.jsx` with dark mode toggle (Moon/Sun icon) and user avatar button (opens settings dialog). Added to App.jsx layout above main content.
+- **Dark mode:** Anti-flash script in `index.html`, new `useTheme.js` hook (localStorage-persisted, toggles `.dark` class). Tailwind v4 dark mode via `@custom-variant dark`.
+- **Card styling (Sales/Commission):** Removed icon badges from summary cards, changed titles to teal (`text-[#005b5b]`).
+- **Dark mode cleanup (8 files):** Added `dark:` variants across all components — cards (`dark:bg-zinc-800`), tables, group headers, dropdowns, status badges, native selects, textareas, modals, login page, logo placeholders, progress bars, calculator, notepad, pay status badges with full color dark variants.
+- **Supabase storage:** Created `avatars` bucket with INSERT (authenticated) and SELECT (public) policies.
+- **`uploadAvatar` helper** added to `db.js`.
+- All changes committed, pushed to GitHub, built and deployed to repcommish.com.
+
+**Next steps:**
+- Test dark mode across all pages in production
+- Test avatar upload in production
+- Add edit/delete improvements for accounts
+
+**Open questions:**
+- None at this time
+
 ## 2026-02-14 (Session 3)
 
 **Worked on:** Sales tab overpaid commission, summary card restyling, brand dashboard redesign
