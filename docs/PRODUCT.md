@@ -38,7 +38,8 @@
 | Invoice | A shipment invoice managed at the account-group level (all orders for the same account in a season). Each invoice has a number, amount, and optional document. Stored on the first order in the group. |
 | Pending Amount | The difference between account group total and sum of invoice amounts — indicates unshipped/uninvoiced inventory. |
 | Company | A brand the rep earns commission from (e.g., Nitro, Union, 686) |
-| Commission | Percentage of sales owed to the rep (varies per company) |
+| Commission | Percentage of sales owed to the rep (varies per company, optionally per category) |
+| Category Commission | Optional per-category commission rate override (e.g., Rental 7%, Retail 4%). When set, used as the expected rate instead of the company default. Stored as JSONB on the company record. |
 | Pay Status | Whether commission has been paid (Paid, Partial, Unpaid, Invoice Sent, Pending Invoice) — managed at the account level, not per-order |
 | Payment | An individual commission payment with amount and date, tracked at the account-group level. Multiple payments supported per account. Stored as JSONB on the first order's commission record. |
 | Sale Type | Prebook or At Once — indicates when the sale was made relative to the season |

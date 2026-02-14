@@ -388,3 +388,20 @@
 
 **Open questions:**
 - None at this time
+
+## 2026-02-14
+
+**Worked on:** Per-category commission rates and unpaid status fix.
+
+**Changes made:**
+- **Per-category commission rates:** Companies can now optionally set different commission % per category (e.g., Rental 7%, Retail 4%). Added `category_commissions` JSONB column to companies table. Edit Brand form shows per-category commission inputs below the default Commission % field (empty = uses default). Category-specific rates are used as the "expected" rate — only manual per-order overrides that differ from the expected rate show the hazard icon. When selecting a category in the Add Sale form, the commission % auto-updates to the category rate. Celebration popup uses category-aware rates. Short-shipped calculation updated to use weighted average rate instead of a single commission rate.
+- **Unpaid status fix:** The "Unpaid" pay status in the Commission tab was not persisting visually — the aggregate status logic didn't handle 'unpaid', causing it to fall through to the default 'pending invoice'. Added 'unpaid' to the aggregation logic.
+- **Schema update:** Added `category_commissions jsonb default '{}'` column to companies table. User ran `ALTER TABLE companies ADD COLUMN IF NOT EXISTS category_commissions jsonb DEFAULT '{}';` in Supabase SQL Editor.
+- **Deployment:** Built and deployed to repcommish.com via scp to VPS.
+
+**Next steps:**
+- Test per-category commission rates with real data
+- Add edit/delete improvements for accounts
+
+**Open questions:**
+- None at this time
