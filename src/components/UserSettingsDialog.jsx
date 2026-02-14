@@ -77,11 +77,11 @@ function UserSettingsDialog({ open, onOpenChange }) {
           <div className="space-y-2">
             <Label>Avatar</Label>
             <div className="flex items-center gap-3">
-              <div className="w-14 h-14 rounded-full bg-zinc-200 flex items-center justify-center overflow-hidden shrink-0">
+              <div className="w-14 h-14 rounded-full bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center overflow-hidden shrink-0">
                 {avatarUrl ? (
                   <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-xl font-bold text-zinc-500">
+                  <span className="text-xl font-bold text-zinc-500 dark:text-zinc-400">
                     {user?.email?.charAt(0).toUpperCase()}
                   </span>
                 )}

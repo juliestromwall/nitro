@@ -266,34 +266,34 @@ function CompanyDashboard({ companyId }) {
 
       {/* Summary cards — white with teal border and colored icon badges */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="flex items-center gap-3 bg-white border-2 border-[#005b5b]/30 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-3 bg-white dark:bg-zinc-800 border-2 border-[#005b5b]/30 dark:border-zinc-700 rounded-xl px-4 py-3">
           <div className="p-2 bg-[#005b5b] rounded-lg">
             <DollarSign className="size-4 text-white" />
           </div>
           <div>
             <p className="text-xs text-zinc-400 uppercase tracking-wide">Total Sales</p>
-            <p className="text-lg font-bold text-zinc-900">{fmt(totalSales)}</p>
+            <p className="text-lg font-bold text-zinc-900 dark:text-white">{fmt(totalSales)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 bg-white border-2 border-[#005b5b]/30 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-3 bg-white dark:bg-zinc-800 border-2 border-[#005b5b]/30 dark:border-zinc-700 rounded-xl px-4 py-3">
           <div className="p-2 bg-emerald-600 rounded-lg">
             <TrendingUp className="size-4 text-white" />
           </div>
           <div>
             <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Earned</p>
-            <p className="text-lg font-bold text-zinc-900">{fmt(commissionDue)}</p>
+            <p className="text-lg font-bold text-zinc-900 dark:text-white">{fmt(commissionDue)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 bg-white border-2 border-[#005b5b]/30 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-3 bg-white dark:bg-zinc-800 border-2 border-[#005b5b]/30 dark:border-zinc-700 rounded-xl px-4 py-3">
           <div className="p-2 bg-green-600 rounded-lg">
             <Check className="size-4 text-white" />
           </div>
           <div>
             <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Paid</p>
-            <p className="text-lg font-bold text-zinc-900">{fmt(commissionPaid)}</p>
+            <p className="text-lg font-bold text-zinc-900 dark:text-white">{fmt(commissionPaid)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 bg-white border-2 border-[#005b5b]/30 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-3 bg-white dark:bg-zinc-800 border-2 border-[#005b5b]/30 dark:border-zinc-700 rounded-xl px-4 py-3">
           <div className="p-2 bg-amber-500 rounded-lg">
             <AlertCircle className="size-4 text-white" />
           </div>
@@ -315,7 +315,7 @@ function CompanyDashboard({ companyId }) {
             </Button>
           </div>
 
-          <div className="border rounded-xl overflow-hidden">
+          <div className="border dark:border-zinc-700 rounded-xl overflow-hidden">
             {todos.length === 0 ? (
               <div className="text-center py-8 text-muted-foreground text-sm">
                 No to-dos yet.
@@ -330,7 +330,7 @@ function CompanyDashboard({ companyId }) {
                     onDragOver={(e) => handleDragOver(e, index)}
                     onDrop={(e) => handleDrop(e, index)}
                     onDragEnd={handleDragEnd}
-                    className={`flex items-start gap-2 px-3 py-2.5 bg-white hover:bg-zinc-50 transition-colors ${
+                    className={`flex items-start gap-2 px-3 py-2.5 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 transition-colors ${
                       dragOverIndex === index && dragIndex !== index ? 'border-t-2 border-t-blue-500' : ''
                     } ${dragIndex === index ? 'opacity-40' : ''} ${
                       isOverdue(todo) ? 'border-l-3 border-l-red-500' : ''
@@ -400,7 +400,7 @@ function CompanyDashboard({ companyId }) {
               <h2 className="text-lg font-semibold">Notepad</h2>
             </div>
             <textarea
-              className="w-full border rounded-xl px-4 py-3 text-sm min-h-[180px] resize-y bg-amber-50/50 focus:outline-none focus:ring-2 focus:ring-[#005b5b]/30"
+              className="w-full border rounded-xl px-4 py-3 text-sm min-h-[180px] resize-y bg-amber-50/50 dark:bg-amber-900/10 dark:border-zinc-700 focus:outline-none focus:ring-2 focus:ring-[#005b5b]/30"
               placeholder="Quick notes..."
               value={notepadText}
               onChange={(e) => handleNotepadChange(e.target.value)}
@@ -413,7 +413,7 @@ function CompanyDashboard({ companyId }) {
               <Calculator className="size-4 text-[#005b5b]" />
               <h2 className="text-lg font-semibold">Calculator</h2>
             </div>
-            <div className="border rounded-xl bg-white p-3 space-y-2">
+            <div className="border rounded-xl bg-white dark:bg-zinc-800 p-3 space-y-2">
               <div className="bg-zinc-900 rounded-lg px-4 py-3 text-right text-white text-xl font-mono tracking-wide">
                 {calcDisplay.includes('.')
                   ? calcDisplay.replace(/^(-?\d+)/, (m) => Number(m).toLocaleString())
@@ -433,7 +433,7 @@ function CompanyDashboard({ companyId }) {
                         ? 'bg-[#005b5b] text-white hover:bg-[#007a7a]'
                         : op === '='
                           ? 'bg-emerald-600 text-white hover:bg-emerald-700'
-                          : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-900'
+                          : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-900 dark:bg-zinc-700 dark:hover:bg-zinc-600 dark:text-white'
                     }`}
                   >
                     {label}
@@ -441,7 +441,7 @@ function CompanyDashboard({ companyId }) {
                 ))}
                 <button
                   onClick={calcClear}
-                  className="col-span-4 py-2 text-sm font-semibold rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                  className="col-span-4 py-2 text-sm font-semibold rounded-lg bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30 transition-colors"
                 >
                   Clear
                 </button>
@@ -473,7 +473,7 @@ function CompanyDashboard({ companyId }) {
             <div className="space-y-2">
               <Label>Note</Label>
               <textarea
-                className="w-full border rounded-md px-3 py-2 text-sm min-h-16 resize-y"
+                className="w-full border rounded-md px-3 py-2 text-sm min-h-16 resize-y dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
                 value={todoForm.note}
                 onChange={(e) => setTodoForm((p) => ({ ...p, note: e.target.value }))}
                 placeholder="Additional details..."
@@ -505,7 +505,7 @@ function CompanyDashboard({ companyId }) {
                   </button>
                 )}
                 {accountDropdownOpen && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                  <div className="absolute z-50 mt-1 w-full bg-white dark:bg-zinc-800 border dark:border-zinc-700 rounded-md shadow-lg max-h-48 overflow-y-auto">
                     {filteredAccounts.length === 0 ? (
                       <div className="px-3 py-2 text-sm text-muted-foreground">No accounts found</div>
                     ) : (
@@ -514,8 +514,8 @@ function CompanyDashboard({ companyId }) {
                           key={c.id}
                           type="button"
                           onClick={() => selectAccount(c)}
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-zinc-100 ${
-                            String(c.id) === todoForm.client_id ? 'bg-zinc-50 font-medium' : ''
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-700 ${
+                            String(c.id) === todoForm.client_id ? 'bg-zinc-50 dark:bg-zinc-700 font-medium' : ''
                           }`}
                         >
                           {c.name}

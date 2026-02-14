@@ -829,14 +829,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
                   activeTab === season.id
                     ? 'border-b-2 border-[#005b5b] text-[#005b5b]'
-                    : 'text-muted-foreground hover:text-zinc-700'
+                    : 'text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300'
                 }`}
               >
                 {season.label}
               </button>
               <button
                 onClick={() => openEditTab(season)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-zinc-700 -ml-2"
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 -ml-2"
                 title="Edit tab"
               >
                 <Pencil className="size-3" />
@@ -849,19 +849,19 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           <div className="relative shrink-0">
             <button
               onClick={() => setShowArchived(!showArchived)}
-              className="px-3 py-2 text-sm text-muted-foreground hover:text-zinc-700 flex items-center gap-1 whitespace-nowrap"
+              className="px-3 py-2 text-sm text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 flex items-center gap-1 whitespace-nowrap"
             >
               <FolderArchive className="size-3.5" />
               Archived ({archivedSeasons.length})
               <ChevronDown className={`size-3 transition-transform ${showArchived ? 'rotate-180' : ''}`} />
             </button>
             {showArchived && (
-              <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-10 min-w-48">
+              <div className="absolute top-full left-0 mt-1 bg-white dark:bg-zinc-800 border dark:border-zinc-700 rounded-lg shadow-lg z-10 min-w-48">
                 {archivedSeasons.map((season) => (
                   <button
                     key={season.id}
                     onClick={() => { openEditTab(season); setShowArchived(false) }}
-                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-zinc-50 text-sm text-muted-foreground hover:text-zinc-900"
+                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-sm text-muted-foreground hover:text-zinc-900 dark:hover:text-zinc-100"
                   >
                     <span className="flex-1 text-left">{season.label}</span>
                     <Pencil className="size-3.5 shrink-0" />
@@ -975,7 +975,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 <select
                   value={saleForm.sale_type}
                   onChange={(e) => setSaleForm((p) => ({ ...p, sale_type: e.target.value }))}
-                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
                 >
                   <option value="Prebook">Prebook</option>
                   <option value="At Once">At Once</option>
@@ -988,7 +988,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 <select
                   value={saleForm.season_id || currentSeason?.id || ''}
                   onChange={(e) => setSaleForm((p) => ({ ...p, season_id: e.target.value }))}
-                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
                 >
                   {activeSeasons.map((s) => (
                     <option key={s.id} value={s.id}>{s.label}</option>
@@ -1014,7 +1014,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                       onFocus={() => setShowAccountDropdown(true)}
                     />
                     {showAccountDropdown && !saleForm.client_id && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto" tabIndex={-1}>
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-800 border dark:border-zinc-700 rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto" tabIndex={-1}>
                         {filteredAccounts.map((account) => (
                           <button
                             key={account.id}
@@ -1024,7 +1024,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                               setAccountSearch('')
                               setShowAccountDropdown(false)
                             }}
-                            className="block w-full text-left px-3 py-2 text-sm hover:bg-zinc-50"
+                            className="block w-full text-left px-3 py-2 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-700"
                           >
                             <span className="font-medium">{account.name}</span>
                             <span className="text-muted-foreground ml-2">{account.city}, {account.state}</span>
@@ -1063,7 +1063,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                     const rate = getExpectedRate(newType)
                     setSaleForm((p) => ({ ...p, order_type: newType, commission_override: String(rate) }))
                   }}
-                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
                   required
                 >
                   <option value="" disabled>Select category...</option>
@@ -1177,7 +1177,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   <select
                     value={saleForm.stage}
                     onChange={(e) => handleStageChange(e.target.value)}
-                    className="w-full border rounded-md px-3 py-2 text-sm"
+                    className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
                     required
                   >
                     <option value="" disabled>Select stage...</option>
@@ -1374,7 +1374,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
             {groupInvoiceList.length > 0 && (
               <div className="space-y-2">
                 {groupInvoiceList.map((inv, idx) => (
-                  <div key={idx} className="flex items-center gap-2 border rounded-md p-2 bg-zinc-50">
+                  <div key={idx} className="flex items-center gap-2 border rounded-md p-2 bg-zinc-50 dark:bg-zinc-800">
                     <div className="flex-1 space-y-1">
                       <Input
                         placeholder="Invoice #"
@@ -1473,30 +1473,30 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           {/* Summary cards — dynamic per order type */}
           <div className={`grid gap-4`} style={{ gridTemplateColumns: `repeat(${Math.min(Object.keys(orderTypeTotals).length + 2, 5)}, minmax(0, 1fr))` }}>
             <div
-              className={`bg-white border-2 rounded-xl px-4 py-3 cursor-pointer transition-all ${!filterOrderType ? 'border-[#005b5b]' : 'border-[#005b5b]/30'}`}
+              className={`bg-white dark:bg-zinc-800 border-2 rounded-xl px-4 py-3 cursor-pointer transition-all ${!filterOrderType ? 'border-[#005b5b]' : 'border-[#005b5b]/30 dark:border-zinc-700'}`}
               onClick={() => setFilterOrderType('')}
             >
               <p className="text-xs text-[#005b5b] uppercase tracking-wide">Total Sales</p>
-              <p className="text-lg font-bold text-zinc-900">{fmt(totalSales)}</p>
+              <p className="text-lg font-bold text-zinc-900 dark:text-white">{fmt(totalSales)}</p>
             </div>
             {Object.entries(orderTypeTotals).map(([type, total]) => (
               <div
                 key={type}
-                className={`bg-white border-2 rounded-xl px-4 py-3 cursor-pointer transition-all ${filterOrderType === type ? 'border-[#005b5b]' : 'border-[#005b5b]/30'}`}
+                className={`bg-white dark:bg-zinc-800 border-2 rounded-xl px-4 py-3 cursor-pointer transition-all ${filterOrderType === type ? 'border-[#005b5b]' : 'border-[#005b5b]/30 dark:border-zinc-700'}`}
                 onClick={() => setFilterOrderType(filterOrderType === type ? '' : type)}
               >
                 <p className="text-xs text-[#005b5b] uppercase tracking-wide">{type}</p>
-                <p className="text-lg font-bold text-zinc-900">{fmt(total)}</p>
+                <p className="text-lg font-bold text-zinc-900 dark:text-white">{fmt(total)}</p>
               </div>
             ))}
-            <div className="bg-white border-2 border-[#005b5b]/30 rounded-xl px-4 py-3">
+            <div className="bg-white dark:bg-zinc-800 border-2 border-[#005b5b]/30 dark:border-zinc-700 rounded-xl px-4 py-3">
               <p className="text-xs text-[#005b5b] uppercase tracking-wide">Total Commish</p>
-              <p className="text-lg font-bold text-zinc-900">{fmt(totalCommission)}</p>
+              <p className="text-lg font-bold text-zinc-900 dark:text-white">{fmt(totalCommission)}</p>
             </div>
           </div>
 
           {/* Sticky search bar */}
-          <div className="sticky top-[123px] z-20 bg-background pb-2 pt-1 space-y-3 border-b border-zinc-100">
+          <div className="sticky top-[123px] z-20 bg-background pb-2 pt-1 space-y-3 border-b border-zinc-100 dark:border-zinc-700">
             <div className="flex items-center gap-3">
               <div className="relative max-w-sm flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -1540,7 +1540,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 )}
                 <button
                   onClick={() => { setFilterOrderType(''); setFilterStage('') }}
-                  className="text-muted-foreground hover:text-zinc-700 text-xs underline"
+                  className="text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 text-xs underline"
                 >
                   Clear all
                 </button>
@@ -1569,10 +1569,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                         <Filter className={`size-3 ${filterOrderType ? 'text-amber-300' : ''}`} />
                       </button>
                       {showOrderTypeFilter && (
-                        <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-20 min-w-32">
+                        <div className="absolute top-full left-0 mt-1 bg-white dark:bg-zinc-800 border dark:border-zinc-700 rounded-lg shadow-lg z-20 min-w-32">
                           <button
                             onClick={() => { setFilterOrderType(''); setShowOrderTypeFilter(false) }}
-                            className={`block w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 ${!filterOrderType ? 'font-medium text-zinc-900' : 'text-muted-foreground'}`}
+                            className={`block w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 ${!filterOrderType ? 'font-medium text-zinc-900' : 'text-muted-foreground'}`}
                           >
                             All
                           </button>
@@ -1580,7 +1580,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                             <button
                               key={type}
                               onClick={() => { setFilterOrderType(type); setShowOrderTypeFilter(false) }}
-                              className={`block w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 ${filterOrderType === type ? 'font-medium text-zinc-900' : 'text-muted-foreground'}`}
+                              className={`block w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 ${filterOrderType === type ? 'font-medium text-zinc-900' : 'text-muted-foreground'}`}
                             >
                               {type}
                             </button>
@@ -1609,10 +1609,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                       </button>
                       <button onClick={() => toggleSort('stage')} className="hover:text-zinc-200"><SortIcon column="stage" sortConfig={sortConfig} /></button>
                       {showStageFilter && (
-                        <div className="absolute top-full left-0 mt-1 bg-white border rounded-lg shadow-lg z-20 min-w-40">
+                        <div className="absolute top-full left-0 mt-1 bg-white dark:bg-zinc-800 border dark:border-zinc-700 rounded-lg shadow-lg z-20 min-w-40">
                           <button
                             onClick={() => { setFilterStage(''); setShowStageFilter(false) }}
-                            className={`block w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 ${!filterStage ? 'font-medium text-zinc-900' : 'text-muted-foreground'}`}
+                            className={`block w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 ${!filterStage ? 'font-medium text-zinc-900' : 'text-muted-foreground'}`}
                           >
                             All
                           </button>
@@ -1620,7 +1620,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                             <button
                               key={stage}
                               onClick={() => { setFilterStage(stage); setShowStageFilter(false) }}
-                              className={`block w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 ${filterStage === stage ? 'font-medium text-zinc-900' : 'text-muted-foreground'}`}
+                              className={`block w-full text-left px-3 py-1.5 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-700 ${filterStage === stage ? 'font-medium text-zinc-900' : 'text-muted-foreground'}`}
                             >
                               {stage}
                             </button>
@@ -1652,13 +1652,13 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                     <Fragment key={`group-${group.clientId}`}>
                       {/* Group header row — always expanded, aligned with table columns */}
                       <TableRow className={`border-t-4 border-zinc-300 ${
-                        group.isOverpaid ? 'bg-green-50 hover:bg-green-100' :
-                        group.isShortShipped ? 'bg-purple-50 hover:bg-purple-100' :
-                        'bg-zinc-50 hover:bg-zinc-100'
+                        group.isOverpaid ? 'bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30' :
+                        group.isShortShipped ? 'bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/30' :
+                        'bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700'
                       }`}>
                         <TableCell colSpan={7} className="py-3">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-zinc-900 text-base">{group.accountName}</span>
+                            <span className="font-bold text-zinc-900 dark:text-white text-base">{group.accountName}</span>
                             <Badge variant="secondary" className="text-xs">{group.orders.length}</Badge>
                             {group.allInvoices.length > 0 && (
                               <>
@@ -1698,7 +1698,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                           </div>
                         </TableCell>
                         <TableCell className="text-right py-3">
-                          <span className="font-bold text-zinc-900">{fmt(group.total)}</span>
+                          <span className="font-bold text-zinc-900 dark:text-white">{fmt(group.total)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
                             <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedSale)}</div>
                           )}
@@ -1707,7 +1707,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                           )}
                         </TableCell>
                         <TableCell className="text-right py-3">
-                          <span className="font-bold text-zinc-900">{fmt(group.commissionTotal)}</span>
+                          <span className="font-bold text-zinc-900 dark:text-white">{fmt(group.commissionTotal)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
                             <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedCommission)}</div>
                           )}
@@ -1727,9 +1727,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                         const hasNote = order.notes && order.notes.trim().length > 0
 
                         const rowClass = isCancelled
-                          ? 'bg-red-50 text-red-400 line-through'
+                          ? 'bg-red-50 dark:bg-red-900/20 text-red-400 line-through'
                           : isShortShipped
-                            ? 'bg-amber-50'
+                            ? 'bg-amber-50 dark:bg-amber-900/20'
                             : ''
 
                         return (
@@ -1813,7 +1813,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                               ) : (
                                 <button
                                   onClick={() => openNoteModal(order)}
-                                  className="text-xs text-muted-foreground hover:text-zinc-700 flex items-center gap-0.5 mx-auto"
+                                  className="text-xs text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 flex items-center gap-0.5 mx-auto"
                                 >
                                   <Plus className="size-3" />Note
                                 </button>

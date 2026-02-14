@@ -27,7 +27,7 @@ function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50">
+    <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-900">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           <img src="/repcommish-logo.png" alt="RepCommish" className="h-28 mx-auto" />

@@ -361,8 +361,8 @@ function Companies() {
             <div className="space-y-2">
               <Label>Stages</Label>
               <div className="flex flex-wrap gap-1.5">
-                <Badge variant="outline" className="text-sm bg-zinc-100">Order Placed</Badge>
-                <Badge variant="outline" className="text-sm bg-zinc-100">Cancelled</Badge>
+                <Badge variant="outline" className="text-sm bg-zinc-100 dark:bg-zinc-700">Order Placed</Badge>
+                <Badge variant="outline" className="text-sm bg-zinc-100 dark:bg-zinc-700">Cancelled</Badge>
                 {form.stages.filter((s) => s !== 'Order Placed' && s !== 'Cancelled').map((t, i) => (
                   <Badge key={i} variant="secondary" className="gap-1 text-sm">
                     {t}
@@ -435,7 +435,7 @@ function Companies() {
                   {company.logo_path ? (
                     <img src={company.logo_path} alt="" className="w-8 h-8 object-contain" />
                   ) : (
-                    <div className="w-8 h-8 rounded bg-zinc-200 flex items-center justify-center text-zinc-600 text-sm font-bold">
+                    <div className="w-8 h-8 rounded bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-zinc-600 dark:text-zinc-300 text-sm font-bold">
                       {company.name.charAt(0)}
                     </div>
                   )}
@@ -481,7 +481,7 @@ function Companies() {
                   <TableRow key={company.id} className="opacity-60">
                     <TableCell className="w-10"></TableCell>
                     <TableCell>
-                      <div className="w-8 h-8 rounded bg-zinc-100 flex items-center justify-center text-zinc-400 text-sm font-bold">
+                      <div className="w-8 h-8 rounded bg-zinc-100 dark:bg-zinc-700 flex items-center justify-center text-zinc-400 text-sm font-bold">
                         {company.name.charAt(0)}
                       </div>
                     </TableCell>

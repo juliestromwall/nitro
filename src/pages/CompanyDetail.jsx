@@ -62,7 +62,7 @@ function CompanyDetail() {
           {company.logo_path ? (
             <img src={company.logo_path} alt="" className="w-8 h-8 object-contain" />
           ) : (
-            <div className="w-8 h-8 rounded bg-zinc-200 flex items-center justify-center text-zinc-600 text-sm font-bold">
+            <div className="w-8 h-8 rounded bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-zinc-600 dark:text-zinc-300 text-sm font-bold">
               {company.name.charAt(0)}
             </div>
           )}
@@ -82,7 +82,7 @@ function CompanyDetail() {
               className={`px-1 py-2 text-sm font-medium transition-colors relative flex items-center gap-1 ${
                 activeTab === tab.id
                   ? 'text-[#005b5b] border-b-2 border-[#005b5b]'
-                  : 'text-muted-foreground hover:text-zinc-900'
+                  : 'text-muted-foreground hover:text-foreground'
               }`}
             >
               {tab.icon && <tab.icon className="size-3.5" />}

@@ -166,7 +166,7 @@ function Dashboard() {
               <div
                 key={row.id}
                 onClick={() => navigate(`/companies/${row.id}`)}
-                className="group relative bg-white border border-zinc-200 rounded-2xl p-6 hover:shadow-lg hover:border-zinc-300 transition-all cursor-pointer"
+                className="group relative bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl p-6 hover:shadow-lg hover:border-zinc-300 dark:hover:border-zinc-600 transition-all cursor-pointer"
               >
                 {/* Logo + Name */}
                 <div className="flex flex-col items-center text-center mb-5">
@@ -177,11 +177,11 @@ function Dashboard() {
                       className="w-16 h-16 object-contain mb-2"
                     />
                   ) : (
-                    <div className="w-16 h-16 rounded-xl bg-zinc-100 flex items-center justify-center text-zinc-500 text-2xl font-bold mb-2">
+                    <div className="w-16 h-16 rounded-xl bg-zinc-100 dark:bg-zinc-700 flex items-center justify-center text-zinc-500 dark:text-zinc-400 text-2xl font-bold mb-2">
                       {row.name.charAt(0)}
                     </div>
                   )}
-                  <h3 className="font-semibold text-zinc-900">{row.name}</h3>
+                  <h3 className="font-semibold text-zinc-900 dark:text-white">{row.name}</h3>
                   {hasData && (
                     <span className="text-xs text-muted-foreground mt-0.5">
                       {row.orderCount} order{row.orderCount !== 1 ? 's' : ''}
@@ -197,9 +197,9 @@ function Dashboard() {
                         <span className="text-muted-foreground">Sales</span>
                         <span className="font-semibold">{fmtCompact(row.totalSales)}</span>
                       </div>
-                      <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
+                      <div className="h-2 bg-zinc-100 dark:bg-zinc-700 rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-zinc-800 rounded-full transition-all"
+                          className="h-full bg-zinc-800 dark:bg-zinc-400 rounded-full transition-all"
                           style={{ width: `${Math.min(100, brandData.totals.totalSales > 0 ? (row.totalSales / brandData.totals.totalSales) * 100 : 0)}%` }}
                         />
                       </div>
@@ -210,7 +210,7 @@ function Dashboard() {
                         <span className="text-muted-foreground">Earned</span>
                         <span className="font-semibold text-emerald-600">{fmtCompact(row.commissionEarned)}</span>
                       </div>
-                      <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
+                      <div className="h-2 bg-zinc-100 dark:bg-zinc-700 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-emerald-500 rounded-full transition-all"
                           style={{ width: `${Math.min(100, brandData.totals.commissionEarned > 0 ? (row.commissionEarned / brandData.totals.commissionEarned) * 100 : 0)}%` }}
@@ -223,7 +223,7 @@ function Dashboard() {
                         <span className="text-muted-foreground">Owed</span>
                         <span className="font-semibold text-amber-600">{fmtCompact(row.commissionOwed)}</span>
                       </div>
-                      <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
+                      <div className="h-2 bg-zinc-100 dark:bg-zinc-700 rounded-full overflow-hidden">
                         <div
                           className="h-full bg-amber-400 rounded-full transition-all"
                           style={{ width: `${Math.min(100, brandData.totals.commissionOwed > 0 ? (row.commissionOwed / brandData.totals.commissionOwed) * 100 : 0)}%` }}
