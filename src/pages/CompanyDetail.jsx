@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { ArrowLeft, Plus } from 'lucide-react'
+import { ArrowLeft, Plus, Home } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { useCompanies } from '@/context/CompanyContext'
@@ -10,7 +10,7 @@ import CompanySales from '@/components/company/CompanySales'
 import CompanyCommission from '@/components/company/CompanyCommission'
 
 const tabs = [
-  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'dashboard', label: 'Brand', icon: Home },
   { id: 'sales', label: 'Sales' },
   { id: 'commission', label: 'Commission' },
 ]
@@ -79,12 +79,13 @@ function CompanyDetail() {
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`px-1 py-2 text-sm font-medium transition-colors relative ${
+              className={`px-1 py-2 text-sm font-medium transition-colors relative flex items-center gap-1 ${
                 activeTab === tab.id
                   ? 'text-[#005b5b] border-b-2 border-[#005b5b]'
                   : 'text-muted-foreground hover:text-zinc-900'
               }`}
             >
+              {tab.icon && <tab.icon className="size-3.5" />}
               {tab.label}
             </button>
           ))}

@@ -1,8 +1,7 @@
 import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
-import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, TrendingUp } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -635,6 +634,18 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         }
       }
 
+      // Check if overpaid — paid more than commission due
+      const groupComms = commissions.filter(c => group.orders.some(o => o.id === c.order_id))
+      const totalPaid = groupComms.reduce((sum, c) => sum + (c.amount_paid || 0), 0)
+      const isOverpaid = totalPaid > commissionTotal && commissionTotal > 0 && !isShortShipped
+      let overpaidAdjustedSale = total
+      let overpaidAdjustedCommission = commissionTotal
+      if (isOverpaid) {
+        const avgPct = total > 0 ? (commissionTotal / total) * 100 : 0
+        overpaidAdjustedSale = avgPct > 0 ? totalPaid / (avgPct / 100) : total
+        overpaidAdjustedCommission = totalPaid
+      }
+
       return {
         ...group,
         total,
@@ -646,6 +657,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         unshippedSales,
         adjustedSale,
         adjustedCommission,
+        isOverpaid,
+        overpaidAdjustedSale,
+        overpaidAdjustedCommission,
       }
     })
 
@@ -1446,40 +1460,43 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       {currentSeason && (
         <>
           {/* Summary cards — dynamic per order type */}
-          <div className={`grid gap-6`} style={{ gridTemplateColumns: `repeat(${Math.min(Object.keys(orderTypeTotals).length + 2, 5)}, minmax(0, 1fr))` }}>
-            <Card
-              className={`cursor-pointer transition-shadow hover:shadow-md ${!filterOrderType ? 'ring-2 ring-zinc-900' : ''}`}
+          <div className={`grid gap-4`} style={{ gridTemplateColumns: `repeat(${Math.min(Object.keys(orderTypeTotals).length + 2, 5)}, minmax(0, 1fr))` }}>
+            <div
+              className={`flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3 cursor-pointer transition-all ${!filterOrderType ? 'ring-2 ring-[#005b5b]' : ''}`}
               onClick={() => setFilterOrderType('')}
             >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Sales</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{fmt(totalSales)}</p>
-              </CardContent>
-            </Card>
+              <div className="p-2 bg-[#005b5b] rounded-lg">
+                <DollarSign className="size-4 text-white" />
+              </div>
+              <div>
+                <p className="text-xs text-zinc-400 uppercase tracking-wide">Total Sales</p>
+                <p className="text-lg font-bold text-white">{fmt(totalSales)}</p>
+              </div>
+            </div>
             {Object.entries(orderTypeTotals).map(([type, total]) => (
-              <Card
+              <div
                 key={type}
-                className={`cursor-pointer transition-shadow hover:shadow-md ${filterOrderType === type ? 'ring-2 ring-zinc-900' : ''}`}
+                className={`flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3 cursor-pointer transition-all ${filterOrderType === type ? 'ring-2 ring-[#005b5b]' : ''}`}
                 onClick={() => setFilterOrderType(filterOrderType === type ? '' : type)}
               >
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">{type} Total</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-2xl font-bold">{fmt(total)}</p>
-                </CardContent>
-              </Card>
+                <div className="p-2 bg-blue-600 rounded-lg">
+                  <DollarSign className="size-4 text-white" />
+                </div>
+                <div>
+                  <p className="text-xs text-zinc-400 uppercase tracking-wide">{type}</p>
+                  <p className="text-lg font-bold text-white">{fmt(total)}</p>
+                </div>
+              </div>
             ))}
-            <Card className="transition-shadow hover:shadow-md">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Commission</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{fmt(totalCommission)}</p>
-              </CardContent>
-            </Card>
+            <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3">
+              <div className="p-2 bg-emerald-600 rounded-lg">
+                <TrendingUp className="size-4 text-white" />
+              </div>
+              <div>
+                <p className="text-xs text-zinc-400 uppercase tracking-wide">Total Commish</p>
+                <p className="text-lg font-bold text-white">{fmt(totalCommission)}</p>
+              </div>
+            </div>
           </div>
 
           {/* Sticky search bar */}
@@ -1638,7 +1655,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   groupedOrders.map((group) => (
                     <Fragment key={`group-${group.clientId}`}>
                       {/* Group header row — always expanded, aligned with table columns */}
-                      <TableRow className="bg-zinc-50 border-t-4 border-zinc-300 hover:bg-zinc-100">
+                      <TableRow className={`border-t-4 border-zinc-300 ${
+                        group.isOverpaid ? 'bg-green-50 hover:bg-green-100' :
+                        group.isShortShipped ? 'bg-purple-50 hover:bg-purple-100' :
+                        'bg-zinc-50 hover:bg-zinc-100'
+                      }`}>
                         <TableCell colSpan={7} className="py-3">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-zinc-900 text-base">{group.accountName}</span>
@@ -1685,11 +1706,17 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                           {group.isShortShipped && group.unshippedSales > 0 && (
                             <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedSale)}</div>
                           )}
+                          {group.isOverpaid && (
+                            <div className="text-xs text-emerald-600 font-medium">Updated: {fmt(group.overpaidAdjustedSale)}</div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right py-3">
                           <span className="font-bold text-zinc-900">{fmt(group.commissionTotal)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
                             <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedCommission)}</div>
+                          )}
+                          {group.isOverpaid && (
+                            <div className="text-xs text-emerald-600 font-medium">Updated: {fmt(group.overpaidAdjustedCommission)}</div>
                           )}
                         </TableCell>
                         <TableCell></TableCell>

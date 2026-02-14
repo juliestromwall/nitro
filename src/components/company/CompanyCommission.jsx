@@ -1,6 +1,5 @@
 import { useState, useMemo, Fragment } from 'react'
-import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, TrendingUp, DollarSign, AlertCircle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -758,40 +757,43 @@ function CompanyCommission({ companyId }) {
       {currentSeason && (
         <>
           {/* Summary cards — clickable filters */}
-          <div className="grid grid-cols-3 gap-6">
-            <Card
-              className={`cursor-pointer transition-shadow hover:shadow-md ${cardFilter === 'all' ? 'ring-2 ring-zinc-900' : ''}`}
+          <div className="grid grid-cols-3 gap-4">
+            <div
+              className={`flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3 cursor-pointer transition-all ${cardFilter === 'all' ? 'ring-2 ring-[#005b5b]' : ''}`}
               onClick={() => setCardFilter('all')}
             >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Commish Earned</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{fmt(totalEarned)}</p>
-              </CardContent>
-            </Card>
-            <Card
-              className={`cursor-pointer transition-shadow hover:shadow-md ${cardFilter === 'paid' ? 'ring-2 ring-zinc-900' : ''}`}
+              <div className="p-2 bg-emerald-600 rounded-lg">
+                <TrendingUp className="size-4 text-white" />
+              </div>
+              <div>
+                <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Earned</p>
+                <p className="text-lg font-bold text-white">{fmt(totalEarned)}</p>
+              </div>
+            </div>
+            <div
+              className={`flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3 cursor-pointer transition-all ${cardFilter === 'paid' ? 'ring-2 ring-[#005b5b]' : ''}`}
               onClick={() => setCardFilter('paid')}
             >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Commish Paid</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold">{fmt(totalPaid)}</p>
-              </CardContent>
-            </Card>
-            <Card
-              className={`cursor-pointer transition-shadow hover:shadow-md ${cardFilter === 'outstanding' ? 'ring-2 ring-zinc-900' : ''}`}
+              <div className="p-2 bg-green-600 rounded-lg">
+                <DollarSign className="size-4 text-white" />
+              </div>
+              <div>
+                <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Paid</p>
+                <p className="text-lg font-bold text-white">{fmt(totalPaid)}</p>
+              </div>
+            </div>
+            <div
+              className={`flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3 cursor-pointer transition-all ${cardFilter === 'outstanding' ? 'ring-2 ring-[#005b5b]' : ''}`}
               onClick={() => setCardFilter('outstanding')}
             >
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Commish Owed</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-bold text-red-600">{fmt(totalOutstanding)}</p>
-              </CardContent>
-            </Card>
+              <div className="p-2 bg-amber-500 rounded-lg">
+                <AlertCircle className="size-4 text-white" />
+              </div>
+              <div>
+                <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Owed</p>
+                <p className="text-lg font-bold text-red-400">{fmt(totalOutstanding)}</p>
+              </div>
+            </div>
           </div>
 
           {/* Sticky search bar */}

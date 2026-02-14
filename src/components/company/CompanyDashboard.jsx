@@ -1,12 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { Plus, Pencil, Trash2, Pin, PinOff, GripVertical, ChevronLeft, ChevronRight } from 'lucide-react'
-import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { Plus, Pencil, Trash2, Pin, PinOff, GripVertical, ChevronLeft, ChevronRight, DollarSign, TrendingUp, AlertCircle, Check, FileText, Calculator } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
-} from '@/components/ui/table'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
@@ -160,6 +156,78 @@ function CompanyDashboard({ companyId }) {
   const today = new Date().toISOString().split('T')[0]
   const isOverdue = (todo) => !todo.completed && todo.due_date && todo.due_date < today
 
+  // Notepad — persisted in localStorage
+  const notepadKey = `notepad-${companyId}`
+  const [notepadText, setNotepadText] = useState(() => localStorage.getItem(notepadKey) || '')
+  const handleNotepadChange = (text) => {
+    setNotepadText(text)
+    localStorage.setItem(notepadKey, text)
+  }
+
+  // Calculator state
+  const [calcDisplay, setCalcDisplay] = useState('0')
+  const [calcPrev, setCalcPrev] = useState(null)
+  const [calcOp, setCalcOp] = useState(null)
+  const [calcNewInput, setCalcNewInput] = useState(true)
+
+  const calcInput = (digit) => {
+    if (calcNewInput) {
+      setCalcDisplay(digit === '.' ? '0.' : digit)
+      setCalcNewInput(false)
+    } else {
+      if (digit === '.' && calcDisplay.includes('.')) return
+      setCalcDisplay(calcDisplay + digit)
+    }
+  }
+
+  const calcExecute = (a, b, op) => {
+    switch (op) {
+      case '+': return a + b
+      case '-': return a - b
+      case '*': return a * b
+      case '/': return b !== 0 ? a / b : 0
+      default: return b
+    }
+  }
+
+  const calcOperation = (op) => {
+    const current = parseFloat(calcDisplay)
+    if (calcPrev !== null && calcOp && !calcNewInput) {
+      const result = calcExecute(calcPrev, current, calcOp)
+      setCalcDisplay(String(parseFloat(result.toFixed(10))))
+      setCalcPrev(result)
+    } else {
+      setCalcPrev(current)
+    }
+    setCalcOp(op)
+    setCalcNewInput(true)
+  }
+
+  const calcEquals = () => {
+    if (calcPrev !== null && calcOp) {
+      const current = parseFloat(calcDisplay)
+      const result = calcExecute(calcPrev, current, calcOp)
+      setCalcDisplay(String(parseFloat(result.toFixed(10))))
+      setCalcPrev(null)
+      setCalcOp(null)
+      setCalcNewInput(true)
+    }
+  }
+
+  const calcClear = () => {
+    setCalcDisplay('0')
+    setCalcPrev(null)
+    setCalcOp(null)
+    setCalcNewInput(true)
+  }
+
+  const fmtDueDate = (dateStr) => {
+    if (!dateStr) return ''
+    const d = new Date(dateStr + 'T00:00:00')
+    if (isNaN(d)) return dateStr
+    return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`
+  }
+
   return (
     <div className="space-y-6">
       {/* Season selector */}
@@ -196,138 +264,189 @@ function CompanyDashboard({ companyId }) {
         )
       })()}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-2 gap-6">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Sales</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{fmt(totalSales)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Commission Due</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{fmt(commissionDue)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Commission Paid</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold">{fmt(commissionPaid)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Outstanding</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-2xl font-bold text-red-600">{fmt(outstanding)}</p>
-          </CardContent>
-        </Card>
+      {/* Summary cards — teal dark style like main dashboard */}
+      <div className="grid grid-cols-4 gap-4">
+        <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3">
+          <div className="p-2 bg-[#005b5b] rounded-lg">
+            <DollarSign className="size-4 text-white" />
+          </div>
+          <div>
+            <p className="text-xs text-zinc-400 uppercase tracking-wide">Total Sales</p>
+            <p className="text-lg font-bold text-white">{fmt(totalSales)}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3">
+          <div className="p-2 bg-emerald-600 rounded-lg">
+            <TrendingUp className="size-4 text-white" />
+          </div>
+          <div>
+            <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Due</p>
+            <p className="text-lg font-bold text-white">{fmt(commissionDue)}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3">
+          <div className="p-2 bg-green-600 rounded-lg">
+            <Check className="size-4 text-white" />
+          </div>
+          <div>
+            <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Paid</p>
+            <p className="text-lg font-bold text-white">{fmt(commissionPaid)}</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3">
+          <div className="p-2 bg-amber-500 rounded-lg">
+            <AlertCircle className="size-4 text-white" />
+          </div>
+          <div>
+            <p className="text-xs text-zinc-400 uppercase tracking-wide">Outstanding</p>
+            <p className="text-lg font-bold text-red-400">{fmt(outstanding)}</p>
+          </div>
+        </div>
       </div>
 
-      {/* To Dos */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">To Dos</h2>
-          <Button size="sm" onClick={openAddTodo}>
-            <Plus className="size-4 mr-1" /> Add To Do
-          </Button>
-        </div>
+      {/* Two-column layout: To Dos (left) | Notepad + Calculator (right) */}
+      <div className="grid grid-cols-5 gap-6">
+        {/* To Dos — left column (3/5 width) */}
+        <div className="col-span-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">To Dos</h2>
+            <Button size="sm" onClick={openAddTodo}>
+              <Plus className="size-4 mr-1" /> Add To Do
+            </Button>
+          </div>
 
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-8"></TableHead>
-              <TableHead className="w-10"></TableHead>
-              <TableHead>Title</TableHead>
-              <TableHead>Note</TableHead>
-              <TableHead>Account</TableHead>
-              <TableHead>Phone</TableHead>
-              <TableHead>Due Date</TableHead>
-              <TableHead className="w-28"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
+          <div className="border rounded-xl overflow-hidden">
             {todos.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={8} className="text-center text-muted-foreground">
-                  No to-dos yet.
-                </TableCell>
-              </TableRow>
+              <div className="text-center py-8 text-muted-foreground text-sm">
+                No to-dos yet.
+              </div>
             ) : (
-              todos.map((todo, index) => (
-                <TableRow
-                  key={todo.id}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, index)}
-                  onDragOver={(e) => handleDragOver(e, index)}
-                  onDrop={(e) => handleDrop(e, index)}
-                  onDragEnd={handleDragEnd}
-                  className={`${
-                    dragOverIndex === index && dragIndex !== index ? 'border-t-2 border-t-blue-500' : ''
-                  } ${dragIndex === index ? 'opacity-40' : ''} ${
-                    isOverdue(todo) ? 'border-l-2 border-l-red-500' : ''
-                  }`}
-                >
-                  <TableCell className="cursor-grab active:cursor-grabbing">
-                    <GripVertical className="size-4 text-muted-foreground" />
-                  </TableCell>
-                  <TableCell>
+              <div className="divide-y">
+                {todos.map((todo, index) => (
+                  <div
+                    key={todo.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, index)}
+                    onDragOver={(e) => handleDragOver(e, index)}
+                    onDrop={(e) => handleDrop(e, index)}
+                    onDragEnd={handleDragEnd}
+                    className={`flex items-start gap-2 px-3 py-2.5 bg-white hover:bg-zinc-50 transition-colors ${
+                      dragOverIndex === index && dragIndex !== index ? 'border-t-2 border-t-blue-500' : ''
+                    } ${dragIndex === index ? 'opacity-40' : ''} ${
+                      isOverdue(todo) ? 'border-l-3 border-l-red-500' : ''
+                    }`}
+                  >
+                    <div className="cursor-grab active:cursor-grabbing pt-1 shrink-0">
+                      <GripVertical className="size-3.5 text-muted-foreground" />
+                    </div>
                     <input
                       type="checkbox"
                       checked={todo.completed}
                       onChange={() => toggleComplete(todo.id)}
-                      className="size-4 rounded border-zinc-300"
+                      className="size-4 rounded border-zinc-300 mt-1 shrink-0"
                     />
-                  </TableCell>
-                  <TableCell className={`font-medium ${todo.completed ? 'line-through text-muted-foreground' : ''}`}>
-                    {todo.title}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground max-w-48 truncate">
-                    {todo.note || '—'}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">
-                    {todo.client_id ? getAccountName(todo.client_id) : '—'}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap">{todo.phone || '—'}</TableCell>
-                  <TableCell className={`whitespace-nowrap ${isOverdue(todo) ? 'text-red-600 font-medium' : ''}`}>
-                    {todo.due_date || '—'}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-medium ${todo.completed ? 'line-through text-muted-foreground' : ''}`}>
+                        {todo.title}
+                      </div>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                        {todo.client_id && (
+                          <span className="truncate max-w-[120px]">{getAccountName(todo.client_id)}</span>
+                        )}
+                        {todo.due_date && (
+                          <span className={isOverdue(todo) ? 'text-red-600 font-medium' : ''}>
+                            {fmtDueDate(todo.due_date)}
+                          </span>
+                        )}
+                        {todo.note && (
+                          <span className="truncate max-w-[100px]" title={todo.note}>{todo.note}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-0.5 shrink-0">
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7"
+                        className="h-6 w-6"
                         onClick={() => togglePin(todo.id)}
                         title={todo.pinned ? 'Unpin' : 'Pin to top'}
                       >
                         {todo.pinned ? (
-                          <PinOff className="size-3.5 text-blue-500" />
+                          <PinOff className="size-3 text-blue-500" />
                         ) : (
-                          <Pin className="size-3.5" />
+                          <Pin className="size-3" />
                         )}
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditTodo(todo)} title="Edit">
-                        <Pencil className="size-3.5" />
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditTodo(todo)} title="Edit">
+                        <Pencil className="size-3" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteTodo(todo.id)} title="Delete">
-                        <Trash2 className="size-3.5 text-red-500" />
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => deleteTodo(todo.id)} title="Delete">
+                        <Trash2 className="size-3 text-red-500" />
                       </Button>
                     </div>
-                  </TableCell>
-                </TableRow>
-              ))
+                  </div>
+                ))}
+              </div>
             )}
-          </TableBody>
-        </Table>
+          </div>
+        </div>
+
+        {/* Right column — Notepad + Calculator (2/5 width) */}
+        <div className="col-span-2 space-y-6">
+          {/* Notepad */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <FileText className="size-4 text-[#005b5b]" />
+              <h2 className="text-lg font-semibold">Notepad</h2>
+            </div>
+            <textarea
+              className="w-full border rounded-xl px-4 py-3 text-sm min-h-[180px] resize-y bg-amber-50/50 focus:outline-none focus:ring-2 focus:ring-[#005b5b]/30"
+              placeholder="Quick notes..."
+              value={notepadText}
+              onChange={(e) => handleNotepadChange(e.target.value)}
+            />
+          </div>
+
+          {/* Calculator */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <Calculator className="size-4 text-[#005b5b]" />
+              <h2 className="text-lg font-semibold">Calculator</h2>
+            </div>
+            <div className="border rounded-xl bg-white p-3 space-y-2">
+              <div className="bg-zinc-900 rounded-lg px-4 py-3 text-right text-white text-xl font-mono tracking-wide">
+                {calcDisplay}
+              </div>
+              <div className="grid grid-cols-4 gap-1.5">
+                {['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+'].map((btn) => (
+                  <button
+                    key={btn}
+                    onClick={() => {
+                      if (btn === '=') calcEquals()
+                      else if (['+','-','*','/'].includes(btn)) calcOperation(btn)
+                      else calcInput(btn)
+                    }}
+                    className={`py-2.5 text-sm font-semibold rounded-lg transition-colors ${
+                      ['+','-','*','/'].includes(btn)
+                        ? 'bg-[#005b5b] text-white hover:bg-[#007a7a]'
+                        : btn === '='
+                          ? 'bg-emerald-600 text-white hover:bg-emerald-700'
+                          : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-900'
+                    }`}
+                  >
+                    {btn}
+                  </button>
+                ))}
+                <button
+                  onClick={calcClear}
+                  className="col-span-4 py-2 text-sm font-semibold rounded-lg bg-red-50 text-red-600 hover:bg-red-100 transition-colors"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Add/Edit To Do dialog */}
