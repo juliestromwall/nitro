@@ -267,9 +267,11 @@ function CompanyCommission({ companyId }) {
         const allPaid = group.rows.every(r => r.pay_status === 'paid')
         const anyPaidOrPartial = group.rows.some(r => r.pay_status === 'paid' || r.pay_status === 'partial')
         const anyInvoiceSent = group.rows.some(r => r.pay_status === 'invoice sent')
+        const anyUnpaid = group.rows.some(r => r.pay_status === 'unpaid')
         if (allPaid) aggPayStatus = 'paid'
         else if (anyPaidOrPartial) aggPayStatus = 'partial'
         else if (anyInvoiceSent) aggPayStatus = 'invoice sent'
+        else if (anyUnpaid) aggPayStatus = 'unpaid'
       }
 
       const paidDates = group.rows.filter(r => r.paid_date).map(r => r.paid_date).sort()
