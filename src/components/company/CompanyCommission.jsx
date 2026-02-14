@@ -131,6 +131,11 @@ function CompanyCommission({ companyId }) {
   const company = companies.find((c) => c.id === companyId)
   const commissionPct = company?.commission_percent || 0
 
+  const getExpectedRate = (orderType) => {
+    const categoryPct = company?.category_commissions?.[orderType]
+    return categoryPct != null ? categoryPct : commissionPct
+  }
+
   // Get all non-cancelled orders for this company + season
   const closedWonOrders = currentSeason
     ? orders.filter(
@@ -151,6 +156,7 @@ function CompanyCommission({ companyId }) {
         order_document: order.order_document,
         close_date: order.close_date,
         stage: order.stage,
+        order_type: order.order_type,
         invoices: getInvoices(order),
         orderTotal: order.total,
         commissionDue: commEntry.commission_due,
@@ -161,7 +167,8 @@ function CompanyCommission({ companyId }) {
       }
     }
 
-    const commissionDue = order.total * (commissionPct / 100)
+    const orderPct = getExpectedRate(order.order_type)
+    const commissionDue = order.total * (orderPct / 100)
     return {
       id: order.id,
       orderId: order.id,
@@ -170,6 +177,7 @@ function CompanyCommission({ companyId }) {
       order_document: order.order_document,
       close_date: order.close_date,
       stage: order.stage,
+      order_type: order.order_type,
       invoices: getInvoices(order),
       orderTotal: order.total,
       commissionDue,
@@ -272,9 +280,11 @@ function CompanyCommission({ companyId }) {
       let unshippedSales = 0
       let adjustedSale = totalOrder
       let adjustedCommission = totalCommDue
-      if (isShortShipped && totalPaid < totalCommDue && commissionPct > 0) {
+      if (isShortShipped && totalPaid < totalCommDue) {
         const commissionGap = totalCommDue - totalPaid
-        unshippedSales = commissionGap / (commissionPct / 100)
+        // Use weighted average commission rate to back-calculate unshipped sales
+        const avgPct = totalOrder > 0 ? (totalCommDue / totalOrder) * 100 : 0
+        unshippedSales = avgPct > 0 ? commissionGap / (avgPct / 100) : 0
         adjustedSale = totalOrder - unshippedSales
         adjustedCommission = totalPaid
       }
@@ -331,7 +341,7 @@ function CompanyCommission({ companyId }) {
     }
 
     return groups
-  }, [filteredRows, sortConfig, commissionPct])
+  }, [filteredRows, sortConfig])
 
   // Summary totals — use adjusted values for short shipped accounts
   const totalEarned = useMemo(() => {
@@ -974,8 +984,9 @@ function CompanyCommission({ companyId }) {
                   }, 0)
                   const remaining = group.totalCommDue - totalPaidNow
                   const isShortShipStatus = paymentStatus === 'short shipped'
-                  const unshippedCalc = isShortShipStatus && remaining > 0 && commissionPct > 0
-                    ? remaining / (commissionPct / 100)
+                  const avgPct = group.totalOrder > 0 ? (group.totalCommDue / group.totalOrder) * 100 : 0
+                  const unshippedCalc = isShortShipStatus && remaining > 0 && avgPct > 0
+                    ? remaining / (avgPct / 100)
                     : 0
                   return (
                     <div className="bg-zinc-50 rounded-lg p-3 space-y-1 text-sm">

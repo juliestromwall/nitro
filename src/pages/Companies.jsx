@@ -25,7 +25,7 @@ function Companies() {
   const { orders } = useSales()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState({ name: '', commission_percent: '', logo_path: null, order_types: [], items: [], stages: [] })
+  const [form, setForm] = useState({ name: '', commission_percent: '', logo_path: null, order_types: [], items: [], stages: [], category_commissions: {} })
   const [logoPreview, setLogoPreview] = useState(null)
   const [logoFile, setLogoFile] = useState(null)
   const fileInputRef = useRef(null)
@@ -74,7 +74,7 @@ function Companies() {
 
   const openAdd = () => {
     setEditingId(null)
-    setForm({ name: '', commission_percent: '', logo_path: null, order_types: [], items: [], stages: [] })
+    setForm({ name: '', commission_percent: '', logo_path: null, order_types: [], items: [], stages: [], category_commissions: {} })
     setLogoPreview(null)
     setLogoFile(null)
     setNewOrderType('')
@@ -92,6 +92,7 @@ function Companies() {
       order_types: company.order_types || [],
       items: company.items || [],
       stages: company.stages || [],
+      category_commissions: company.category_commissions || {},
     })
     setLogoPreview(company.logo_path)
     setLogoFile(null)
@@ -117,6 +118,14 @@ function Companies() {
         logoPath = await uploadLogo(user.id, companyId, logoFile)
       }
 
+      // Clean category_commissions: only keep entries with a numeric value
+      const cleanedCategoryCommissions = {}
+      for (const [cat, val] of Object.entries(form.category_commissions)) {
+        if (val !== '' && val != null && !isNaN(parseFloat(val))) {
+          cleanedCategoryCommissions[cat] = parseFloat(val)
+        }
+      }
+
       const data = {
         name: form.name,
         commission_percent: parseFloat(form.commission_percent),
@@ -124,6 +133,7 @@ function Companies() {
         order_types: form.order_types,
         items: form.items,
         stages: form.stages,
+        category_commissions: cleanedCategoryCommissions,
       }
 
       if (editingId) {
@@ -132,7 +142,7 @@ function Companies() {
         await addCompany(data)
       }
 
-      setForm({ name: '', commission_percent: '', logo_path: null, order_types: [], items: [], stages: [] })
+      setForm({ name: '', commission_percent: '', logo_path: null, order_types: [], items: [], stages: [], category_commissions: {} })
       setLogoPreview(null)
       setLogoFile(null)
       setEditingId(null)
@@ -253,6 +263,37 @@ function Companies() {
               />
             </div>
 
+            {/* Per-Category Commission Rates */}
+            {form.order_types.length > 0 && (
+              <div className="space-y-2">
+                <Label>Category Commission Rates</Label>
+                <p className="text-xs text-muted-foreground">Leave blank to use the default {form.commission_percent || 0}% rate.</p>
+                <div className="space-y-2">
+                  {form.order_types.map((type) => (
+                    <div key={type} className="flex items-center gap-2">
+                      <span className="text-sm font-medium w-28 truncate" title={type}>{type}</span>
+                      <div className="flex items-center border rounded-md px-3 h-9 focus-within:ring-2 focus-within:ring-ring flex-1">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="100"
+                          placeholder={form.commission_percent || '0'}
+                          value={form.category_commissions[type] ?? ''}
+                          onChange={(e) => setForm((p) => ({
+                            ...p,
+                            category_commissions: { ...p.category_commissions, [type]: e.target.value },
+                          }))}
+                          className="flex-1 text-sm bg-transparent outline-none no-spinner"
+                        />
+                        <span className="text-sm text-muted-foreground select-none">%</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Categories */}
             <div className="space-y-2">
               <Label>Categories</Label>
@@ -261,7 +302,12 @@ function Companies() {
                   {form.order_types.map((t, i) => (
                     <Badge key={i} variant="secondary" className="gap-1 text-sm">
                       {t}
-                      <button type="button" onClick={() => setForm((p) => ({ ...p, order_types: p.order_types.filter((_, j) => j !== i) }))} className="ml-0.5 hover:text-red-500">
+                      <button type="button" onClick={() => setForm((p) => {
+                        const newTypes = p.order_types.filter((_, j) => j !== i)
+                        const newCatComm = { ...p.category_commissions }
+                        delete newCatComm[t]
+                        return { ...p, order_types: newTypes, category_commissions: newCatComm }
+                      })} className="ml-0.5 hover:text-red-500">
                         <X className="size-3" />
                       </button>
                     </Badge>

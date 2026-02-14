@@ -127,9 +127,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const getCommission = (order) => {
     const company = getCompany(order.company_id)
     const defaultPct = company?.commission_percent || 0
-    const pct = order.commission_override != null ? order.commission_override : defaultPct
-    const isOverridden = order.commission_override != null && order.commission_override !== defaultPct
-    return { amount: order.total * pct / 100, pct, isOverridden, defaultPct }
+    const categoryPct = company?.category_commissions?.[order.order_type]
+    const expectedPct = categoryPct != null ? categoryPct : defaultPct
+    const pct = order.commission_override != null ? order.commission_override : expectedPct
+    const isOverridden = order.commission_override != null && order.commission_override !== expectedPct
+    return { amount: order.total * pct / 100, pct, isOverridden, defaultPct: expectedPct }
   }
 
   const company = getCompany(companyId)
@@ -225,6 +227,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     resetSaleForm()
   }
 
+  const getExpectedRate = (orderType) => {
+    const categoryPct = company?.category_commissions?.[orderType]
+    return categoryPct != null ? categoryPct : (company?.commission_percent || 0)
+  }
+
   const resetSaleForm = () => {
     setSaleForm({
       client_id: null, clientName: '', sale_type: 'Prebook', season_id: currentSeason?.id || '',
@@ -300,7 +307,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       stage: order.stage,
       order_document: order.order_document || null,
       total: floatToCents(order.total),
-      commission_override: order.commission_override != null ? String(order.commission_override) : String(company?.commission_percent || ''),
+      commission_override: order.commission_override != null ? String(order.commission_override) : String(getExpectedRate(order.order_type)),
       notes: order.notes || '',
     })
   }
@@ -357,8 +364,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
 
     // Show celebration popup for new sales
     if (wasAdd && total > 0) {
-      const defaultPct = company?.commission_percent || 0
-      const pct = commOverride != null ? commOverride : defaultPct
+      const expectedPct = getExpectedRate(orderData.order_type)
+      const pct = commOverride != null ? commOverride : expectedPct
       const commission = total * pct / 100
       setCelebrationData({
         commission,
@@ -615,12 +622,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       let unshippedSales = 0
       let adjustedSale = total
       let adjustedCommission = commissionTotal
-      if (isShortShipped && commissionPct > 0) {
+      if (isShortShipped) {
         const firstOrderComm = commissions.find(c => c.order_id === group.orders[0]?.id)
         const totalPaid = firstOrderComm?.amount_paid || 0
         if (totalPaid < commissionTotal) {
           const commissionGap = commissionTotal - totalPaid
-          unshippedSales = commissionGap / (commissionPct / 100)
+          // Use weighted average commission rate to back-calculate unshipped sales
+          const avgPct = total > 0 ? (commissionTotal / total) * 100 : 0
+          unshippedSales = avgPct > 0 ? commissionGap / (avgPct / 100) : 0
           adjustedSale = total - unshippedSales
           adjustedCommission = totalPaid
         }
@@ -666,7 +675,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     }
 
     return groups
-  }, [filteredOrders, sortConfig, commissions, commissionPct])
+  }, [filteredOrders, sortConfig, commissions])
 
   // Group invoice modal handlers
   const openGroupInvoiceModal = (group) => {
@@ -934,7 +943,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
 
           {saleStep === 1 ? (
             /* ── Step 1: Sale Setup ── */
-            <div className="space-y-4">
+            <div className={`space-y-4 ${showAccountDropdown && !saleForm.client_id ? 'pb-56' : ''}`}>
               {/* Order Type */}
               <div className="space-y-2">
                 <Label>Order Type</Label>
@@ -968,7 +977,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 {isEditMode ? (
                   <Input value={saleForm.clientName} disabled />
                 ) : (
-                  <div className="relative">
+                  <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowAccountDropdown(false) }}>
                     <Input
                       placeholder="Search accounts..."
                       value={saleForm.clientName || accountSearch}
@@ -980,7 +989,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                       onFocus={() => setShowAccountDropdown(true)}
                     />
                     {showAccountDropdown && !saleForm.client_id && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                      <div className="absolute top-full left-0 right-0 mt-1 bg-white border rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto" tabIndex={-1}>
                         {filteredAccounts.map((account) => (
                           <button
                             key={account.id}
@@ -1024,7 +1033,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                 <Label>Category <span className="text-red-500">*</span></Label>
                 <select
                   value={saleForm.order_type}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, order_type: e.target.value }))}
+                  onChange={(e) => {
+                    const newType = e.target.value
+                    const rate = getExpectedRate(newType)
+                    setSaleForm((p) => ({ ...p, order_type: newType, commission_override: String(rate) }))
+                  }}
                   className="w-full border rounded-md px-3 py-2 text-sm"
                   required
                 >
@@ -1527,7 +1540,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
             <Table>
               <TableHeader className="sticky top-[165px] z-[15]">
                 <TableRow className="bg-[#005b5b] hover:bg-[#005b5b]">
-                  <TableHead className="w-10 sticky left-0 bg-[#005b5b] z-[16]"></TableHead>
                   <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
                     <span className="flex items-center gap-1 whitespace-nowrap">Account <SortIcon column="account" sortConfig={sortConfig} /></span>
                   </TableHead>
@@ -1616,7 +1628,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               <TableBody>
                 {groupedOrders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center text-muted-foreground">
+                    <TableCell colSpan={10} className="text-center text-muted-foreground">
                       {searchQuery || filterOrderType || filterStage
                         ? 'No orders match your search or filters.'
                         : 'No orders for this tab.'}
@@ -1627,7 +1639,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                     <Fragment key={`group-${group.clientId}`}>
                       {/* Group header row — always expanded, aligned with table columns */}
                       <TableRow className="bg-zinc-50 border-t-4 border-zinc-300 hover:bg-zinc-100">
-                        <TableCell className="sticky left-0 z-[5] bg-zinc-50"></TableCell>
                         <TableCell colSpan={7} className="py-3">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-zinc-900 text-base">{group.accountName}</span>
@@ -1697,11 +1708,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                           : isShortShipped
                             ? 'bg-amber-50'
                             : ''
-                        const stickyBgClass = isCancelled
-                          ? 'bg-red-50'
-                          : isShortShipped
-                            ? 'bg-amber-50'
-                            : 'bg-white'
 
                         return (
                           <TableRow
@@ -1710,7 +1716,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                             onMouseLeave={() => setHoveredRow(null)}
                             className={`group ${rowClass}`}
                           >
-                            <TableCell className={`sticky left-0 z-[5] w-10 ${stickyBgClass}`}>
+                            <TableCell>
                               <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
                                 <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditOrder(order)} title="Edit">
                                   <Pencil className="size-3.5" />
@@ -1720,7 +1726,6 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                                 </Button>
                               </div>
                             </TableCell>
-                            <TableCell></TableCell>
                             <TableCell className="whitespace-nowrap">{order.sale_type || 'Prebook'}</TableCell>
                             <TableCell>
                               <Badge variant="secondary">

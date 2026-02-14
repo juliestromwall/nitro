@@ -14,6 +14,7 @@ create table companies (
   order_types text[] default '{}',
   items text[] default '{}',
   stages text[] default '{}',
+  category_commissions jsonb default '{}',
   created_at timestamptz not null default now()
 );
 
