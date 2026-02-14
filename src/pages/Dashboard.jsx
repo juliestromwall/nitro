@@ -138,7 +138,7 @@ function Dashboard() {
             <TrendingUp className="size-5 text-white" />
           </div>
           <div>
-            <p className="text-xs text-zinc-400 uppercase tracking-wide">Commission Earned</p>
+            <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Earned</p>
             <p className="text-xl font-bold text-white">{fmt(brandData.totals.commissionEarned)}</p>
           </div>
         </div>
@@ -147,7 +147,7 @@ function Dashboard() {
             <AlertCircle className="size-5 text-white" />
           </div>
           <div>
-            <p className="text-xs text-zinc-400 uppercase tracking-wide">Commission Owed</p>
+            <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Owed</p>
             <p className="text-xl font-bold text-white">{fmt(brandData.totals.commissionOwed)}</p>
           </div>
         </div>

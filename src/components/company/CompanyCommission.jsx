@@ -112,6 +112,8 @@ function CompanyCommission({ companyId }) {
   // Account-level short ship confirmation
   const [shortShipAccountConfirmOpen, setShortShipAccountConfirmOpen] = useState(false)
   const [shortShipAccountGroupId, setShortShipAccountGroupId] = useState(null)
+  // Payment modal short ship confirmation
+  const [shortShipModalConfirmOpen, setShortShipModalConfirmOpen] = useState(false)
 
   // Collapsed/expanded groups — collapsed by default
   const [expandedGroups, setExpandedGroups] = useState(new Set())
@@ -291,6 +293,16 @@ function CompanyCommission({ companyId }) {
         adjustedCommission = totalPaid
       }
 
+      // Overpaid: paid more than commission due — back-calculate actual sale from payment
+      const isOverpaid = totalPaid > totalCommDue && totalCommDue > 0 && !isShortShipped
+      let overpaidAdjustedSale = totalOrder
+      let overpaidAdjustedCommission = totalCommDue
+      if (isOverpaid) {
+        const avgPct = totalOrder > 0 ? (totalCommDue / totalOrder) * 100 : 0
+        overpaidAdjustedSale = avgPct > 0 ? totalPaid / (avgPct / 100) : totalOrder
+        overpaidAdjustedCommission = totalPaid
+      }
+
       return {
         ...group,
         totalOrder,
@@ -306,6 +318,9 @@ function CompanyCommission({ companyId }) {
         unshippedSales,
         adjustedSale,
         adjustedCommission,
+        isOverpaid,
+        overpaidAdjustedSale,
+        overpaidAdjustedCommission,
       }
     })
 
@@ -345,13 +360,36 @@ function CompanyCommission({ companyId }) {
     return groups
   }, [filteredRows, sortConfig])
 
-  // Summary totals — use adjusted values for short shipped accounts
+  // Summary totals from ALL rows (unfiltered by search) — use adjusted values for short shipped/overpaid
+  const allGroupedRows = useMemo(() => {
+    // Build groups from commissionRows (before search/card filter)
+    const groupMap = new Map()
+    commissionRows.forEach((row) => {
+      const key = row.client_id
+      if (!groupMap.has(key)) groupMap.set(key, { rows: [] })
+      groupMap.get(key).rows.push(row)
+    })
+    return Array.from(groupMap.values()).map((group) => {
+      const totalOrder = group.rows.reduce((sum, r) => sum + r.orderTotal, 0)
+      const totalCommDue = group.rows.reduce((sum, r) => sum + r.commissionDue, 0)
+      const totalPaid = group.rows.reduce((sum, r) => sum + r.amount_paid, 0)
+      const anyShortShipped = group.rows.some(r => r.pay_status === 'short shipped')
+      const isShortShipped = anyShortShipped
+      let adjustedCommission = totalCommDue
+      if (isShortShipped && totalPaid < totalCommDue) {
+        adjustedCommission = totalPaid
+      }
+      const isOverpaid = totalPaid > totalCommDue && totalCommDue > 0 && !isShortShipped
+      return { totalCommDue, totalPaid, isShortShipped, adjustedCommission, isOverpaid, overpaidAdjustedCommission: isOverpaid ? totalPaid : totalCommDue }
+    })
+  }, [commissionRows])
+
   const totalEarned = useMemo(() => {
-    return groupedRows.reduce((sum, g) => sum + (g.isShortShipped ? g.adjustedCommission : g.totalCommDue), 0)
-  }, [groupedRows])
+    return allGroupedRows.reduce((sum, g) => sum + (g.isShortShipped ? g.adjustedCommission : g.isOverpaid ? g.overpaidAdjustedCommission : g.totalCommDue), 0)
+  }, [allGroupedRows])
   const totalPaid = useMemo(() => {
-    return groupedRows.reduce((sum, g) => sum + g.totalPaid, 0)
-  }, [groupedRows])
+    return allGroupedRows.reduce((sum, g) => sum + g.totalPaid, 0)
+  }, [allGroupedRows])
   const totalOutstanding = Math.max(totalEarned - totalPaid, 0)
 
   const handleTabChange = (seasonId) => {
@@ -459,11 +497,14 @@ function CompanyCommission({ companyId }) {
       .pop() || null
 
     // Use the manually selected status — only auto-calculate if not explicitly set
+    // Round to cents to avoid floating point comparison issues
     let status = paymentStatus
+    const paidCents = Math.round(totalPaidAmt * 100)
+    const dueCents = Math.round(group.totalCommDue * 100)
     if (status !== 'short shipped') {
-      if (totalPaidAmt >= group.totalCommDue && group.totalCommDue > 0) {
+      if (paidCents >= dueCents && dueCents > 0) {
         status = 'paid'
-      } else if (totalPaidAmt > 0 && totalPaidAmt < group.totalCommDue) {
+      } else if (paidCents > 0 && paidCents < dueCents) {
         status = 'partial'
       }
     }
@@ -723,7 +764,7 @@ function CompanyCommission({ companyId }) {
               onClick={() => setCardFilter('all')}
             >
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Commission Earned</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Commish Earned</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold">{fmt(totalEarned)}</p>
@@ -734,7 +775,7 @@ function CompanyCommission({ companyId }) {
               onClick={() => setCardFilter('paid')}
             >
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Commission Paid</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Commish Paid</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold">{fmt(totalPaid)}</p>
@@ -745,7 +786,7 @@ function CompanyCommission({ companyId }) {
               onClick={() => setCardFilter('outstanding')}
             >
               <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Total Commission Outstanding</CardTitle>
+                <CardTitle className="text-sm font-medium text-muted-foreground">Commish Owed</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-2xl font-bold text-red-600">{fmt(totalOutstanding)}</p>
@@ -827,11 +868,17 @@ function CompanyCommission({ companyId }) {
                           {group.isShortShipped && group.unshippedSales > 0 && (
                             <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedSale)}</div>
                           )}
+                          {group.isOverpaid && (
+                            <div className="text-xs text-emerald-600 font-medium">Updated: {fmt(group.overpaidAdjustedSale)}</div>
+                          )}
                         </TableCell>
                         <TableCell className="text-right">
                           <span className="font-bold">{fmt(group.totalCommDue)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
                             <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedCommission)}</div>
+                          )}
+                          {group.isOverpaid && (
+                            <div className="text-xs text-emerald-600 font-medium">Updated: {fmt(group.overpaidAdjustedCommission)}</div>
                           )}
                         </TableCell>
                         <TableCell>
@@ -869,6 +916,9 @@ function CompanyCommission({ companyId }) {
                           <span className={`font-bold ${group.totalRemaining > 0 ? 'text-red-600' : ''}`}>{fmt(group.totalRemaining)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
                             <div className="text-xs text-purple-600 font-medium">{fmt(group.unshippedSales)} did not ship</div>
+                          )}
+                          {group.isOverpaid && (
+                            <div className="text-xs text-emerald-600 font-medium">{fmt(group.totalPaid - group.totalCommDue)} overpaid</div>
                           )}
                         </TableCell>
                       </TableRow>
@@ -950,6 +1000,29 @@ function CompanyCommission({ companyId }) {
             </DialogContent>
           </Dialog>
 
+          {/* Short Shipped confirmation dialog — payment modal */}
+          <Dialog open={shortShipModalConfirmOpen} onOpenChange={(open) => {
+            if (!open) setShortShipModalConfirmOpen(false)
+          }}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader>
+                <DialogTitle>Mark as Short Shipped</DialogTitle>
+                <DialogDescription>
+                  Are you sure there are no more items to ship on this order? The system will calculate the unshipped sales amount based on the remaining commission gap and deduct it from your totals.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShortShipModalConfirmOpen(false)}>Cancel</Button>
+                <Button className="bg-purple-600 hover:bg-purple-700 text-white" onClick={() => {
+                  setPaymentStatus('short shipped')
+                  setShortShipModalConfirmOpen(false)
+                }}>
+                  Confirm Short Shipped
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
           {/* Payment modal — account-level */}
           <Dialog open={paymentModalOpen} onOpenChange={(open) => {
             if (!open) { setPaymentModalOpen(false); setPaymentGroupId(null); setPaymentList([]) }
@@ -967,7 +1040,13 @@ function CompanyCommission({ companyId }) {
                   <Label>Pay Status</Label>
                   <select
                     value={paymentStatus}
-                    onChange={(e) => setPaymentStatus(e.target.value)}
+                    onChange={(e) => {
+                      if (e.target.value === 'short shipped') {
+                        setShortShipModalConfirmOpen(true)
+                      } else {
+                        setPaymentStatus(e.target.value)
+                      }
+                    }}
                     className="w-full border rounded-md px-3 py-2 text-sm"
                   >
                     {payStatusOptions.map((opt) => (
@@ -1020,6 +1099,25 @@ function CompanyCommission({ companyId }) {
                           </div>
                         </div>
                       )}
+                      {!isShortShipStatus && totalPaidNow > group.totalCommDue && group.totalCommDue > 0 && (() => {
+                        const overpaidSale = avgPct > 0 ? totalPaidNow / (avgPct / 100) : group.totalOrder
+                        return (
+                          <div className="border-t pt-2 mt-2 space-y-1">
+                            <div className="flex justify-between text-emerald-600">
+                              <span className="font-medium">Overpaid by:</span>
+                              <span className="font-bold">{fmt(totalPaidNow - group.totalCommDue)}</span>
+                            </div>
+                            <div className="flex justify-between text-emerald-600">
+                              <span className="font-medium">Updated Sale:</span>
+                              <span className="font-bold">{fmt(overpaidSale)}</span>
+                            </div>
+                            <div className="flex justify-between text-emerald-600">
+                              <span className="font-medium">Updated Commission:</span>
+                              <span className="font-bold">{fmt(totalPaidNow)}</span>
+                            </div>
+                          </div>
+                        )
+                      })()}
                     </div>
                   )
                 })()}
