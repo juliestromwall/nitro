@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
 import { Tag, Store, BarChart3, LogOut, Home, RotateCcw } from 'lucide-react'
+import TopBar from './components/TopBar'
 import { useAuth } from './context/AuthContext'
 import { CompanyProvider, useCompanies } from './context/CompanyContext'
 import { AccountProvider } from './context/AccountContext'
@@ -248,14 +249,17 @@ function App() {
         </aside>
 
         {/* Main content */}
-        <main className="flex-1 overflow-auto bg-background">
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/companies" element={<Companies />} />
-            <Route path="/companies/:id" element={<CompanyDetail />} />
-            <Route path="/accounts" element={<Accounts />} />
-          </Routes>
-        </main>
+        <div className="flex-1 flex flex-col overflow-hidden bg-background">
+          <TopBar />
+          <main className="flex-1 overflow-auto">
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/companies" element={<Companies />} />
+              <Route path="/companies/:id" element={<CompanyDetail />} />
+              <Route path="/accounts" element={<Accounts />} />
+            </Routes>
+          </main>
+        </div>
       </div>
     </TodoProvider>
     </SalesProvider>

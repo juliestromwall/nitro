@@ -1,5 +1,24 @@
 # Session Log
 
+## 2026-02-14 (Session 3)
+
+**Worked on:** Sales tab overpaid commission, summary card restyling, brand dashboard redesign
+
+**Changes made:**
+- Added overpaid commission detection and green "Updated:" indicators to Sales tab
+- Restyled summary cards on Sales, Commission, and Brand Dashboard tabs to match main dashboard (dark bg, teal/emerald/amber icons)
+- Renamed "Total Commission" to "Total Commish" on Sales tab
+- Changed "Dashboard" tab to "Brand" with Home icon on CompanyDetail
+- Redesigned company Brand Dashboard: 4-across compact summary cards, narrower todo list, added Notepad and Calculator widgets
+- Committed and deployed to repcommish.com
+
+**Next steps:**
+- Test all changes in production
+
+**Open questions:**
+- None at this time
+
+
 ## 2026-02-07
 
 **Worked on:** Initial project setup and full prototype build for Nitro sales/commission tracking app, based on the existing Google Sheets spreadsheet.

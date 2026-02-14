@@ -264,42 +264,42 @@ function CompanyDashboard({ companyId }) {
         )
       })()}
 
-      {/* Summary cards — teal dark style like main dashboard */}
+      {/* Summary cards — white with teal border and colored icon badges */}
       <div className="grid grid-cols-4 gap-4">
-        <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-3 bg-white border-2 border-[#005b5b]/30 rounded-xl px-4 py-3">
           <div className="p-2 bg-[#005b5b] rounded-lg">
             <DollarSign className="size-4 text-white" />
           </div>
           <div>
             <p className="text-xs text-zinc-400 uppercase tracking-wide">Total Sales</p>
-            <p className="text-lg font-bold text-white">{fmt(totalSales)}</p>
+            <p className="text-lg font-bold text-zinc-900">{fmt(totalSales)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-3 bg-white border-2 border-[#005b5b]/30 rounded-xl px-4 py-3">
           <div className="p-2 bg-emerald-600 rounded-lg">
             <TrendingUp className="size-4 text-white" />
           </div>
           <div>
-            <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Due</p>
-            <p className="text-lg font-bold text-white">{fmt(commissionDue)}</p>
+            <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Earned</p>
+            <p className="text-lg font-bold text-zinc-900">{fmt(commissionDue)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-3 bg-white border-2 border-[#005b5b]/30 rounded-xl px-4 py-3">
           <div className="p-2 bg-green-600 rounded-lg">
             <Check className="size-4 text-white" />
           </div>
           <div>
             <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Paid</p>
-            <p className="text-lg font-bold text-white">{fmt(commissionPaid)}</p>
+            <p className="text-lg font-bold text-zinc-900">{fmt(commissionPaid)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3">
+        <div className="flex items-center gap-3 bg-white border-2 border-[#005b5b]/30 rounded-xl px-4 py-3">
           <div className="p-2 bg-amber-500 rounded-lg">
             <AlertCircle className="size-4 text-white" />
           </div>
           <div>
-            <p className="text-xs text-zinc-400 uppercase tracking-wide">Outstanding</p>
-            <p className="text-lg font-bold text-red-400">{fmt(outstanding)}</p>
+            <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Due</p>
+            <p className="text-lg font-bold text-red-600">{fmt(outstanding)}</p>
           </div>
         </div>
       </div>
@@ -359,7 +359,7 @@ function CompanyDashboard({ companyId }) {
                           </span>
                         )}
                         {todo.note && (
-                          <span className="truncate max-w-[100px]" title={todo.note}>{todo.note}</span>
+                          <span className="truncate max-w-[250px]" title={todo.note}>{todo.note}</span>
                         )}
                       </div>
                     </div>
@@ -415,26 +415,28 @@ function CompanyDashboard({ companyId }) {
             </div>
             <div className="border rounded-xl bg-white p-3 space-y-2">
               <div className="bg-zinc-900 rounded-lg px-4 py-3 text-right text-white text-xl font-mono tracking-wide">
-                {calcDisplay}
+                {calcDisplay.includes('.')
+                  ? calcDisplay.replace(/^(-?\d+)/, (m) => Number(m).toLocaleString())
+                  : Number(calcDisplay).toLocaleString()}
               </div>
               <div className="grid grid-cols-4 gap-1.5">
-                {['7','8','9','/','4','5','6','*','1','2','3','-','0','.','=','+'].map((btn) => (
+                {[['7','7'],['8','8'],['9','9'],['/','÷'],['4','4'],['5','5'],['6','6'],['*','×'],['1','1'],['2','2'],['3','3'],['-','−'],['0','0'],['.','.'],['=','='],['+','+']].map(([op, label]) => (
                   <button
-                    key={btn}
+                    key={op}
                     onClick={() => {
-                      if (btn === '=') calcEquals()
-                      else if (['+','-','*','/'].includes(btn)) calcOperation(btn)
-                      else calcInput(btn)
+                      if (op === '=') calcEquals()
+                      else if (['+','-','*','/'].includes(op)) calcOperation(op)
+                      else calcInput(op)
                     }}
                     className={`py-2.5 text-sm font-semibold rounded-lg transition-colors ${
-                      ['+','-','*','/'].includes(btn)
+                      ['+','-','*','/'].includes(op)
                         ? 'bg-[#005b5b] text-white hover:bg-[#007a7a]'
-                        : btn === '='
+                        : op === '='
                           ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                           : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-900'
                     }`}
                   >
-                    {btn}
+                    {label}
                   </button>
                 ))}
                 <button

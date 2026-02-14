@@ -264,6 +264,15 @@ export async function updateTodoSortOrders(updates) {
 
 // ── Storage ────────────────────────────────────────────────
 
+export async function uploadAvatar(userId, file) {
+  const ext = file.name.split('.').pop()
+  const path = `${userId}/${Date.now()}.${ext}`
+  const { error } = await supabase.storage.from('avatars').upload(path, file)
+  if (error) throw error
+  const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path)
+  return publicUrl
+}
+
 export async function uploadLogo(userId, companyId, file) {
   const ext = file.name.split('.').pop()
   const path = `${userId}/${companyId}/${Date.now()}.${ext}`

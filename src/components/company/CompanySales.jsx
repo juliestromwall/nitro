@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
-import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown, DollarSign, TrendingUp } from 'lucide-react'
+import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -34,6 +34,17 @@ const fmtDate = (dateStr) => {
   const d = new Date(dateStr + 'T00:00:00')
   if (isNaN(d)) return dateStr
   return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`
+}
+
+// Normalize any date string to YYYY-MM-DD for HTML date inputs
+const toISODate = (dateStr) => {
+  if (!dateStr) return ''
+  // Already YYYY-MM-DD
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr
+  // Try parsing MM/DD/YYYY or other formats
+  const d = new Date(dateStr)
+  if (isNaN(d)) return ''
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 const SortIcon = ({ column, sortConfig }) => {
@@ -302,7 +313,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       order_type: order.order_type,
       items: order.items || [],
       order_number: order.order_number,
-      close_date: order.close_date,
+      close_date: toISODate(order.close_date),
       stage: order.stage,
       order_document: order.order_document || null,
       total: floatToCents(order.total),
@@ -1462,40 +1473,25 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           {/* Summary cards — dynamic per order type */}
           <div className={`grid gap-4`} style={{ gridTemplateColumns: `repeat(${Math.min(Object.keys(orderTypeTotals).length + 2, 5)}, minmax(0, 1fr))` }}>
             <div
-              className={`flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3 cursor-pointer transition-all ${!filterOrderType ? 'ring-2 ring-[#005b5b]' : ''}`}
+              className={`bg-white border-2 rounded-xl px-4 py-3 cursor-pointer transition-all ${!filterOrderType ? 'border-[#005b5b]' : 'border-[#005b5b]/30'}`}
               onClick={() => setFilterOrderType('')}
             >
-              <div className="p-2 bg-[#005b5b] rounded-lg">
-                <DollarSign className="size-4 text-white" />
-              </div>
-              <div>
-                <p className="text-xs text-zinc-400 uppercase tracking-wide">Total Sales</p>
-                <p className="text-lg font-bold text-white">{fmt(totalSales)}</p>
-              </div>
+              <p className="text-xs text-[#005b5b] uppercase tracking-wide">Total Sales</p>
+              <p className="text-lg font-bold text-zinc-900">{fmt(totalSales)}</p>
             </div>
             {Object.entries(orderTypeTotals).map(([type, total]) => (
               <div
                 key={type}
-                className={`flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3 cursor-pointer transition-all ${filterOrderType === type ? 'ring-2 ring-[#005b5b]' : ''}`}
+                className={`bg-white border-2 rounded-xl px-4 py-3 cursor-pointer transition-all ${filterOrderType === type ? 'border-[#005b5b]' : 'border-[#005b5b]/30'}`}
                 onClick={() => setFilterOrderType(filterOrderType === type ? '' : type)}
               >
-                <div className="p-2 bg-blue-600 rounded-lg">
-                  <DollarSign className="size-4 text-white" />
-                </div>
-                <div>
-                  <p className="text-xs text-zinc-400 uppercase tracking-wide">{type}</p>
-                  <p className="text-lg font-bold text-white">{fmt(total)}</p>
-                </div>
+                <p className="text-xs text-[#005b5b] uppercase tracking-wide">{type}</p>
+                <p className="text-lg font-bold text-zinc-900">{fmt(total)}</p>
               </div>
             ))}
-            <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3">
-              <div className="p-2 bg-emerald-600 rounded-lg">
-                <TrendingUp className="size-4 text-white" />
-              </div>
-              <div>
-                <p className="text-xs text-zinc-400 uppercase tracking-wide">Total Commish</p>
-                <p className="text-lg font-bold text-white">{fmt(totalCommission)}</p>
-              </div>
+            <div className="bg-white border-2 border-[#005b5b]/30 rounded-xl px-4 py-3">
+              <p className="text-xs text-[#005b5b] uppercase tracking-wide">Total Commish</p>
+              <p className="text-lg font-bold text-zinc-900">{fmt(totalCommission)}</p>
             </div>
           </div>
 

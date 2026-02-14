@@ -1,5 +1,5 @@
 import { useState, useMemo, Fragment } from 'react'
-import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, TrendingUp, DollarSign, AlertCircle } from 'lucide-react'
+import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -759,40 +759,25 @@ function CompanyCommission({ companyId }) {
           {/* Summary cards — clickable filters */}
           <div className="grid grid-cols-3 gap-4">
             <div
-              className={`flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3 cursor-pointer transition-all ${cardFilter === 'all' ? 'ring-2 ring-[#005b5b]' : ''}`}
+              className={`bg-white border-2 rounded-xl px-4 py-3 cursor-pointer transition-all ${cardFilter === 'all' ? 'border-[#005b5b]' : 'border-[#005b5b]/30'}`}
               onClick={() => setCardFilter('all')}
             >
-              <div className="p-2 bg-emerald-600 rounded-lg">
-                <TrendingUp className="size-4 text-white" />
-              </div>
-              <div>
-                <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Earned</p>
-                <p className="text-lg font-bold text-white">{fmt(totalEarned)}</p>
-              </div>
+              <p className="text-xs text-[#005b5b] uppercase tracking-wide">Commish Earned</p>
+              <p className="text-lg font-bold text-zinc-900">{fmt(totalEarned)}</p>
             </div>
             <div
-              className={`flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3 cursor-pointer transition-all ${cardFilter === 'paid' ? 'ring-2 ring-[#005b5b]' : ''}`}
+              className={`bg-white border-2 rounded-xl px-4 py-3 cursor-pointer transition-all ${cardFilter === 'paid' ? 'border-[#005b5b]' : 'border-[#005b5b]/30'}`}
               onClick={() => setCardFilter('paid')}
             >
-              <div className="p-2 bg-green-600 rounded-lg">
-                <DollarSign className="size-4 text-white" />
-              </div>
-              <div>
-                <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Paid</p>
-                <p className="text-lg font-bold text-white">{fmt(totalPaid)}</p>
-              </div>
+              <p className="text-xs text-[#005b5b] uppercase tracking-wide">Commish Paid</p>
+              <p className="text-lg font-bold text-zinc-900">{fmt(totalPaid)}</p>
             </div>
             <div
-              className={`flex items-center gap-3 bg-zinc-900 rounded-xl px-4 py-3 cursor-pointer transition-all ${cardFilter === 'outstanding' ? 'ring-2 ring-[#005b5b]' : ''}`}
+              className={`bg-white border-2 rounded-xl px-4 py-3 cursor-pointer transition-all ${cardFilter === 'outstanding' ? 'border-[#005b5b]' : 'border-[#005b5b]/30'}`}
               onClick={() => setCardFilter('outstanding')}
             >
-              <div className="p-2 bg-amber-500 rounded-lg">
-                <AlertCircle className="size-4 text-white" />
-              </div>
-              <div>
-                <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Owed</p>
-                <p className="text-lg font-bold text-red-400">{fmt(totalOutstanding)}</p>
-              </div>
+              <p className="text-xs text-[#005b5b] uppercase tracking-wide">Commish Owed</p>
+              <p className="text-lg font-bold text-red-600">{fmt(totalOutstanding)}</p>
             </div>
           </div>
 
@@ -862,7 +847,7 @@ function CompanyCommission({ companyId }) {
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-zinc-900">{group.accountName}</span>
-                            <Badge variant="secondary" className="text-xs">{group.rows.length} order{group.rows.length !== 1 ? 's' : ''}</Badge>
+                            <Badge variant="secondary" className="text-xs">{group.rows.length}</Badge>
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
