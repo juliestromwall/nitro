@@ -1,5 +1,33 @@
 # Session Log
 
+## 2026-02-15 (Session 7)
+
+**Worked on:** Marketing site polish, password protection, subscription bypass, logo fixes, and multiple deploys to repcommish.com.
+
+**Changes made:**
+- Created mock dashboard screenshot (light mode) with 5 brand logos (Snowbound Snowboards, Alpine Skis, Vizion Goggles, Summitwear, Kickflip Skateboards) matching the real app's icon-only sidebar layout
+- Enlarged header logo (`h-8` → `h-12`) and added "Home" nav link to MarketingHeader
+- Added color accents across all marketing pages inspired by portfolio site (teal + amber/warm dual accent system): colorful feature icons, gradient CTAs, stats section, emerald checkmarks, amber badges, rose/teal/amber accent bars
+- Removed hero badge pills, changed heading to "Know your commish." (gradient text), renamed all "RepCommish" to "REPCOMMISH" site-wide, changed "Get Started Free" to "Get Started"
+- Added password protection to MarketingLayout (password: `BringMore$now!`, localStorage persistence, REPCOMMISH logo on gate)
+- Disabled Stripe subscription checks: commented out `fetchSubscription` calls in AuthContext (subscriptions table doesn't exist yet), commented out subscription guard in ProtectedRoute, set subscription to `null` directly
+- Updated pricing from $9/mo + $72/yr to $15/mo + $144/yr (save 20%)
+- Fixed app sidebar logo: replaced `vertical-logo.png` with correct white-on-transparent vertical logo (mountain icon + stacked "REPCOMMISH" text), removed `invert` CSS class from AppLayout.jsx
+- Multiple builds and deploys to repcommish.com via VPS
+
+**Next steps:**
+- Set up Stripe account and complete subscription integration (Phase 3)
+- Deploy Supabase edge functions for checkout/webhooks
+- Run `subscriptions` table migration in Supabase SQL Editor
+- Re-enable subscription checks in ProtectedRoute and AuthContext once Stripe is live
+- Remove password protection once Stripe is set up
+
+**Open questions:**
+- Final pricing amounts (currently $15/mo and $144/yr)
+- Whether to add Stripe Customer Portal for subscription management
+
+---
+
 ## 2026-02-15 (Session 6)
 
 **Worked on:** Marketing website + Stripe integration — full routing restructure, public marketing pages, and subscription-gated access.

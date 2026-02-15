@@ -56,7 +56,7 @@
 | Avatar | User profile photo uploaded to Supabase Storage `avatars` bucket (public); shown in TopBar and UserSettingsDialog |
 | Signed URL | Temporary authenticated URL for accessing private documents in Supabase Storage |
 | Subscription | Stripe-managed subscription (monthly or annual) required to access the app. Tracked in subscriptions table with status (active, incomplete, past_due, canceled). |
-| Marketing Site | Public-facing pages (/, /features, /pricing, /about) with MarketingLayout. No auth required. |
+| Marketing Site | Public-facing pages (/, /features, /pricing, /about) with MarketingLayout. Password-gated (BringMore$now!) until Stripe is set up. |
 | Stripe Checkout | Hosted Stripe payment page for subscription signup. Redirects to /checkout/success or /checkout/cancel. |
 
 ## Pages
@@ -65,7 +65,7 @@
 |------|-------------|
 | Home (/) | Public marketing homepage with hero, features preview, demo screenshot, CTA |
 | Features (/features) | Detailed feature breakdown (8 features with icons) |
-| Pricing (/pricing) | Monthly ($9/mo) and Annual ($72/yr) pricing cards with FAQ |
+| Pricing (/pricing) | Monthly ($15/mo) and Annual ($144/yr, save 20%) pricing cards with FAQ |
 | About (/about) | Product story and mission |
 | Sign Up (/signup) | Plan selection + account creation → Stripe Checkout redirect |
 | Login (/login) | Email/password sign in within MarketingLayout; redirects to /app if authenticated |
