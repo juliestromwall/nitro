@@ -145,6 +145,26 @@ create policy "Users can insert own todos" on todos for insert with check (auth.
 create policy "Users can update own todos" on todos for update using (auth.uid() = user_id);
 create policy "Users can delete own todos" on todos for delete using (auth.uid() = user_id);
 
+-- ── Subscriptions ─────────────────────────────────────────
+
+create table subscriptions (
+  id bigint generated always as identity primary key,
+  user_id uuid references auth.users(id) not null unique,
+  stripe_customer_id text not null,
+  stripe_subscription_id text,
+  plan text not null default 'free',
+  status text not null default 'incomplete',
+  current_period_end timestamptz,
+  cancel_at_period_end boolean default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table subscriptions enable row level security;
+
+create policy "Users can view own subscription"
+  on subscriptions for select using (auth.uid() = user_id);
+
 -- ── Storage Buckets ────────────────────────────────────────
 
 insert into storage.buckets (id, name, public)

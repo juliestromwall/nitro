@@ -904,18 +904,21 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="tabYear">Year</Label>
+              <Label htmlFor="tabYear">Season</Label>
               <Select
                 value={tabForm.year}
                 onValueChange={(val) => setTabForm((p) => ({ ...p, year: val }))}
                 required
               >
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select year..." />
+                  <SelectValue placeholder="Select season..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {Array.from({ length: 26 }, (_, i) => String(2025 + i)).map((year) => (
-                    <SelectItem key={year} value={year}>{year}</SelectItem>
+                  {Array.from({ length: 25 }, (_, i) => ({
+                    label: `${2025 + i}-${2026 + i}`,
+                    value: String(2026 + i),
+                  })).map((s) => (
+                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -1496,7 +1499,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           </div>
 
           {/* Sticky search bar */}
-          <div className="sticky top-[123px] z-20 bg-background pb-2 pt-1 space-y-3 border-b border-zinc-100 dark:border-zinc-700">
+          <div className="sticky top-[107px] z-20 bg-background pb-2 pt-1 space-y-3 border-b border-zinc-100 dark:border-zinc-700">
             <div className="flex items-center gap-3">
               <div className="relative max-w-sm flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -1551,7 +1554,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           {/* Orders table */}
           <div style={{ minWidth: '1400px' }}>
             <Table>
-              <TableHeader className="sticky top-[165px] z-[15]">
+              <TableHeader className="sticky top-[149px] z-[15]">
                 <TableRow className="bg-[#005b5b] hover:bg-[#005b5b]">
                   <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
                     <span className="flex items-center gap-1 whitespace-nowrap">Account <SortIcon column="account" sortConfig={sortConfig} /></span>
@@ -1651,15 +1654,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   groupedOrders.map((group) => (
                     <Fragment key={`group-${group.clientId}`}>
                       {/* Group header row — always expanded, aligned with table columns */}
-                      <TableRow className={`border-t-4 border-zinc-300 ${
+                      <TableRow className={`border-t-4 border-zinc-300 dark:border-zinc-600 ${
                         group.isOverpaid ? 'bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30' :
                         group.isShortShipped ? 'bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/30' :
-                        'bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-800 dark:hover:bg-zinc-700'
+                        'bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-800/60 dark:hover:bg-zinc-700/60'
                       }`}>
                         <TableCell colSpan={7} className="py-3">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-zinc-900 dark:text-white text-base">{group.accountName}</span>
-                            <Badge variant="secondary" className="text-xs">{group.orders.length}</Badge>
                             {group.allInvoices.length > 0 && (
                               <>
                                 <span className="text-muted-foreground text-xs">|</span>
@@ -1684,7 +1686,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                                       {label}
                                     </a>
                                   ) : (
-                                    <span key={i} className="text-xs text-zinc-600 whitespace-nowrap">{label}</span>
+                                    <span key={i} className="text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{label}</span>
                                   )
                                 })}
                               </>
@@ -1737,7 +1739,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                             key={order.id}
                             onMouseEnter={() => setHoveredRow(order.id)}
                             onMouseLeave={() => setHoveredRow(null)}
-                            className={`group ${rowClass}`}
+                            className={`group dark:text-zinc-300 ${rowClass}`}
                           >
                             <TableCell>
                               <div className={`flex gap-1 transition-opacity ${isHovered ? 'opacity-100' : 'opacity-0'}`}>

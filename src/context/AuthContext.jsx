@@ -1,27 +1,52 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
+import { fetchSubscription } from '@/lib/db'
 
 const AuthContext = createContext()
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
+  const [subscription, setSubscription] = useState(undefined) // undefined = loading, null = none
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      const currentUser = session?.user ?? null
+      setUser(currentUser)
+
+      if (currentUser) {
+        try {
+          const sub = await fetchSubscription(currentUser.id)
+          setSubscription(sub)
+        } catch {
+          setSubscription(null)
+        }
+      }
+
       setLoading(false)
     })
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
-        setUser(session?.user ?? null)
+    const { data: { subscription: authSub } } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        const currentUser = session?.user ?? null
+        setUser(currentUser)
+
+        if (currentUser) {
+          try {
+            const sub = await fetchSubscription(currentUser.id)
+            setSubscription(sub)
+          } catch {
+            setSubscription(null)
+          }
+        } else {
+          setSubscription(undefined)
+        }
       }
     )
 
-    return () => subscription.unsubscribe()
+    return () => authSub.unsubscribe()
   }, [])
 
   const signUp = async (email, password) => {
@@ -60,8 +85,18 @@ export function AuthProvider({ children }) {
     return data
   }
 
+  const refreshSubscription = async () => {
+    if (!user) return
+    try {
+      const sub = await fetchSubscription(user.id)
+      setSubscription(sub)
+    } catch {
+      setSubscription(null)
+    }
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, signUp, signIn, signOut, updateEmail, updatePassword, updateAvatar }}>
+    <AuthContext.Provider value={{ user, loading, subscription, signUp, signIn, signOut, updateEmail, updatePassword, updateAvatar, refreshSubscription }}>
       {children}
     </AuthContext.Provider>
   )

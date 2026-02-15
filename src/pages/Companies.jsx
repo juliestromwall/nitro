@@ -187,7 +187,7 @@ function Companies() {
   const archived = companies.filter((c) => c.archived)
 
   return (
-    <div className="px-6 py-8 space-y-6">
+    <div className="px-6 py-4 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Brands</h1>
         <Button onClick={openAdd}>Add Brand</Button>

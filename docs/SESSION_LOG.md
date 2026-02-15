@@ -1,5 +1,42 @@
 # Session Log
 
+## 2026-02-15 (Session 6)
+
+**Worked on:** Marketing website + Stripe integration — full routing restructure, public marketing pages, and subscription-gated access.
+
+**Changes made:**
+- Restructured routing: app moved under `/app/*`, root URL serves marketing homepage
+- Created `MarketingLayout` with `MarketingHeader` (sticky, mobile responsive) and `MarketingFooter`
+- Created `AppLayout` (extracted from `App.jsx`) with all internal links updated to `/app` prefix
+- Created `ProtectedRoute` component with auth + subscription guard
+- Built 4 marketing pages: HomePage (hero + features preview + demo screenshot + CTA), FeaturesPage (8 detailed feature cards), PricingPage (monthly $9/annual $72 + FAQ), AboutPage
+- Created `SignUpPage` with plan toggle and Stripe Checkout redirect flow
+- Created `CheckoutSuccess` and `CheckoutCancel` pages
+- Updated `Login.jsx` for public route with auto-redirect to `/app` if authenticated
+- Added `subscriptions` table to schema with RLS
+- Created Supabase edge functions: `create-checkout-session` (Stripe Customer + Checkout Session) and `stripe-webhook` (handles 4 event types)
+- Updated `AuthContext` with subscription state and `refreshSubscription` method
+- Added `fetchSubscription` helper to `db.js`
+- Updated all internal navigate/link paths: Dashboard, CompanyDetail, CompanyLinks sidebar
+- Downloaded Pexels stock photo for hero demo section
+- Updated FEATURES.md, PRODUCT.md, SESSION_LOG.md
+
+**Next steps:**
+- Create Stripe account and product/prices (manual)
+- Deploy Supabase edge functions
+- Set env vars: STRIPE_SECRET_KEY, STRIPE_PRICE_MONTHLY, STRIPE_PRICE_ANNUAL, STRIPE_WEBHOOK_SECRET, SITE_URL
+- Set up Stripe webhook endpoint pointing to Supabase edge function URL
+- Re-enable signups in Supabase Auth settings
+- Run `subscriptions` table migration in Supabase SQL Editor
+- Build and deploy to VPS
+- Test full sign-up → Stripe Checkout → app access flow
+
+**Open questions:**
+- Final pricing amounts (currently $9/mo and $72/yr)
+- Whether to add Stripe Customer Portal for subscription management
+
+---
+
 ## 2026-02-14 (Session 4)
 
 **Worked on:** User settings, dark mode toggle, card styling, and full dark mode cleanup across all components.

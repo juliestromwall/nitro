@@ -782,7 +782,7 @@ function CompanyCommission({ companyId }) {
           </div>
 
           {/* Sticky search bar */}
-          <div className="sticky top-[123px] z-20 bg-background pb-2 pt-1 border-b border-zinc-100 dark:border-zinc-700">
+          <div className="sticky top-[107px] z-20 bg-background pb-2 pt-1 border-b border-zinc-100 dark:border-zinc-700">
             <div className="relative max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
               <Input
@@ -796,7 +796,7 @@ function CompanyCommission({ companyId }) {
 
           {/* Commission table */}
             <Table>
-              <TableHeader className="sticky top-[165px] z-[15]">
+              <TableHeader className="sticky top-[149px] z-[15]">
                 <TableRow className="bg-[#005b5b] hover:bg-[#005b5b]">
                   <TableHead className="w-10 sticky left-0 bg-[#005b5b] z-[16]"></TableHead>
                   <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
@@ -834,12 +834,12 @@ function CompanyCommission({ companyId }) {
                     <Fragment key={`group-${group.clientId}`}>
                       {/* Group header row */}
                       <TableRow
-                        className={`border-t-2 cursor-pointer ${
+                        className={`border-t-2 dark:border-zinc-600 cursor-pointer ${
                           group.aggPayStatus === 'paid' || group.aggPayStatus === 'short shipped'
                             ? 'bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30'
                             : group.aggPayStatus === 'partial'
                               ? 'bg-yellow-50 hover:bg-yellow-100 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30'
-                              : 'bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700'
+                              : 'bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800/60 dark:hover:bg-zinc-700/60'
                         }`}
                         onClick={() => toggleGroup(group.clientId)}
                       >
@@ -847,25 +847,24 @@ function CompanyCommission({ companyId }) {
                         <TableCell>
                           <div className="flex items-center gap-2">
                             <span className="font-bold text-zinc-900 dark:text-white">{group.accountName}</span>
-                            <Badge variant="secondary" className="text-xs">{group.rows.length}</Badge>
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          <span className="font-bold">{fmt(group.totalOrder)}</span>
+                          <span className="font-bold dark:text-zinc-100">{fmt(group.totalOrder)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
-                            <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedSale)}</div>
+                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">Updated: {fmt(group.adjustedSale)}</div>
                           )}
                           {group.isOverpaid && (
-                            <div className="text-xs text-emerald-600 font-medium">Updated: {fmt(group.overpaidAdjustedSale)}</div>
+                            <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Updated: {fmt(group.overpaidAdjustedSale)}</div>
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <span className="font-bold">{fmt(group.totalCommDue)}</span>
+                          <span className="font-bold dark:text-zinc-100">{fmt(group.totalCommDue)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
-                            <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedCommission)}</div>
+                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">Updated: {fmt(group.adjustedCommission)}</div>
                           )}
                           {group.isOverpaid && (
-                            <div className="text-xs text-emerald-600 font-medium">Updated: {fmt(group.overpaidAdjustedCommission)}</div>
+                            <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Updated: {fmt(group.overpaidAdjustedCommission)}</div>
                           )}
                         </TableCell>
                         <TableCell>
@@ -889,7 +888,7 @@ function CompanyCommission({ companyId }) {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <span className="font-bold">{fmt(group.totalPaid)}</span>
+                            <span className="font-bold dark:text-zinc-100">{fmt(group.totalPaid)}</span>
                             <button
                               onClick={(e) => { e.stopPropagation(); openPaymentModal(group) }}
                               className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5 whitespace-nowrap"
@@ -900,12 +899,12 @@ function CompanyCommission({ companyId }) {
                         </TableCell>
                         <TableCell>{group.latestPaidDate ? fmtDate(group.latestPaidDate) : '—'}</TableCell>
                         <TableCell className="text-right">
-                          <span className={`font-bold ${group.totalRemaining > 0 ? 'text-red-600' : ''}`}>{fmt(group.totalRemaining)}</span>
+                          <span className={`font-bold ${group.totalRemaining > 0 ? 'text-red-600 dark:text-red-400' : 'dark:text-zinc-100'}`}>{fmt(group.totalRemaining)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
-                            <div className="text-xs text-purple-600 font-medium">{fmt(group.unshippedSales)} did not ship</div>
+                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">{fmt(group.unshippedSales)} did not ship</div>
                           )}
                           {group.isOverpaid && (
-                            <div className="text-xs text-emerald-600 font-medium">{fmt(group.totalPaid - group.totalCommDue)} overpaid</div>
+                            <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">{fmt(group.totalPaid - group.totalCommDue)} overpaid</div>
                           )}
                         </TableCell>
                       </TableRow>
@@ -914,26 +913,26 @@ function CompanyCommission({ companyId }) {
                       {expandedGroups.has(group.clientId) && group.rows.map((row) => {
                         const isExcluded = EXCLUDED_STAGES.includes(row.stage)
                         return (
-                          <TableRow key={row.id} className={isExcluded ? 'bg-purple-50 dark:bg-purple-900/20' : ''}>
+                          <TableRow key={row.id} className={`dark:text-zinc-300 ${isExcluded ? 'bg-purple-50 dark:bg-purple-900/20' : ''}`}>
                             <TableCell className="w-10"></TableCell>
                             <TableCell className="pl-8">
                               <div className="flex items-center gap-2">
-                                <span className={isExcluded ? 'text-purple-600' : 'text-muted-foreground'}>{row.order_number || '—'}</span>
+                                <span className={isExcluded ? 'text-purple-600 dark:text-purple-400' : 'text-muted-foreground'}>{row.order_number || '—'}</span>
                                 {row.stage && (
                                   <span className={`text-xs px-1.5 py-0.5 rounded ${
-                                    row.stage === 'Short Shipped' ? 'bg-purple-100 text-purple-700' :
-                                    row.stage === 'Partially Shipped' ? 'bg-amber-100 text-amber-700' :
-                                    'bg-zinc-100 text-zinc-500'
+                                    row.stage === 'Short Shipped' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300' :
+                                    row.stage === 'Partially Shipped' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300' :
+                                    'bg-zinc-100 text-zinc-500 dark:bg-zinc-700 dark:text-zinc-400'
                                   }`}>
                                     {row.stage}
                                   </span>
                                 )}
                               </div>
                             </TableCell>
-                            <TableCell className={`text-right ${isExcluded ? 'text-purple-600' : 'text-muted-foreground'}`}>
+                            <TableCell className={`text-right ${isExcluded ? 'text-purple-600 dark:text-purple-400' : 'text-muted-foreground'}`}>
                               {fmt(row.orderTotal)}
                             </TableCell>
-                            <TableCell className={`text-right ${isExcluded ? 'text-purple-600' : 'text-muted-foreground'}`}>
+                            <TableCell className={`text-right ${isExcluded ? 'text-purple-600 dark:text-purple-400' : 'text-muted-foreground'}`}>
                               {fmt(row.commissionDue)}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-xs">{row.close_date ? fmtDate(row.close_date) : '—'}</TableCell>

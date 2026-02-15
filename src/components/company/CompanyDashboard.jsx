@@ -22,21 +22,27 @@ function CompanyDashboard({ companyId }) {
   const { accounts, getAccountName } = useAccounts()
   const company = companies.find((c) => c.id === companyId)
 
-  // Season selector persisted in localStorage
-  const storageKey = `dashboard-season-${companyId}`
-  const [selectedSeasonId, setSelectedSeasonId] = useState(() => {
+  // Season selector persisted in localStorage (stores year like "2026" for "2025-2026")
+  const currentYear = String(new Date().getFullYear())
+  const storageKey = `dashboard-year-${companyId}`
+  const [selectedYear, setSelectedYear] = useState(() => {
     const saved = localStorage.getItem(storageKey)
-    if (saved && activeSeasons.find((s) => s.id === saved)) return saved
-    return activeSeasons[0]?.id || ''
+    if (saved && Number(saved) >= 2026 && Number(saved) <= 2050) return saved
+    return currentYear
   })
 
-  const handleSeasonChange = (id) => {
-    setSelectedSeasonId(id)
-    localStorage.setItem(storageKey, id)
+  const handleSeasonChange = (year) => {
+    setSelectedYear(year)
+    localStorage.setItem(storageKey, year)
   }
 
-  // Summary data
-  const seasonOrders = orders.filter((o) => o.company_id === companyId && o.season_id === selectedSeasonId && !EXCLUDED_STAGES.includes(o.stage))
+  // Get all season IDs matching the selected year
+  const matchingSeasonIds = new Set(
+    activeSeasons.filter((s) => s.year === selectedYear).map((s) => s.id)
+  )
+
+  // Summary data — filter by all matching seasons
+  const seasonOrders = orders.filter((o) => o.company_id === companyId && matchingSeasonIds.has(o.season_id) && !EXCLUDED_STAGES.includes(o.stage))
   const totalSales = seasonOrders.reduce((sum, o) => sum + (o.total || 0), 0)
   const commissionPct = company?.commission_percent || 0
 
@@ -169,6 +175,23 @@ function CompanyDashboard({ companyId }) {
   const [calcPrev, setCalcPrev] = useState(null)
   const [calcOp, setCalcOp] = useState(null)
   const [calcNewInput, setCalcNewInput] = useState(true)
+  const calcDisplayRef = useRef(null)
+
+  const handleCalcKeyDown = (e) => {
+    const key = e.key
+    if (/^[0-9.]$/.test(key)) { e.preventDefault(); calcInput(key) }
+    else if (key === '+') { e.preventDefault(); calcOperation('+') }
+    else if (key === '-') { e.preventDefault(); calcOperation('-') }
+    else if (key === '*') { e.preventDefault(); calcOperation('*') }
+    else if (key === '/') { e.preventDefault(); calcOperation('/') }
+    else if (key === 'Enter' || key === '=') { e.preventDefault(); calcEquals() }
+    else if (key === 'Escape') { e.preventDefault(); calcClear() }
+    else if (key === 'Backspace') {
+      e.preventDefault()
+      setCalcDisplay(prev => prev.length <= 1 ? '0' : prev.slice(0, -1))
+      setCalcNewInput(false)
+    }
+  }
 
   const calcInput = (digit) => {
     if (calcNewInput) {
@@ -231,38 +254,28 @@ function CompanyDashboard({ companyId }) {
   return (
     <div className="space-y-6">
       {/* Season selector */}
-      {activeSeasons.length > 0 && (() => {
-        const currentIndex = activeSeasons.findIndex((s) => s.id === selectedSeasonId)
-        const selectedSeason = activeSeasons[currentIndex] || activeSeasons[0]
-        return (
-          <div className="flex items-center gap-3">
-            <Label className="text-sm text-muted-foreground">Season</Label>
-            <div className="flex items-center">
-              <button
-                onClick={() => {
-                  if (currentIndex > 0) handleSeasonChange(activeSeasons[currentIndex - 1].id)
-                }}
-                disabled={currentIndex <= 0}
-                className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-l-md border border-[#005b5b]/30 border-r-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronLeft className="size-4" />
-              </button>
-              <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold select-none min-w-[120px] text-center">
-                {selectedSeason?.label}
-              </div>
-              <button
-                onClick={() => {
-                  if (currentIndex < activeSeasons.length - 1) handleSeasonChange(activeSeasons[currentIndex + 1].id)
-                }}
-                disabled={currentIndex >= activeSeasons.length - 1}
-                className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-r-md border border-[#005b5b]/30 border-l-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              >
-                <ChevronRight className="size-4" />
-              </button>
-            </div>
+      <div className="flex items-center gap-3">
+        <Label className="text-sm text-muted-foreground">Season</Label>
+        <div className="flex items-center">
+          <button
+            onClick={() => handleSeasonChange(String(Math.max(2026, Number(selectedYear) - 1)))}
+            disabled={selectedYear === '2026'}
+            className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-l-md border border-[#005b5b]/30 border-r-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronLeft className="size-4" />
+          </button>
+          <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold select-none min-w-[120px] text-center">
+            {Number(selectedYear) - 1}-{selectedYear}
           </div>
-        )
-      })()}
+          <button
+            onClick={() => handleSeasonChange(String(Math.min(2050, Number(selectedYear) + 1)))}
+            disabled={selectedYear === '2050'}
+            className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-r-md border border-[#005b5b]/30 border-l-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+          >
+            <ChevronRight className="size-4" />
+          </button>
+        </div>
+      </div>
 
       {/* Summary cards — white with teal border and colored icon badges */}
       <div className="grid grid-cols-4 gap-4">
@@ -414,7 +427,12 @@ function CompanyDashboard({ companyId }) {
               <h2 className="text-lg font-semibold">Calculator</h2>
             </div>
             <div className="border rounded-xl bg-white dark:bg-zinc-800 p-3 space-y-2">
-              <div className="bg-zinc-900 rounded-lg px-4 py-3 text-right text-white text-xl font-mono tracking-wide">
+              <div
+                ref={calcDisplayRef}
+                tabIndex={0}
+                onKeyDown={handleCalcKeyDown}
+                className="bg-zinc-900 rounded-lg px-4 py-3 text-right text-white text-xl font-mono tracking-wide cursor-text outline-none focus:ring-2 focus:ring-[#005b5b]"
+              >
                 {calcDisplay.includes('.')
                   ? calcDisplay.replace(/^(-?\d+)/, (m) => Number(m).toLocaleString())
                   : Number(calcDisplay).toLocaleString()}

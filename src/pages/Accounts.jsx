@@ -114,7 +114,7 @@ function Accounts() {
   }
 
   return (
-    <div className="px-6 py-8 space-y-6">
+    <div className="px-6 py-4 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Accounts</h1>
         <div className="flex items-center gap-2">

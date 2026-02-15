@@ -262,6 +262,18 @@ export async function updateTodoSortOrders(updates) {
   if (firstError?.error) throw firstError.error
 }
 
+// ── Subscriptions ─────────────────────────────────────────
+
+export async function fetchSubscription(userId) {
+  const { data, error } = await supabase
+    .from('subscriptions')
+    .select('*')
+    .eq('user_id', userId)
+    .single()
+  if (error && error.code !== 'PGRST116') throw error // PGRST116 = no rows
+  return data || null
+}
+
 // ── Storage ────────────────────────────────────────────────
 
 export async function uploadAvatar(userId, file) {

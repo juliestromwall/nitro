@@ -4,8 +4,19 @@
 
 | Component | Location | Description |
 |-----------|----------|-------------|
-| App Layout | src/App.jsx | Sidebar nav with company icons at top, icon navigation below, auth guard, sign out button, customizable homepage (long-press/right-click logo to set any page as homepage) |
-| Login | src/pages/Login.jsx | Email/password sign-in only (no public signup; users created via Supabase dashboard) |
+| MarketingLayout | src/layouts/MarketingLayout.jsx | Public layout with marketing header (logo, nav, login/signup buttons) and footer. Uses Outlet for nested routes. |
+| AppLayout | src/layouts/AppLayout.jsx | Sidebar nav with company icons at top, icon navigation below, sign out button, customizable homepage (long-press/right-click logo to set any page as homepage). All app routes under /app/* prefix. |
+| ProtectedRoute | src/components/ProtectedRoute.jsx | Auth + subscription guard. Redirects to /login if not authenticated, to /signup if no active subscription. |
+| MarketingHeader | src/components/marketing/MarketingHeader.jsx | Sticky header with logo, nav links (Features, Pricing, About), Login/Sign Up buttons, mobile menu. |
+| MarketingFooter | src/components/marketing/MarketingFooter.jsx | Footer with brand description, product links, account links, copyright. |
+| HomePage | src/pages/marketing/HomePage.jsx | Hero section, features preview cards, screenshot demo section, CTA. Auto-redirects authenticated users to /app. |
+| FeaturesPage | src/pages/marketing/FeaturesPage.jsx | Detailed feature breakdown with Lucide icons (8 features). |
+| PricingPage | src/pages/marketing/PricingPage.jsx | Monthly ($9/mo) and Annual ($72/yr, save 33%) pricing cards with feature lists and FAQ. |
+| AboutPage | src/pages/marketing/AboutPage.jsx | Product story: the problem, the solution, what makes it different. |
+| SignUpPage | src/pages/marketing/SignUpPage.jsx | Plan toggle (monthly/annual from URL param), email/password form, creates account then redirects to Stripe Checkout. Supports resume flow for users without active subscription. |
+| CheckoutSuccess | src/pages/marketing/CheckoutSuccess.jsx | Success message with "Go to Dashboard" button after Stripe payment. |
+| CheckoutCancel | src/pages/marketing/CheckoutCancel.jsx | Cancellation message with retry options. |
+| Login | src/pages/Login.jsx | Email/password sign-in within MarketingLayout. Auto-redirects to /app if already logged in. Sign-up link. |
 | Dashboard | src/pages/Dashboard.jsx | Cross-brand reporting: year selector (2025–2050), summary cards (Total Sales, Commission Earned, Commission Owed), brand table with logo + per-brand totals + totals row |
 | Accounts | src/pages/Accounts.jsx | Account list with search, add/import accounts (CSV import, uses AccountContext) |
 | Sales | _(removed)_ | Sales now accessed only via CompanyDetail > Sales tab |
@@ -13,23 +24,27 @@
 | TopBar | src/components/TopBar.jsx | Top-right bar with dark mode toggle (Moon/Sun icon) and user avatar button (opens UserSettingsDialog) |
 | UserSettingsDialog | src/components/UserSettingsDialog.jsx | Dialog for avatar upload (Supabase Storage), email change (sends confirmation), and password change |
 | useTheme | src/hooks/useTheme.js | Dark mode hook: reads/writes localStorage, toggles `.dark` class on document root |
-| AuthContext | src/context/AuthContext.jsx | Auth state (user, loading), signUp, signIn, signOut, updateEmail, updatePassword, updateAvatar via Supabase Auth |
+| AuthContext | src/context/AuthContext.jsx | Auth state (user, loading, subscription), signUp, signIn, signOut, updateEmail, updatePassword, updateAvatar, refreshSubscription via Supabase Auth + subscriptions table |
 | AccountContext | src/context/AccountContext.jsx | Account CRUD (single + bulk CSV import) via Supabase + getAccountName helper |
 | SalesContext | src/context/SalesContext.jsx | Seasons + Orders + Commissions CRUD via Supabase |
 | TodoContext | src/context/TodoContext.jsx | Per-company to-do CRUD via Supabase (add, edit, toggle complete, pin/unpin, reorder, delete) |
 | CompanyContext | src/context/CompanyContext.jsx | Company CRUD via Supabase (add, update, archive, reorder) + logo upload to Storage |
 | Companies | src/pages/Companies.jsx | Company list with add/edit, logo upload to Supabase Storage, archive/restore, drag-to-reorder, per-category commission rate overrides |
-| CompanyDetail | src/pages/CompanyDetail.jsx | Tab shell: header with Add Sale button + Dashboard/Sales/Commission pill tabs per company |
+| CompanyDetail | src/pages/CompanyDetail.jsx | Tab shell: header with Add Sale + Add Payment buttons + Dashboard/Sales/Commission/Payments tabs per company |
+| CompanyPayments | src/components/company/CompanyPayments.jsx | Per-company payment history: flattened from commission payments JSONB, grouped by date, sortable columns (Account, Date, Amount), search by account name, summary cards (Total Payments, Payment Count), sticky search + table header |
+| BulkPaymentModal | src/components/company/BulkPaymentModal.jsx | Bulk payment entry: shared date input, multiple payment rows with searchable account dropdown + pay status + cents-first amount, aggregates rows per account, appends to existing payments array, short shipped confirmation dialog |
 | CompanyDashboard | src/components/company/CompanyDashboard.jsx | Season dropdown, 4 summary cards, To Dos with searchable account dropdown, pin/unpin, drag-to-reorder, overdue styling |
 | CompanySales | src/components/company/CompanySales.jsx | Per-company sales: season tabs, **account-grouped table** (orders grouped by account with header rows showing account name, order count, group total, invoices with doc links, pending amount, and "Add Invoice" button), group invoice modal (manage invoices at account level — stored on first order in group), sticky first-column edit/delete actions, clickable summary cards that filter by order type, 2-step Add/Edit Sale wizard with company logo+name header (Step 1: Sale Type, Tracker, Account; Step 2: Order Type, Items, Order #, Total, Stage, Close Date, Notes), Sale Type column in table (Prebook/At Once), document upload on Order #, cents-first currency Total input (typing "4424" → $44.24), required Order Type and Stage fields, Stage next to Close Date, stages include Partially Shipped and Short Shipped (with confirmation dialog and amber row styling, excluded from totals), celebration popup after adding a sale, scrollable modal (max-h-90vh), "+Note" text button vs amber StickyNote icon, search, filters, notes modal, CSV import with tracker confirmation dialog |
 | CompanySettings | src/components/company/CompanySettings.jsx | Per-company settings: configurable order types, items, and stages lists with add/remove chips and save button |
 | CompanyCommission | src/components/company/CompanyCommission.jsx | Per-company commission: order-driven (excludes Cancelled and Short Shipped), **account-grouped table** (clickable group header rows to expand/collapse, showing account name, order count, combined total, combined commission due, invoices with doc links, pending amount, and "+ Payment" button), **account-level payment modal** (Pay Status dropdown, summary with Commission Due/Total Paid/Remaining, multiple payments with amount + date, stored on first order's commission record), clickable summary card filters (Earned/Paid/Outstanding), row highlighting (green=Paid, yellow=Partial), search bar |
 | Supabase Client | src/lib/supabase.js | Supabase client init (uses VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY) |
 | CSV Parser | src/lib/csv.js | CSV parsing utilities: `parseCSVLine` (handles quoted fields with commas) and `splitCSVRows` (handles multi-line quoted fields) |
-| DB Helpers | src/lib/db.js | All Supabase query helpers (companies, clients, seasons, orders, commissions, todos, storage) with pagination for 1000+ row tables |
+| DB Helpers | src/lib/db.js | All Supabase query helpers (companies, clients, seasons, orders, commissions, todos, subscriptions, storage) with pagination for 1000+ row tables |
 | Constants | src/lib/constants.js | Regions, account types, EXCLUDED_STAGES (Cancelled, Short Shipped) |
-| SQL Schema | scripts/schema.sql | Full PostgreSQL schema with RLS policies and storage buckets |
+| SQL Schema | scripts/schema.sql | Full PostgreSQL schema with RLS policies, storage buckets, and subscriptions table |
 | Seed Script | scripts/seed.js | One-time seed script to import mock data for a user |
+| Checkout Edge Function | supabase/functions/create-checkout-session/index.ts | Creates Stripe Customer + Checkout Session for subscription payment. Inserts/updates subscriptions row. |
+| Webhook Edge Function | supabase/functions/stripe-webhook/index.ts | Handles Stripe webhook events: checkout.session.completed, subscription updated/deleted, invoice.payment_failed. Updates subscription status in DB. |
 
 ## Changelog
 
@@ -68,3 +83,5 @@
 | 2026-02-12 | Clickable account rows, account-level payments, sidebar logo fix: Entire group header rows are clickable to expand/collapse (Sales + Commission). Commission page: replaced per-order inline editing with account-level payment modal ("+ Payment" button on group rows opens modal with Pay Status, payment list with amount + date, auto status calculation). Sidebar brand logos now have white background containers for visibility. Deployed to repcommish.com. |
 | 2026-02-14 | Per-category commission rates: Companies can set different commission % per category (e.g., Rental 7%, Retail 4%) via the Edit Brand form. Category rates are used as the expected rate — only manual per-order overrides show the hazard icon. Add Sale form auto-updates commission % when category changes. Short-shipped logic uses weighted average rate. Fixed "Unpaid" pay status not persisting in commission aggregation. Deployed to repcommish.com. |
 | 2026-02-14 | User settings & dark mode: TopBar with dark mode toggle and user avatar. UserSettingsDialog for avatar upload, email change, password change. useTheme hook with localStorage persistence and anti-flash script. Full dark mode cleanup across all 8+ component files with dark: variants on cards, tables, dropdowns, badges, modals, forms, and more. Supabase avatars storage bucket. Deployed to repcommish.com. |
+| 2026-02-15 | Reduced top gap: py-8/pt-8 → py-4/pt-4 on all pages, updated sticky offsets (top-[123px]→top-[107px], top-[165px]→top-[149px]). New Payments tab on CompanyDetail showing all payment history grouped by date with sortable columns and search. New BulkPaymentModal for adding payments to multiple accounts at once with shared date, searchable account dropdown, pay status, and cents-first amount entry. Green "+ Add Payment" button in company header. |
+| 2026-02-15 | Marketing website + Stripe integration: Restructured routing — app moved under /app/*, root URL serves marketing homepage. Created MarketingLayout (header + footer), MarketingHeader (sticky, mobile menu), MarketingFooter. Marketing pages: HomePage (hero, features preview, demo screenshot, CTA), FeaturesPage (8 detailed feature cards with Lucide icons), PricingPage (monthly $9/annual $72 with save badge, FAQ), AboutPage. Created ProtectedRoute with auth + subscription guard. Updated Login for public route with /app redirect. SignUpPage with plan toggle + Stripe Checkout redirect. CheckoutSuccess/CheckoutCancel pages. Supabase edge functions: create-checkout-session (Stripe Customer + Checkout Session), stripe-webhook (handles checkout.session.completed, subscription updated/deleted, invoice.payment_failed). Subscriptions table with RLS. AuthContext updated with subscription state + refreshSubscription. All internal app links updated with /app prefix. Pexels stock photo for hero demo section. |

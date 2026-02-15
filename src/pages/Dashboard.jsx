@@ -97,20 +97,20 @@ function Dashboard() {
   }, [seasons, orders, commissions, activeCompanies, companyMap, selectedYear])
 
   return (
-    <div className="px-6 py-8 space-y-8">
+    <div className="px-6 py-4 space-y-8">
       {/* Header */}
       <div className="flex items-center gap-4">
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <div className="flex items-center">
           <button
-            onClick={() => setSelectedYear((y) => String(Math.max(2025, Number(y) - 1)))}
-            disabled={selectedYear === '2025'}
+            onClick={() => setSelectedYear((y) => String(Math.max(2026, Number(y) - 1)))}
+            disabled={selectedYear === '2026'}
             className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-l-md border border-[#005b5b]/30 border-r-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronLeft className="size-4" />
           </button>
-          <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold tabular-nums select-none">
-            {selectedYear}
+          <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold tabular-nums select-none min-w-[120px] text-center">
+            {Number(selectedYear) - 1}-{selectedYear}
           </div>
           <button
             onClick={() => setSelectedYear((y) => String(Math.min(2050, Number(y) + 1)))}
@@ -165,7 +165,7 @@ function Dashboard() {
             return (
               <div
                 key={row.id}
-                onClick={() => navigate(`/companies/${row.id}`)}
+                onClick={() => navigate(`/app/companies/${row.id}`)}
                 className="group relative bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-2xl p-6 hover:shadow-lg hover:border-zinc-300 dark:hover:border-zinc-600 transition-all cursor-pointer"
               >
                 {/* Logo + Name */}
@@ -233,7 +233,7 @@ function Dashboard() {
                   </div>
                 ) : (
                   <p className="text-sm text-center text-muted-foreground py-2">
-                    No sales in {selectedYear}
+                    No sales in {Number(selectedYear) - 1}-{selectedYear}
                   </p>
                 )}
               </div>

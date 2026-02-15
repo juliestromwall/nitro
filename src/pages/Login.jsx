@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Navigate, Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -6,11 +7,16 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { useAuth } from '@/context/AuthContext'
 
 function Login() {
-  const { signIn } = useAuth()
+  const { user, signIn } = useAuth()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Redirect to app if already logged in
+  if (user) {
+    return <Navigate to="/app" replace />
+  }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -27,7 +33,7 @@ function Login() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-zinc-50 dark:bg-zinc-900">
+    <div className="min-h-[80vh] flex items-center justify-center">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           <img src="/repcommish-logo.png" alt="RepCommish" className="h-28 mx-auto" />
@@ -68,6 +74,13 @@ function Login() {
             <Button type="submit" className="w-full" disabled={loading}>
               {loading ? 'Loading...' : 'Sign In'}
             </Button>
+
+            <p className="text-center text-sm text-muted-foreground">
+              Don't have an account?{' '}
+              <Link to="/signup" className="text-[#005b5b] hover:underline font-medium">
+                Sign up
+              </Link>
+            </p>
           </form>
         </CardContent>
       </Card>

@@ -8,11 +8,14 @@ import { useCompanies } from '@/context/CompanyContext'
 import CompanyDashboard from '@/components/company/CompanyDashboard'
 import CompanySales from '@/components/company/CompanySales'
 import CompanyCommission from '@/components/company/CompanyCommission'
+import CompanyPayments from '@/components/company/CompanyPayments'
+import BulkPaymentModal from '@/components/company/BulkPaymentModal'
 
 const tabs = [
   { id: 'dashboard', label: 'Brand', icon: Home },
   { id: 'sales', label: 'Sales' },
   { id: 'commission', label: 'Commission' },
+  { id: 'payments', label: 'Payments' },
 ]
 
 function CompanyDetail() {
@@ -26,11 +29,12 @@ function CompanyDetail() {
     if (!user) return 'dashboard'
     try {
       const saved = JSON.parse(localStorage.getItem(`homepage-${user.id}`))
-      if (saved?.path === `/companies/${id}` && saved?.tab) return saved.tab
+      if ((saved?.path === `/app/companies/${id}` || saved?.path === `/companies/${id}`) && saved?.tab) return saved.tab
     } catch { /* ignore */ }
     return 'dashboard'
   })
   const [addSaleOpen, setAddSaleOpen] = useState(false)
+  const [addPaymentOpen, setAddPaymentOpen] = useState(false)
 
   // Persist active tab so App.jsx can read it when setting homepage
   useEffect(() => {
@@ -39,9 +43,9 @@ function CompanyDetail() {
 
   if (!company) {
     return (
-      <div className="px-6 py-8">
+      <div className="px-6 py-4">
         <p>Brand not found.</p>
-        <Link to="/companies" className="text-blue-600 underline">Back to Brands</Link>
+        <Link to="/app/companies" className="text-blue-600 underline">Back to Brands</Link>
       </div>
     )
   }
@@ -51,12 +55,17 @@ function CompanyDetail() {
     setAddSaleOpen(true)
   }
 
+  const handleAddPaymentClick = () => {
+    setActiveTab('commission')
+    setAddPaymentOpen(true)
+  }
+
   return (
     <div style={{ minWidth: 'fit-content' }}>
       {/* Sticky Header + Tabs */}
-      <div className="sticky top-0 z-30 bg-background px-4 pt-8 pb-0">
+      <div className="sticky top-0 z-30 bg-background px-4 pt-4 pb-0">
         <div className="flex items-center gap-3 pb-4">
-          <Link to="/companies" className="text-muted-foreground hover:text-foreground">
+          <Link to="/app/companies" className="text-muted-foreground hover:text-foreground">
             <ArrowLeft className="size-5" />
           </Link>
           {company.logo_path ? (
@@ -70,6 +79,9 @@ function CompanyDetail() {
           <Badge variant="outline">{company.commission_percent}% Commission</Badge>
           <Button className="bg-[#005b5b] hover:bg-[#007a7a] text-white" onClick={handleAddSaleClick}>
             <Plus className="size-4 mr-1" /> Add Sale
+          </Button>
+          <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleAddPaymentClick}>
+            <Plus className="size-4 mr-1" /> Add Payment
           </Button>
         </div>
 
@@ -93,7 +105,7 @@ function CompanyDetail() {
       </div>
 
       {/* Tab content */}
-      <div className="px-4 pb-8 pt-6 space-y-6">
+      <div className="px-4 pb-8 pt-4 space-y-6">
       {activeTab === 'dashboard' && <CompanyDashboard companyId={company.id} />}
       {activeTab === 'sales' && (
         <CompanySales
@@ -103,7 +115,14 @@ function CompanyDetail() {
         />
       )}
       {activeTab === 'commission' && <CompanyCommission companyId={company.id} />}
+      {activeTab === 'payments' && <CompanyPayments companyId={company.id} />}
       </div>
+
+      <BulkPaymentModal
+        open={addPaymentOpen}
+        onOpenChange={setAddPaymentOpen}
+        companyId={company.id}
+      />
     </div>
   )
 }
