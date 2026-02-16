@@ -58,6 +58,8 @@
 | Subscription | Stripe-managed subscription (monthly or annual) required to access the app. Tracked in subscriptions table with status (active, incomplete, past_due, canceled). |
 | Marketing Site | Public-facing pages (/, /features, /pricing, /about) with MarketingLayout. Password-gated (BringMore$now!) until Stripe is set up. |
 | Stripe Checkout | Hosted Stripe payment page for subscription signup. Redirects to /checkout/success or /checkout/cancel. |
+| Contact Message | A message submitted through the /contact page form. Saved to contact_messages table and emailed to hello@repcommish.com via Edge Function. |
+| Email Signature | HTML email signature (email-signature.html) for hello@repcommish.com with REPCOMMISH logo, teal accent, and tagline. |
 
 ## Pages
 
@@ -70,6 +72,7 @@
 | Sign Up (/signup) | Plan selection + account creation → Stripe Checkout redirect |
 | Login (/login) | Email/password sign in within MarketingLayout; redirects to /app if authenticated |
 | Checkout Success (/checkout/success) | Post-payment success page with "Go to Dashboard" |
+| Contact (/contact) | Contact page with email card, quick questions, and ask-a-question form |
 | Checkout Cancel (/checkout/cancel) | Payment cancellation with retry options |
 | Dashboard (/app) | Summary stats: total sales, rental/retail breakdown, commission due/paid |
 | Accounts (/app/accounts) | Account list with add/import CSV, filterable by region and type |

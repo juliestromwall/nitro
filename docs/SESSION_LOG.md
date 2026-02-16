@@ -1,5 +1,32 @@
 # Session Log
 
+## 2026-02-15 (Session 8)
+
+**Worked on:** Contact page, email signature, contact form with Supabase Edge Function email sending, SMTP configuration, homepage screenshot gallery with fan-out hover animation.
+
+**Changes made:**
+- **Contact page:** Created `ContactPage.jsx` with hero, email card (hello@repcommish.com), quick questions card, "Ask a Question" form with direct send, and CTA. Added to router, header nav, and footer.
+- **Contact form backend:** Form submits to Supabase Edge Function `contact-email` which saves to `contact_messages` table AND sends HTML email to hello@repcommish.com via Hostinger SMTP (smtp.hostinger.com:465). Fallback: direct DB insert if edge function fails. Shows green checkmark confirmation on success.
+- **Edge function:** Created `supabase/functions/contact-email/index.ts` using denomailer library. Deployed via Supabase CLI with SMTP_USER and SMTP_PASS secrets (noreply@repcommish.com).
+- **Email signature:** Created `email-signature.html` — minimalist design with REPCOMMISH logo (from repcommish.com), thin teal line divider, contact info on one line, and "Track your sales. Know your commish." tagline with teal accent.
+- **Homepage screenshot gallery:** Replaced single mock screenshot with 3 real app screenshots (dashboard, commission, brand) in a stacked/crooked layout. Each card has browser chrome (dots + URL bar). Lightbox modal with prev/next arrows and dot navigation on click.
+- **Fan-out hover animation:** Group hover effect — commission fans left (-60px, rotate -5deg), brand fans right (+60px, rotate +4deg), dashboard lifts up (-16px) with deeper shadow. 500ms smooth animation.
+- **SMTP setup:** Helped configure Hostinger SMTP for Supabase Auth (noreply@repcommish.com) and for contact email edge function (hello@repcommish.com).
+- Multiple builds and deploys to repcommish.com via VPS.
+
+**Next steps:**
+- Set up Stripe account and complete subscription integration (Phase 3)
+- Deploy Supabase edge functions for checkout/webhooks
+- Run `subscriptions` table migration in Supabase SQL Editor
+- Re-enable subscription checks in ProtectedRoute and AuthContext once Stripe is live
+- Remove password protection once Stripe is set up
+
+**Open questions:**
+- Final pricing amounts (currently $15/mo and $144/yr)
+- Whether to add Stripe Customer Portal for subscription management
+
+---
+
 ## 2026-02-15 (Session 7)
 
 **Worked on:** Marketing site polish, password protection, subscription bypass, logo fixes, and multiple deploys to repcommish.com.
