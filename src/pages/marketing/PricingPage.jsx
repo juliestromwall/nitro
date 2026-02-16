@@ -32,10 +32,10 @@ function PricingPage() {
         <div className="max-w-4xl mx-auto px-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {/* Monthly */}
-            <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 p-8 flex flex-col">
+            <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 p-8 flex flex-col bg-white dark:bg-zinc-900">
               <h3 className="text-lg font-semibold text-zinc-900 dark:text-white">Monthly</h3>
               <div className="mt-4 flex items-baseline gap-1">
-                <span className="text-4xl font-bold text-zinc-900 dark:text-white">$9</span>
+                <span className="text-4xl font-bold text-zinc-900 dark:text-white">$15</span>
                 <span className="text-zinc-500">/month</span>
               </div>
               <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Billed monthly. Cancel anytime.</p>
@@ -43,7 +43,7 @@ function PricingPage() {
               <ul className="mt-8 space-y-3 flex-1">
                 {features.map((f) => (
                   <li key={f} className="flex items-center gap-3 text-sm text-zinc-600 dark:text-zinc-400">
-                    <Check className="size-4 text-[#005b5b] shrink-0" />
+                    <Check className="size-4 text-emerald-500 shrink-0" />
                     {f}
                   </li>
                 ))}
@@ -58,21 +58,21 @@ function PricingPage() {
             </div>
 
             {/* Annual */}
-            <div className="rounded-2xl border-2 border-[#005b5b] p-8 flex flex-col relative">
-              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#005b5b] text-white text-xs font-semibold px-3 py-1 rounded-full">
-                Save 33%
+            <div className="rounded-2xl border-2 border-[#005b5b] p-8 flex flex-col relative bg-white dark:bg-zinc-900 shadow-lg shadow-[#005b5b]/10">
+              <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-gradient-to-r from-amber-500 to-orange-500 text-white text-xs font-semibold px-4 py-1 rounded-full shadow-md">
+                Save 20%
               </div>
               <h3 className="text-lg font-semibold text-zinc-900 dark:text-white">Annual</h3>
               <div className="mt-4 flex items-baseline gap-1">
-                <span className="text-4xl font-bold text-zinc-900 dark:text-white">$72</span>
+                <span className="text-4xl font-bold text-zinc-900 dark:text-white">$144</span>
                 <span className="text-zinc-500">/year</span>
               </div>
-              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">$6/month billed annually.</p>
+              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">$12/month billed annually.</p>
 
               <ul className="mt-8 space-y-3 flex-1">
                 {features.map((f) => (
                   <li key={f} className="flex items-center gap-3 text-sm text-zinc-600 dark:text-zinc-400">
-                    <Check className="size-4 text-[#005b5b] shrink-0" />
+                    <Check className="size-4 text-emerald-500 shrink-0" />
                     {f}
                   </li>
                 ))}
@@ -80,7 +80,7 @@ function PricingPage() {
 
               <Link
                 to="/signup?plan=annual"
-                className="mt-8 block text-center px-6 py-3 bg-[#005b5b] hover:bg-[#007a7a] text-white font-medium rounded-lg transition-colors"
+                className="mt-8 block text-center px-6 py-3 bg-[#005b5b] hover:bg-[#007a7a] text-white font-medium rounded-lg transition-colors shadow-lg shadow-[#005b5b]/25"
               >
                 Get Started
               </Link>

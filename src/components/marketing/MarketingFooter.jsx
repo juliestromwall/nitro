@@ -7,7 +7,7 @@ function MarketingFooter() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {/* Brand */}
           <div>
-            <img src="/repcommish-logo.png" alt="RepCommish" className="h-8 mb-3" />
+            <img src="/repcommish-logo.png" alt="REPCOMMISH" className="h-8 mb-3 dark:invert" />
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Sales and commission tracking built for independent sales reps.
             </p>
@@ -35,7 +35,7 @@ function MarketingFooter() {
 
         <div className="mt-8 pt-8 border-t border-zinc-200 dark:border-zinc-800 text-center">
           <p className="text-sm text-zinc-400 dark:text-zinc-500">
-            &copy; {new Date().getFullYear()} RepCommish. All rights reserved.
+            &copy; {new Date().getFullYear()} REPCOMMISH. All rights reserved.
           </p>
         </div>
       </div>

@@ -83,7 +83,7 @@ function SignUpPage() {
     <div className="min-h-[80vh] flex items-center justify-center py-12">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <img src="/repcommish-logo.png" alt="RepCommish" className="h-20 mx-auto mb-2" />
+          <img src="/repcommish-logo.png" alt="REPCOMMISH" className="h-20 mx-auto mb-2 dark:invert" />
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">
             {user ? 'Complete Your Subscription' : 'Create your account'}
           </h1>
@@ -103,7 +103,7 @@ function SignUpPage() {
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
-              Monthly — $9/mo
+              Monthly — $15/mo
             </button>
             <button
               type="button"
@@ -114,7 +114,7 @@ function SignUpPage() {
                   : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
               }`}
             >
-              Annual — $72/yr
+              Annual — $144/yr
             </button>
           </div>
 

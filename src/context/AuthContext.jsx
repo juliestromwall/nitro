@@ -15,14 +15,16 @@ export function AuthProvider({ children }) {
       const currentUser = session?.user ?? null
       setUser(currentUser)
 
-      if (currentUser) {
-        try {
-          const sub = await fetchSubscription(currentUser.id)
-          setSubscription(sub)
-        } catch {
-          setSubscription(null)
-        }
-      }
+      // TODO: Re-enable subscription fetch once Stripe is set up
+      // if (currentUser) {
+      //   try {
+      //     const sub = await fetchSubscription(currentUser.id)
+      //     setSubscription(sub)
+      //   } catch {
+      //     setSubscription(null)
+      //   }
+      // }
+      setSubscription(null)
 
       setLoading(false)
     })
@@ -32,17 +34,19 @@ export function AuthProvider({ children }) {
       async (_event, session) => {
         const currentUser = session?.user ?? null
         setUser(currentUser)
+        setSubscription(null)
 
-        if (currentUser) {
-          try {
-            const sub = await fetchSubscription(currentUser.id)
-            setSubscription(sub)
-          } catch {
-            setSubscription(null)
-          }
-        } else {
-          setSubscription(undefined)
-        }
+        // TODO: Re-enable subscription fetch once Stripe is set up
+        // if (currentUser) {
+        //   try {
+        //     const sub = await fetchSubscription(currentUser.id)
+        //     setSubscription(sub)
+        //   } catch {
+        //     setSubscription(null)
+        //   }
+        // } else {
+        //   setSubscription(undefined)
+        // }
       }
     )
 

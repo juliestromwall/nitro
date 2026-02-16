@@ -36,7 +36,7 @@ function Login() {
     <div className="min-h-[80vh] flex items-center justify-center">
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
-          <img src="/repcommish-logo.png" alt="RepCommish" className="h-28 mx-auto" />
+          <img src="/repcommish-logo.png" alt="REPCOMMISH" className="h-28 mx-auto dark:invert" />
           <p className="text-sm text-muted-foreground">
             Sign in to your account
           </p>

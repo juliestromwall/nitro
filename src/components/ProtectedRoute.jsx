@@ -16,10 +16,10 @@ function ProtectedRoute({ children }) {
     return <Navigate to="/login" replace />
   }
 
-  // If user has no active subscription, redirect to signup
-  if (subscription !== undefined && subscription?.status !== 'active' && subscription?.status !== 'trialing') {
-    return <Navigate to="/signup?resume=true" replace />
-  }
+  // TODO: Re-enable subscription check once Stripe is set up
+  // if (subscription !== undefined && subscription?.status !== 'active' && subscription?.status !== 'trialing') {
+  //   return <Navigate to="/signup?resume=true" replace />
+  // }
 
   return children
 }

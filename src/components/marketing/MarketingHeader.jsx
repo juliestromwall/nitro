@@ -3,6 +3,7 @@ import { Link, NavLink } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 
 const navLinks = [
+  { to: '/', label: 'Home' },
   { to: '/features', label: 'Features' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/about', label: 'About' },
@@ -16,7 +17,7 @@ function MarketingHeader() {
       <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2">
-          <img src="/repcommish-logo.png" alt="RepCommish" className="h-8" />
+          <img src="/repcommish-logo.png" alt="REPCOMMISH" className="h-12 dark:invert" />
         </Link>
 
         {/* Desktop nav */}
@@ -25,6 +26,7 @@ function MarketingHeader() {
             <NavLink
               key={link.to}
               to={link.to}
+              end={link.to === '/'}
               className={({ isActive }) =>
                 `text-sm font-medium transition-colors ${
                   isActive
@@ -70,6 +72,7 @@ function MarketingHeader() {
             <NavLink
               key={link.to}
               to={link.to}
+              end={link.to === '/'}
               onClick={() => setMobileOpen(false)}
               className={({ isActive }) =>
                 `block text-sm font-medium py-2 ${
