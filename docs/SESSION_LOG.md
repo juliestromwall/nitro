@@ -1,5 +1,40 @@
 # Session Log
 
+## 2026-02-17 (Session 10)
+
+**Worked on:** Redesigned Add Sale modal from 2-step wizard to single-step multi-row layout. Debugged save issue.
+
+**Changes made:**
+- **Single-step Add Sale modal:** Replaced 2-step wizard (Step 1: Sale Type, Tracker, Account → Step 2: fields) with a single-step form showing all essential fields at once
+- **Multi-row support:** Added `saleRows` array state with `makeEmptyRow()`, `addSaleRow`, `updateSaleRow`, `removeSaleRow` helpers (same pattern as BulkPaymentModal)
+- **"+ Add Row" button:** Users can add multiple sales at once; each row has its own account search dropdown
+- **"Add Additional Details" toggle:** Per-row collapsible section for Category, Items, Order #, Upload Doc, Stage, Notes (hidden by default)
+- **Compact layout:** Account (full width, first field) → Order Type + Sales Tracker (same row) → Total + Commission % + Close Date (same row). In details: Category + Order # on same line
+- **Smart defaults:** Order Type = "Prebook", Stage = "Order Placed", Date = today, Commission = company default %
+- **Category not pre-filled:** Defaults to empty with "Select category..." placeholder
+- **Validation simplified:** Only Account Name and Total > 0 are required (removed order_type/stage requirements)
+- **Edit mode:** Shows all fields (no toggle), single row only
+- **Account dropdown fix:** No longer auto-opens when modal opens (only shows when search text exists)
+- Removed `saleStep` state and all Step 1/Step 2 logic
+- Removed `ChevronLeft` import (no longer needed)
+- Deployed to production (repcommish.com)
+
+**Known issue — Save not working:**
+- The "Add Sale" button is enabled and clickable, validation passes, `handleSaleSubmit` executes correctly, `addOrder` in SalesContext is reached with valid data, `db.insertOrder` is called... but the Supabase `.insert()` call hangs indefinitely (never resolves or rejects, no network request sent)
+- This may be a Supabase auth session issue or client state issue — needs investigation in next session
+- Debug tracing confirmed: all JS logic works, the hang is at the Supabase client level
+
+**Next steps:**
+- **Fix the Supabase insert hang** — most likely cause: expired auth session causing the Supabase client to hang. Try: (1) test on production with fresh login, (2) add timeout wrapper around insert, (3) check Supabase JS client version, (4) verify auth session is valid before insert
+- Deploy fix once save is working
+- Test full flow: add single sale, add multiple sales, edit existing sale
+
+**Open questions:**
+- Why does the Supabase JS client hang instead of throwing an error when the insert fails?
+- Is this specific to the insert or would selects also hang? (selects work fine on page load)
+
+---
+
 ## 2026-02-15 (Session 8)
 
 **Worked on:** Contact page, email signature, contact form with Supabase Edge Function email sending, SMTP configuration, homepage screenshot gallery with fan-out hover animation.
