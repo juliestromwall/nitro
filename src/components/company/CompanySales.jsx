@@ -1,12 +1,9 @@
 import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
-import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronLeft, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
-} from '@/components/ui/select'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
 } from '@/components/ui/table'
@@ -18,8 +15,8 @@ import { useCompanies } from '@/context/CompanyContext'
 import { useAuth } from '@/context/AuthContext'
 import { uploadDocument, getDocumentUrl } from '@/lib/db'
 import { useSales } from '@/context/SalesContext'
-import { parseCSVLine, splitCSVRows } from '@/lib/csv'
 import { EXCLUDED_STAGES } from '@/lib/constants'
+import ImportSalesModal from '@/components/company/ImportSalesModal'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -92,45 +89,163 @@ const getInvoices = (order) => {
   return []
 }
 
-const HYPE_MESSAGES = [
-  "LET'S GOOO! That's",
-  "STACKED! You just earned",
-  "SENDING IT! That's",
-  "FULL SEND! You just locked in",
-  "BOOSTED! That's",
-  "CRUSHED IT! You just banked",
-  "SHREDDING! That's",
-  "STOMPED IT! You just scored",
-  "ON FIRE! That's",
-  "DROPPING IN HOT! You just secured",
-  "BUTTERED THAT DEAL! That's",
-  "CLEAN LANDING! You just pocketed",
-  "POWDER DAY VIBES! That's",
-  "CORK 10 ENERGY! You just earned",
-  "STRAIGHT CHARGING! That's",
-]
+const HYPE_CATEGORIES = {
+  snow: {
+    openers: [
+      "LET'S GOOO! That's",
+      "STACKED! You just earned",
+      "SENDING IT! That's",
+      "FULL SEND! You just locked in",
+      "BOOSTED! That's",
+      "CRUSHED IT! You just banked",
+      "SHREDDING! That's",
+      "STOMPED IT! You just scored",
+      "ON FIRE! That's",
+      "DROPPING IN HOT! You just secured",
+      "BUTTERED THAT DEAL! That's",
+      "CLEAN LANDING! You just pocketed",
+      "POWDER DAY VIBES! That's",
+      "CORK 10 ENERGY! You just earned",
+      "STRAIGHT CHARGING! That's",
+    ],
+    closers: [
+      "in commission! Keep shredding!",
+      "in commission! The mountain is yours!",
+      "in commission! Nothing but freshies!",
+      "in commission! You're on a heater!",
+      "in commission! Keep stacking!",
+      "in commission! Send it again!",
+      "in commission! No flat days here!",
+      "in commission! Waist deep in cash!",
+    ],
+  },
+  skate: {
+    openers: [
+      "KICKFLIPPED THAT DEAL! That's",
+      "NOLLIE HEEL ENERGY! You just locked in",
+      "LANDED IT CLEAN! That's",
+      "SWITCH STANCE SAVAGE! You just earned",
+      "RAIL SLIDE TO THE BANK! That's",
+      "PRIMO'D THE COMPETITION! You just scored",
+      "TREFLIP VIBES! That's",
+      "DROPPED IN AND DOMINATED! You just banked",
+    ],
+    closers: [
+      "in commission! Skate and don't stop!",
+      "in commission! Go hit the next spot!",
+      "in commission! Landed bolts!",
+      "in commission! That was f*cking sick!",
+      "in commission! First try, baby!",
+    ],
+  },
+  surf: {
+    openers: [
+      "BARRELED! You just pocketed",
+      "CAUGHT THE WAVE! That's",
+      "HANGING TEN! You just earned",
+      "OFFSHORE AND PUMPING! That's",
+      "TUBE CITY! You just locked in",
+      "PADDLED OUT AND SCORED! That's",
+      "RIDING THE SWELL! You just banked",
+      "STOKED AF! That's",
+    ],
+    closers: [
+      "in commission! Surf's always up!",
+      "in commission! Endless summer vibes!",
+      "in commission! Paddle back out!",
+      "in commission! That wave was yours!",
+      "in commission! Salty and stacked!",
+    ],
+  },
+  cheesy: {
+    openers: [
+      "HOLY SH*T! You just earned",
+      "DAMN RIGHT! That's",
+      "CHA-CHING, BABY! You just scored",
+      "MONEY PRINTER GOES BRRR! That's",
+      "YOU ABSOLUTE LEGEND! You just banked",
+      "BIG DEAL ENERGY! That's",
+      "DEAL-ICIOUS! You just pocketed",
+      "COMMISSION IMPOSSIBLE? NAH! That's",
+      "SALE OF THE CENTURY! You just earned",
+      "NO BIG DEAL... JK IT'S HUGE! That's",
+      "GET THAT BREAD! You just locked in",
+      "MAKING IT RAIN! That's",
+      "SOLD LIKE HOTCAKES! You just scored",
+      "ABSOLUTELY DISGUSTING (in a good way)! That's",
+      "SHUT THE FRONT DOOR! You just earned",
+      "WINNER WINNER! You just banked",
+      "TOO EASY! That's",
+      "SMOOTH OPERATOR! You just pocketed",
+      "THAT'S WHAT I'M TALKING ABOUT! That's",
+      "THE DEAL WHISPERER STRIKES AGAIN! That's",
+      "CASUAL FLEX! You just earned",
+      "NOT EVEN TRYING! ...JK YOU CRUSHED IT! That's",
+      "THE CLOSER HAS ENTERED THE CHAT! That's",
+      "BANG BANG! You just locked in",
+      "YOU BEAUTIFUL GENIUS! That's",
+    ],
+    closers: [
+      "in commission! You're kind of a big deal!",
+      "in commission! Tell your mom, she'd be proud!",
+      "in commission! Not bad for a Tuesday!",
+      "in commission! Treat yourself, king!",
+      "in commission! That's rent money right there!",
+      "in commission! Dad joke level: FUNDED!",
+      "in commission! Alexa, play 'All I Do Is Win'!",
+      "in commission! Put that on the fridge!",
+      "in commission! You just out-sold yourself!",
+      "in commission! Somebody call HR... wait, you ARE HR!",
+      "in commission! Your accountant just smiled!",
+      "in commission! Wallet status: THICC!",
+      "in commission! That's a lot of tacos!",
+      "in commission! Mic drop!",
+      "in commission! You should put that on a resume!",
+      "in commission! Main character energy!",
+      "in commission! Save some deals for the rest of us!",
+      "in commission! Your bank account says thank you!",
+      "in commission! That's called RANGE!",
+      "in commission! Too legit to quit!",
+      "in commission! Built different!",
+      "in commission! Tell 'em you're booked and busy!",
+      "in commission! CEO of closing!",
+    ],
+  },
+}
 
-const HYPE_CLOSERS = [
-  "in commission! Keep shredding!",
-  "in commission! The mountain is yours!",
-  "in commission! Nothing but freshies!",
-  "in commission! You're on a heater!",
-  "in commission! Ride that wave!",
-  "in commission! Keep stacking!",
-  "in commission! Send it again!",
-  "in commission! No flat days here!",
-]
+// Pick a random category-matched opener + closer. Cheesy = 60% weight.
+function getRandomHype() {
+  const roll = Math.random()
+  const category = roll < 0.60 ? 'cheesy' : ['snow', 'skate', 'surf'][Math.floor(Math.random() * 3)]
+  const cat = HYPE_CATEGORIES[category]
+  return {
+    hypeMessage: cat.openers[Math.floor(Math.random() * cat.openers.length)],
+    hypeCloser: cat.closers[Math.floor(Math.random() * cat.closers.length)],
+  }
+}
 
-function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
+// Generate sale cycle options from 2021 to 2050
+const SALE_CYCLE_OPTIONS = (() => {
+  const options = []
+  for (let y = 2025; y <= 2050; y++) {
+    options.push(`${y} Winter`, `${y} Spring`, `${y} Summer`, `${y} Fall`, `${y}-${y + 1}`)
+  }
+  return options
+})()
+
+function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, setActiveTracker }) {
   const { accounts, getAccountName } = useAccounts()
   const { companies } = useCompanies()
   const { user } = useAuth()
 
   const {
-    activeSeasons, archivedSeasons, orders, commissions,
+    orders, commissions,
     addSeason, updateSeason, toggleArchiveSeason,
     addOrder, bulkAddOrders, updateOrder, deleteOrder,
+    getSeasonsForCompany,
   } = useSales()
+
+  const { active: activeSeasons, archived: archivedSeasons } = getSeasonsForCompany(companyId)
 
   const getCompany = (id) => companies.find((c) => c.id === id)
 
@@ -152,10 +267,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const customStages = (company?.stages || []).filter((s) => !DEFAULT_STAGES.includes(s))
   const companyStages = [...DEFAULT_STAGES, ...customStages]
 
-  const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
+  const activeTab = activeTracker
+  const setActiveTab = setActiveTracker
   const [tabDialogOpen, setTabDialogOpen] = useState(false)
   const [editingTabId, setEditingTabId] = useState(null)
-  const [tabForm, setTabForm] = useState({ label: '', year: '' })
+  const [tabForm, setTabForm] = useState({ label: '', sale_cycle: '' })
   const [hoveredRow, setHoveredRow] = useState(null)
   const [showArchived, setShowArchived] = useState(false)
 
@@ -169,25 +285,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
 
   // Add/Edit Sale dialog state
   const [editingOrderId, setEditingOrderId] = useState(null)
-  const [saleStep, setSaleStep] = useState(1)
-  const [accountSearch, setAccountSearch] = useState('')
-  const [showAccountDropdown, setShowAccountDropdown] = useState(false)
-  const [saleForm, setSaleForm] = useState({
-    client_id: null,
-    clientName: '',
-    sale_type: 'Prebook',
-    season_id: '',
-    order_type: '',
-    items: [],
-    order_number: '',
-    close_date: '',
-    stage: '',
-    order_document: null,
-    total: '',
-    commission_override: '',
-    notes: '',
-  })
-  const orderDocRef = useRef(null)
+  const [saleRows, setSaleRows] = useState([{
+    client_id: null, clientName: '', accountSearch: '', showAccountDropdown: false,
+    sale_type: 'Pre-Book', season_id: '', order_type: '',
+    total: '', commission_override: String(company?.commission_percent || ''),
+    close_date: new Date().toISOString().slice(0, 10), showDetails: false,
+    items: [], order_number: '', order_document: null, stage: 'Order Placed', notes: '',
+  }])
+  const orderDocRefs = useRef({})
 
   // Short Shipped confirmation dialog state
   const [shortShipConfirmOpen, setShortShipConfirmOpen] = useState(false)
@@ -198,12 +303,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [noteOrderId, setNoteOrderId] = useState(null)
   const [noteText, setNoteText] = useState('')
 
-  // CSV import state
-  const csvInputRef = useRef(null)
-  const [csvConfirmOpen, setCsvConfirmOpen] = useState(false)
-  const [csvParsedRows, setCsvParsedRows] = useState([])
-  const [csvImporting, setCsvImporting] = useState(false)
-  const [csvSkipped, setCsvSkipped] = useState([])
+  // Import Sales modal state
+  const [importSalesOpen, setImportSalesOpen] = useState(false)
 
   // Group invoice modal state
   const [groupInvoiceOpen, setGroupInvoiceOpen] = useState(false)
@@ -215,16 +316,37 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const [celebrationOpen, setCelebrationOpen] = useState(false)
   const [celebrationData, setCelebrationData] = useState({ commission: 0, hypeMessage: '', hypeCloser: '' })
 
+  const isAllView = activeTab === 'all'
+  const showAllTab = activeSeasons.length >= 2
+
+  // Helper to get tracker label from season_id
+  const getTrackerLabel = (seasonId) => activeSeasons.find(s => s.id === seasonId)?.label || archivedSeasons.find(s => s.id === seasonId)?.label || '—'
+
   // Ensure activeTab is valid
   const allVisibleSeasons = showArchived
     ? [...activeSeasons, ...archivedSeasons]
     : activeSeasons
-  const currentSeason = allVisibleSeasons.find((s) => s.id === activeTab) || activeSeasons[0]
+  const currentSeason = isAllView ? null : (allVisibleSeasons.find((s) => s.id === activeTab) || activeSeasons[0])
 
-  // Filtered accounts for searchable dropdown
-  const filteredAccounts = accountSearch.trim()
-    ? accounts.filter((a) => a.name.toLowerCase().includes(accountSearch.toLowerCase())).slice(0, 10)
-    : accounts.slice(0, 10)
+  const makeEmptyRow = () => ({
+    client_id: null, clientName: '', accountSearch: '', showAccountDropdown: false,
+    sale_type: 'Pre-Book', season_id: currentSeason?.id || '',
+    order_type: '', total: '',
+    commission_override: String(company?.commission_percent || ''),
+    close_date: new Date().toISOString().slice(0, 10), showDetails: false,
+    items: [], order_number: '', order_document: null, stage: 'Order Placed', notes: '',
+  })
+
+  // Row management helpers
+  const addSaleRow = () => setSaleRows((prev) => [...prev, makeEmptyRow()])
+  const updateSaleRow = (index, field, value) => {
+    setSaleRows((prev) => {
+      const updated = [...prev]
+      updated[index] = { ...updated[index], [field]: value }
+      return updated
+    })
+  }
+  const removeSaleRow = (index) => setSaleRows((prev) => prev.filter((_, i) => i !== index))
 
   // Whether the sale dialog is in "edit" vs "add" mode
   const isEditMode = editingOrderId !== null
@@ -233,8 +355,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   const closeSaleDialog = () => {
     setAddSaleOpen(false)
     setEditingOrderId(null)
-    setSaleStep(1)
-    resetSaleForm()
+    setSaleRows([makeEmptyRow()])
   }
 
   const getExpectedRate = (orderType) => {
@@ -243,170 +364,233 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   }
 
   const resetSaleForm = () => {
-    setSaleForm({
-      client_id: null, clientName: '', sale_type: 'Prebook', season_id: currentSeason?.id || '',
-      order_type: '',
-      items: [], order_number: '', close_date: '',
-      stage: '', order_document: null, total: '',
-      commission_override: String(company?.commission_percent || ''), notes: '',
-    })
-    setAccountSearch('')
-    setSaleStep(1)
+    setSaleRows([makeEmptyRow()])
   }
 
   // Tab dialog handlers
   const openCreateTab = () => {
     setEditingTabId(null)
-    setTabForm({ label: '', year: '' })
+    setTabForm({ label: '', sale_cycle: '' })
     setTabDialogOpen(true)
   }
 
   const openEditTab = (season) => {
     setEditingTabId(season.id)
-    setTabForm({
-      label: season.label,
-      year: season.year || '',
-    })
+    setTabForm({ label: season.label, sale_cycle: season.sale_cycle || '' })
     setTabDialogOpen(true)
   }
 
-  const handleTabSubmit = async (e) => {
-    e.preventDefault()
-    if (editingTabId) {
-      await updateSeason(editingTabId, {
-        label: tabForm.label,
-        year: tabForm.year,
-      })
-    } else {
-      const newSeason = await addSeason({
-        label: tabForm.label,
-        year: tabForm.year,
-      })
-      setActiveTab(newSeason.id)
+  const [tabSaving, setTabSaving] = useState(false)
+
+  const handleTabSubmit = async () => {
+    const label = tabForm.label.trim()
+    if (!label) return
+    const id = editingTabId
+    const saleCycle = tabForm.sale_cycle || null
+
+    // Auto-derive year from sale_cycle for backward compat
+    let year = null
+    if (saleCycle) {
+      const yearMatch = saleCycle.match(/^(\d{4})/)
+      if (yearMatch) year = yearMatch[1]
     }
-    setTabForm({ label: '', year: '' })
-    setEditingTabId(null)
-    setTabDialogOpen(false)
+
+    setTabSaving(true)
+    try {
+      if (id) {
+        await updateSeason(id, { label, sale_cycle: saleCycle, ...(year ? { year } : {}) })
+      } else {
+        const s = await addSeason({ label, company_id: companyId, sale_cycle: saleCycle, ...(year ? { year } : {}) })
+        setActiveTab(s.id)
+      }
+      setTabDialogOpen(false)
+      setTabForm({ label: '', sale_cycle: '' })
+      setEditingTabId(null)
+    } catch (err) {
+      console.error('Failed to save tracker:', err)
+      alert('Failed to save tracker: ' + (err.message || 'Unknown error. Check your connection.'))
+    } finally {
+      setTabSaving(false)
+    }
   }
 
   const handleArchiveFromModal = async () => {
     const id = editingTabId
-    await toggleArchiveSeason(id)
+    // Close dialog immediately, then run API
     setTabDialogOpen(false)
     setEditingTabId(null)
-    setTabForm({ label: '', year: '' })
+    setTabForm({ label: '', sale_cycle: '' })
     if (activeTab === id) {
       const remaining = activeSeasons.filter((s) => s.id !== id)
       setActiveTab(remaining[0]?.id || '')
+    }
+    try {
+      await toggleArchiveSeason(id)
+    } catch (err) {
+      console.error('Failed to archive tracker:', err)
     }
   }
 
   // Open edit modal for an existing order
   const openEditOrder = (order) => {
     setEditingOrderId(order.id)
-    setSaleStep(1)
-    setSaleForm({
+    setSaleRows([{
       client_id: order.client_id,
       clientName: getAccountName(order.client_id),
-      sale_type: order.sale_type || 'Prebook',
+      accountSearch: '',
+      showAccountDropdown: false,
+      sale_type: order.sale_type || 'Pre-Book',
       season_id: order.season_id || currentSeason?.id || '',
       order_type: order.order_type,
-      items: order.items || [],
-      order_number: order.order_number,
-      close_date: toISODate(order.close_date),
-      stage: order.stage,
-      order_document: order.order_document || null,
       total: floatToCents(order.total),
       commission_override: order.commission_override != null ? String(order.commission_override) : String(getExpectedRate(order.order_type)),
+      close_date: toISODate(order.close_date),
+      showDetails: true,
+      items: order.items || [],
+      order_number: order.order_number,
+      order_document: order.order_document || null,
+      stage: order.stage,
       notes: order.notes || '',
+    }])
+  }
+
+  // Toggle item in checkbox list for a specific row
+  const toggleItem = (rowIndex, item) => {
+    setSaleRows((prev) => {
+      const updated = [...prev]
+      const row = updated[rowIndex]
+      updated[rowIndex] = {
+        ...row,
+        items: row.items.includes(item)
+          ? row.items.filter((i) => i !== item)
+          : [...row.items, item],
+      }
+      return updated
     })
   }
 
-  // Toggle item in checkbox list
-  const toggleItem = (item) => {
-    setSaleForm((p) => ({
-      ...p,
-      items: p.items.includes(item)
-        ? p.items.filter((i) => i !== item)
-        : [...p.items, item],
-    }))
-  }
-
   // Add or Edit Sale submit
-  const handleSaleSubmit = async (e) => {
-    e.preventDefault()
-    if (!saleForm.client_id || !saleForm.order_type || !saleForm.stage) return
+  const handleSaleSubmit = async () => {
+    if (isEditMode) {
+      // Single-row edit
+      const row = saleRows[0]
+      if (!row.client_id || !centsToFloat(row.total)) return
 
-    const total = centsToFloat(saleForm.total)
-    const commOverride = saleForm.commission_override.trim() !== '' ? parseFloat(saleForm.commission_override) : null
+      const total = centsToFloat(row.total)
+      const commOverride = row.commission_override.trim() !== '' ? parseFloat(row.commission_override) : null
 
-    const orderData = {
-      client_id: saleForm.client_id,
-      company_id: companyId,
-      season_id: saleForm.season_id || currentSeason?.id,
-      sale_type: saleForm.sale_type,
-      order_type: saleForm.order_type,
-      items: saleForm.items,
-      order_number: saleForm.order_number,
-      close_date: saleForm.close_date,
-      stage: saleForm.stage,
-      order_document: saleForm.order_document,
-      total,
-      commission_override: commOverride,
-      notes: saleForm.notes,
+      try {
+        await updateOrder(editingOrderId, {
+          client_id: row.client_id,
+          company_id: companyId,
+          season_id: row.season_id || currentSeason?.id,
+          sale_type: row.sale_type,
+          order_type: row.order_type,
+          items: row.items,
+          order_number: row.order_number,
+          close_date: row.close_date,
+          stage: row.stage,
+          order_document: row.order_document,
+          total,
+          commission_override: commOverride,
+          notes: row.notes,
+        })
+      } catch (err) {
+        console.error('Failed to save order:', err)
+        if (err.message?.includes('timed out') || err.message?.includes('signal is aborted')) {
+          alert('Your session has expired. Please sign in again.')
+          window.location.href = '/login'
+        } else {
+          alert('Failed to save. Please try again.')
+        }
+        return
+      }
+
+      closeSaleDialog()
+      return
     }
 
-    const wasAdd = !isEditMode
+    // Multi-row add
+    const validRows = saleRows.filter((r) => r.client_id && centsToFloat(r.total) > 0)
+    if (validRows.length === 0) return
 
-    try {
-      if (isEditMode) {
-        await updateOrder(editingOrderId, orderData)
-      } else {
-        await addOrder(orderData)
+    let totalCommission = 0
+
+    for (const row of validRows) {
+      const total = centsToFloat(row.total)
+      const commOverride = row.commission_override.trim() !== '' ? parseFloat(row.commission_override) : null
+
+      const orderData = {
+        client_id: row.client_id,
+        company_id: companyId,
+        season_id: row.season_id || currentSeason?.id,
+        sale_type: row.sale_type,
+        order_type: row.order_type || companyOrderTypes[0] || '',
+        items: row.items,
+        order_number: row.order_number,
+        close_date: row.close_date,
+        stage: row.stage || 'Order Placed',
+        order_document: row.order_document,
+        total,
+        commission_override: commOverride,
+        notes: row.notes,
       }
-    } catch (err) {
-      console.error('Failed to save order:', err)
-      alert('Failed to save. Check console for details.')
-      return
+
+      try {
+        await addOrder(orderData)
+      } catch (err) {
+        console.error('Failed to add order:', err)
+        if (err.message?.includes('timed out') || err.message?.includes('signal is aborted')) {
+          alert('Your session has expired. Please sign in again.')
+          window.location.href = '/login'
+        } else {
+          alert('Failed to add a sale. Please try again.')
+        }
+        return
+      }
+
+      const expectedPct = getExpectedRate(orderData.order_type)
+      const pct = commOverride != null ? commOverride : expectedPct
+      totalCommission += total * pct / 100
     }
 
     closeSaleDialog()
 
-    // Show celebration popup for new sales
-    if (wasAdd && total > 0) {
-      const expectedPct = getExpectedRate(orderData.order_type)
-      const pct = commOverride != null ? commOverride : expectedPct
-      const commission = total * pct / 100
+    // Show celebration popup
+    if (totalCommission > 0) {
+      const hype = getRandomHype()
       setCelebrationData({
-        commission,
-        hypeMessage: HYPE_MESSAGES[Math.floor(Math.random() * HYPE_MESSAGES.length)],
-        hypeCloser: HYPE_CLOSERS[Math.floor(Math.random() * HYPE_CLOSERS.length)],
+        commission: totalCommission,
+        ...hype,
       })
       setCelebrationOpen(true)
     }
   }
 
-  const handleOrderDocUpload = async (e) => {
+  const handleOrderDocUpload = async (e, rowIndex) => {
     const file = e.target.files?.[0]
     if (file && user) {
       try {
         const doc = await uploadDocument(user.id, editingOrderId || 'new', 'order', file)
-        setSaleForm((p) => ({ ...p, order_document: { name: doc.name, path: doc.path } }))
+        updateSaleRow(rowIndex, 'order_document', { name: doc.name, path: doc.path })
       } catch (err) {
         console.error('Failed to upload order document:', err)
       }
     }
-    if (orderDocRef.current) orderDocRef.current.value = ''
+    const ref = orderDocRefs.current[rowIndex]
+    if (ref) ref.value = ''
   }
 
   // Stage change handler with Short Shipped confirmation
-  const handleStageChange = (newStage) => {
+  const [shortShipRowIndex, setShortShipRowIndex] = useState(null)
+  const handleStageChange = (rowIndex, newStage) => {
     if (newStage === 'Short Shipped') {
-      setPreviousStage(saleForm.stage)
-      setSaleForm((p) => ({ ...p, stage: newStage }))
+      setPreviousStage(saleRows[rowIndex].stage)
+      setShortShipRowIndex(rowIndex)
+      updateSaleRow(rowIndex, 'stage', newStage)
       setShortShipConfirmOpen(true)
     } else {
-      setSaleForm((p) => ({ ...p, stage: newStage }))
+      updateSaleRow(rowIndex, 'stage', newStage)
     }
   }
 
@@ -434,116 +618,13 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
     setConfirmDeleteId(null)
   }
 
-  // CSV import handlers
-  const parseSalesCSV = (text) => {
-    const lines = splitCSVRows(text)
-    if (lines.length < 2) return { rows: [], skipped: [] }
-
-    const headers = parseCSVLine(lines[0]).map((h) => h.toLowerCase().replace(/['"]/g, ''))
-    const map = {}
-    headers.forEach((h, i) => {
-      if (['account_name', 'account name', 'account'].includes(h)) map.account_name = i
-      else if (['order_type', 'order type', 'type'].includes(h)) map.order_type = i
-      else if (['items', 'items_ordered', 'items ordered'].includes(h)) map.items = i
-      else if (['order_number', 'order number', 'order #', 'order#'].includes(h)) map.order_number = i
-      else if (['invoice_number', 'invoice number', 'invoice #', 'invoice#'].includes(h)) map.invoice_number = i
-      else if (['close_date', 'close date', 'date'].includes(h)) map.close_date = i
-      else if (h === 'stage') map.stage = i
-      else if (h === 'total') map.total = i
-      else if (['commission_override', 'commission override', 'commission %', 'commission'].includes(h)) map.commission_override = i
-      else if (['notes', 'note'].includes(h)) map.notes = i
-    })
-
-    if (map.account_name === undefined) return { rows: [], skipped: [] }
-
-    const rows = []
-    const skipped = []
-
-    lines.slice(1).forEach((line, idx) => {
-      const cols = parseCSVLine(line)
-      const accountName = cols[map.account_name] || ''
-      if (!accountName) return
-
-      const account = accounts.find((a) => a.name.toLowerCase() === accountName.toLowerCase())
-      if (!account) {
-        skipped.push({ line: idx + 2, accountName, reason: 'Account not found' })
-        return
-      }
-
-      const orderType = map.order_type !== undefined ? cols[map.order_type] || companyOrderTypes[0] || '' : companyOrderTypes[0] || ''
-      const itemsStr = map.items !== undefined ? cols[map.items] || '' : ''
-      const items = itemsStr.split(';').map((s) => s.trim()).filter(Boolean)
-      const total = map.total !== undefined ? parseFloat(cols[map.total]?.replace(/[$,]/g, '')) || 0 : 0
-      const commOverride = map.commission_override !== undefined && cols[map.commission_override]?.trim()
-        ? parseFloat(cols[map.commission_override]?.replace(/[%]/g, ''))
-        : null
-
-      const rawInvoice = map.invoice_number !== undefined ? (cols[map.invoice_number] || '').replace(/\n/g, ' ') : ''
-      const invoiceNums = rawInvoice.split(',').map((s) => s.trim()).filter(Boolean)
-      const invoices = invoiceNums.map((num) => ({ number: num, amount: 0, document: null }))
-
-      rows.push({
-        client_id: account.id,
-        company_id: companyId,
-        season_id: currentSeason.id,
-        order_type: orderType,
-        items: items.length ? items : [],
-        order_number: map.order_number !== undefined ? cols[map.order_number] || '' : '',
-        invoice_number: rawInvoice,
-        invoices,
-        close_date: map.close_date !== undefined ? cols[map.close_date] || '' : '',
-        stage: map.stage !== undefined ? cols[map.stage] || 'Order Placed' : 'Order Placed',
-        total,
-        commission_override: commOverride,
-        notes: map.notes !== undefined ? cols[map.notes] || '' : '',
-      })
-    })
-
-    return { rows, skipped }
-  }
-
-  const handleCSVFileSelect = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file || !currentSeason) return
-
-    try {
-      const text = await file.text()
-      const { rows, skipped } = parseSalesCSV(text)
-      if (rows.length === 0) {
-        alert(skipped.length > 0
-          ? `No valid rows found. ${skipped.length} row(s) skipped (accounts not found). Make sure account names match exactly.`
-          : 'No valid rows found. Make sure your CSV has an "account_name" column header.')
-        return
-      }
-      setCsvParsedRows(rows)
-      setCsvSkipped(skipped)
-      setCsvConfirmOpen(true)
-    } catch (err) {
-      console.error('CSV parse failed:', err)
-      alert('Failed to read CSV file.')
-    }
-    if (csvInputRef.current) csvInputRef.current.value = ''
-  }
-
-  const handleCSVConfirm = async () => {
-    setCsvImporting(true)
-    try {
-      await bulkAddOrders(csvParsedRows)
-      setCsvConfirmOpen(false)
-      setCsvParsedRows([])
-      setCsvSkipped([])
-    } catch (err) {
-      console.error('CSV import failed:', err)
-      alert('Import failed. Please try again.')
-    } finally {
-      setCsvImporting(false)
-    }
-  }
 
   // Current season data filtered by companyId
-  const seasonOrders = currentSeason
-    ? orders.filter((o) => o.season_id === currentSeason.id && o.company_id === companyId)
-    : []
+  const seasonOrders = isAllView
+    ? orders.filter((o) => o.company_id === companyId && activeSeasons.some(s => s.id === o.season_id))
+    : currentSeason
+      ? orders.filter((o) => o.season_id === currentSeason.id && o.company_id === companyId)
+      : []
 
   const toggleSort = (key) => {
     setSortConfig((prev) =>
@@ -820,33 +901,51 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
   return (
     <div className="space-y-6 min-w-0">
       {/* Season tabs bar */}
-      <div className="flex items-center gap-1 border-b">
-        <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 overflow-x-auto min-w-0">
+          {showAllTab && (
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`py-1.5 whitespace-nowrap transition-colors ${
+                isAllView
+                  ? 'text-[#005b5b] font-bold text-base'
+                  : 'text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 text-sm font-medium'
+              }`}
+            >
+              All Sales
+            </button>
+          )}
           {activeSeasons.map((season) => (
             <div key={season.id} className="group flex items-center">
               <button
                 onClick={() => setActiveTab(season.id)}
-                className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                className={`py-1.5 whitespace-nowrap transition-colors ${
                   activeTab === season.id
-                    ? 'border-b-2 border-[#005b5b] text-[#005b5b]'
-                    : 'text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300'
+                    ? 'text-[#005b5b] font-bold text-base'
+                    : 'text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 text-sm font-medium'
                 }`}
               >
                 {season.label}
               </button>
               <button
                 onClick={() => openEditTab(season)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 -ml-2"
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 ml-1"
                 title="Edit tab"
               >
                 <Pencil className="size-3" />
               </button>
             </div>
           ))}
+          <button
+            onClick={openCreateTab}
+            className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed border-zinc-300 dark:border-zinc-600 rounded-md whitespace-nowrap flex items-center gap-1 shrink-0 transition-colors"
+          >
+            <Plus className="size-3.5" /> New Sales Tracker
+          </button>
         </div>
 
         {archivedSeasons.length > 0 && (
-          <div className="relative shrink-0">
+          <div className="relative shrink-0 ml-auto">
             <button
               onClick={() => setShowArchived(!showArchived)}
               className="px-3 py-2 text-sm text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 flex items-center gap-1 whitespace-nowrap"
@@ -871,19 +970,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
             )}
           </div>
         )}
-
-        <button
-          onClick={openCreateTab}
-          className="px-3 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 whitespace-nowrap flex items-center gap-1 shrink-0"
-        >
-          <Plus className="size-4" /> New Sales Tracker
-        </button>
       </div>
 
       {/* Create / Edit tab dialog */}
       <Dialog open={tabDialogOpen} onOpenChange={(open) => {
         setTabDialogOpen(open)
-        if (!open) { setEditingTabId(null); setTabForm({ label: '', year: '' }) }
+        if (!open) { setEditingTabId(null); setTabForm({ label: '', sale_cycle: '' }) }
       }}>
         <DialogContent>
           <DialogHeader>
@@ -892,43 +984,34 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               {editingTabId ? 'Update this tracker or change its archive status.' : 'Create a new tracker for a specific sales period.'}
             </DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleTabSubmit} className="space-y-4">
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Sale Cycle</Label>
+              <select
+                value={tabForm.sale_cycle}
+                onChange={(e) => setTabForm((p) => ({ ...p, sale_cycle: e.target.value }))}
+                className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
+              >
+                <option value="">Select a cycle...</option>
+                {SALE_CYCLE_OPTIONS.map((opt) => (
+                  <option key={opt} value={opt}>{opt}</option>
+                ))}
+              </select>
+            </div>
             <div className="space-y-2">
               <Label htmlFor="tabLabel">Tracker Name</Label>
               <Input
                 id="tabLabel"
-                placeholder='e.g. "US 2027-2028" or "Demos"'
+                placeholder=""
                 value={tabForm.label}
                 onChange={(e) => setTabForm((p) => ({ ...p, label: e.target.value }))}
-                required
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tabYear">Season</Label>
-              <Select
-                value={tabForm.year}
-                onValueChange={(val) => setTabForm((p) => ({ ...p, year: val }))}
-                required
-              >
-                <SelectTrigger className="w-full">
-                  <SelectValue placeholder="Select season..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {Array.from({ length: 25 }, (_, i) => ({
-                    label: `${2025 + i}-${2026 + i}`,
-                    value: String(2026 + i),
-                  })).map((s) => (
-                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
             <DialogFooter className="flex gap-2">
               {editingTabId && (() => {
                 const isArchived = archivedSeasons.some((s) => s.id === editingTabId)
                 return (
                   <Button
-                    type="button"
                     variant={isArchived ? 'default' : 'destructive'}
                     className={isArchived ? 'bg-[#005b5b] hover:bg-[#007a7a] mr-auto' : 'mr-auto'}
                     onClick={handleArchiveFromModal}
@@ -938,19 +1021,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   </Button>
                 )
               })()}
-              <Button type="submit">{editingTabId ? 'Save Changes' : 'Create Tracker'}</Button>
+              <Button onClick={handleTabSubmit} disabled={tabSaving || !tabForm.label.trim()}>{tabSaving ? 'Saving...' : (editingTabId ? 'Save Changes' : 'Create Tracker')}</Button>
             </DialogFooter>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
 
-      {/* Add / Edit Sale dialog — 2-step wizard */}
+      {/* Add / Edit Sale dialog — single step, multi-row */}
       <Dialog open={saleDialogOpen} onOpenChange={(open) => { if (!open) closeSaleDialog() }}>
         <DialogContent
           className="max-w-lg max-h-[90vh] overflow-y-auto"
           showCloseButton={false}
           onPointerDownOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => e.preventDefault()}
         >
           {/* Company logo + name banner */}
           <div className="flex items-center justify-center gap-3 pb-2">
@@ -963,257 +1047,319 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           <DialogHeader>
             <DialogTitle>{isEditMode ? 'Edit Sale' : 'Add Sale'}</DialogTitle>
             <DialogDescription>
-              {saleStep === 1
-                ? 'Step 1 of 2 — Sale setup'
-                : 'Step 2 of 2 — Sale details'}
+              {isEditMode ? 'Update this sale.' : 'Add one or more sales quickly.'}
             </DialogDescription>
           </DialogHeader>
 
-          {saleStep === 1 ? (
-            /* ── Step 1: Sale Setup ── */
-            <div className={`space-y-4 ${showAccountDropdown && !saleForm.client_id ? 'pb-56' : ''}`}>
-              {/* Order Type */}
-              <div className="space-y-2">
-                <Label>Order Type</Label>
-                <select
-                  value={saleForm.sale_type}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, sale_type: e.target.value }))}
-                  className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
-                >
-                  <option value="Prebook">Prebook</option>
-                  <option value="At Once">At Once</option>
-                </select>
-              </div>
+          <div className="space-y-4">
+            {saleRows.map((row, idx) => {
+              const rowAccounts = row.accountSearch.trim()
+                ? accounts.filter((a) => a.name.toLowerCase().includes(row.accountSearch.toLowerCase())).slice(0, 10)
+                : accounts.slice(0, 10)
+              const showDetailsSection = isEditMode || row.showDetails
 
-              {/* Tracker */}
-              <div className="space-y-2">
-                <Label>Tracker</Label>
-                <select
-                  value={saleForm.season_id || currentSeason?.id || ''}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, season_id: e.target.value }))}
-                  className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
-                >
-                  {activeSeasons.map((s) => (
-                    <option key={s.id} value={s.id}>{s.label}</option>
-                  ))}
-                </select>
-              </div>
+              return (
+                <div key={idx} className="space-y-3">
+                  {/* Row divider + remove */}
+                  {(!isEditMode && saleRows.length > 1) && (
+                    <div className="flex items-center gap-2 pt-1">
+                      <div className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
+                      <span className="text-xs text-muted-foreground font-medium">Sale {idx + 1}</span>
+                      <div className="flex-1 border-t border-zinc-200 dark:border-zinc-700" />
+                      <button
+                        type="button"
+                        onClick={() => removeSaleRow(idx)}
+                        className="text-red-500 hover:text-red-700 p-0.5"
+                        title="Remove row"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  )}
 
-              {/* Account Name — searchable, collapsed by default */}
-              <div className="space-y-2">
-                <Label>Account</Label>
-                {isEditMode ? (
-                  <Input value={saleForm.clientName} disabled />
-                ) : (
-                  <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setShowAccountDropdown(false) }}>
-                    <Input
-                      placeholder="Search accounts..."
-                      value={saleForm.clientName || accountSearch}
-                      onChange={(e) => {
-                        setAccountSearch(e.target.value)
-                        setSaleForm((p) => ({ ...p, client_id: null, clientName: '' }))
-                        setShowAccountDropdown(true)
-                      }}
-                      onFocus={() => setShowAccountDropdown(true)}
-                    />
-                    {showAccountDropdown && !saleForm.client_id && (
-                      <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-800 border dark:border-zinc-700 rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto" tabIndex={-1}>
-                        {filteredAccounts.map((account) => (
-                          <button
-                            key={account.id}
-                            type="button"
-                            onClick={() => {
-                              setSaleForm((p) => ({ ...p, client_id: account.id, clientName: account.name }))
-                              setAccountSearch('')
-                              setShowAccountDropdown(false)
-                            }}
-                            className="block w-full text-left px-3 py-2 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-700"
-                          >
-                            <span className="font-medium">{account.name}</span>
-                            <span className="text-muted-foreground ml-2">{account.city}, {account.state}</span>
-                          </button>
-                        ))}
-                        {filteredAccounts.length === 0 && (
-                          <div className="px-3 py-2 text-sm text-muted-foreground">No accounts found</div>
+                  {/* Account — first field, full width */}
+                  <div className="space-y-2">
+                    <Label>Account</Label>
+                    {isEditMode ? (
+                      <Input value={row.clientName} disabled />
+                    ) : (
+                      <div className="relative" onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) updateSaleRow(idx, 'showAccountDropdown', false) }}>
+                        {row.client_id ? (
+                          <div className="flex items-center gap-2 border rounded-md px-3 h-9 bg-white dark:bg-zinc-700">
+                            <span className="text-sm font-medium flex-1">{row.clientName}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateSaleRow(idx, 'client_id', null)
+                                updateSaleRow(idx, 'clientName', '')
+                              }}
+                              className="text-muted-foreground hover:text-zinc-700"
+                            >
+                              <X className="size-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="relative">
+                              <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                              <input
+                                placeholder="Search accounts..."
+                                value={row.accountSearch}
+                                onChange={(e) => {
+                                  updateSaleRow(idx, 'accountSearch', e.target.value)
+                                  updateSaleRow(idx, 'showAccountDropdown', true)
+                                }}
+                                onFocus={() => updateSaleRow(idx, 'showAccountDropdown', true)}
+                                className="w-full border rounded-md pl-7 pr-3 h-9 text-sm bg-white dark:bg-zinc-700 dark:border-zinc-600"
+                              />
+                            </div>
+                            {row.showAccountDropdown && (
+                              <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-zinc-800 border dark:border-zinc-700 rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto" tabIndex={-1}>
+                                {rowAccounts.map((account) => (
+                                  <button
+                                    key={account.id}
+                                    type="button"
+                                    onClick={() => {
+                                      updateSaleRow(idx, 'client_id', account.id)
+                                      updateSaleRow(idx, 'clientName', account.name)
+                                      updateSaleRow(idx, 'accountSearch', '')
+                                      updateSaleRow(idx, 'showAccountDropdown', false)
+                                    }}
+                                    className="block w-full text-left px-3 py-2 text-sm hover:bg-zinc-50 dark:hover:bg-zinc-700"
+                                  >
+                                    <span className="font-medium">{account.name}</span>
+                                    <span className="text-muted-foreground ml-2">{account.city}, {account.state}</span>
+                                  </button>
+                                ))}
+                                {rowAccounts.length === 0 && (
+                                  <div className="px-3 py-2 text-sm text-muted-foreground">No accounts found</div>
+                                )}
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
                   </div>
-                )}
-              </div>
 
-              <DialogFooter className="flex gap-2">
-                <Button type="button" variant="outline" onClick={closeSaleDialog}>Cancel</Button>
-                <Button
-                  type="button"
-                  disabled={!saleForm.client_id}
-                  onClick={() => { setShowAccountDropdown(false); setSaleStep(2) }}
-                >
-                  Next <ChevronRight className="size-4 ml-1" />
-                </Button>
-              </DialogFooter>
-            </div>
-          ) : (
-            /* ── Step 2: Sale Details ── */
-            <form onSubmit={handleSaleSubmit} className="space-y-4">
-              {/* Category — required */}
-              <div className="space-y-2">
-                <Label>Category <span className="text-red-500">*</span></Label>
-                <select
-                  value={saleForm.order_type}
-                  onChange={(e) => {
-                    const newType = e.target.value
-                    const rate = getExpectedRate(newType)
-                    setSaleForm((p) => ({ ...p, order_type: newType, commission_override: String(rate) }))
-                  }}
-                  className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
-                  required
-                >
-                  <option value="" disabled>Select category...</option>
-                  {companyOrderTypes.map((type) => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Items Ordered — multi-select checkboxes */}
-              <div className="space-y-2">
-                <Label>Items Ordered</Label>
-                {companyItems.length > 0 ? (
-                  <div className="flex flex-wrap gap-x-4 gap-y-2 border rounded-md p-3">
-                    {companyItems.map((item) => (
-                      <label key={item} className="flex items-center gap-1.5 text-sm cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={saleForm.items.includes(item)}
-                          onChange={() => toggleItem(item)}
-                          className="size-4 rounded border-zinc-300"
-                        />
-                        {item}
-                      </label>
-                    ))}
+                  {/* Order Type + Sales Tracker — same row */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Order Type</Label>
+                      <select
+                        value={row.sale_type}
+                        onChange={(e) => updateSaleRow(idx, 'sale_type', e.target.value)}
+                        className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
+                      >
+                        <option value="Pre-Book">Pre-Book</option>
+                        <option value="At Once">At Once</option>
+                      </select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Sales Tracker</Label>
+                      <select
+                        value={row.season_id || currentSeason?.id || ''}
+                        onChange={(e) => updateSaleRow(idx, 'season_id', e.target.value)}
+                        className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
+                      >
+                        {activeSeasons.map((s) => (
+                          <option key={s.id} value={s.id}>{s.label}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground border rounded-md p-3">
-                    No items configured. Add items in the Settings tab.
-                  </p>
-                )}
-              </div>
 
-              {/* Order # with Upload Doc */}
-              <div className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Label>Order #</Label>
-                  <input ref={orderDocRef} type="file" onChange={handleOrderDocUpload} className="hidden" />
-                  {saleForm.order_document ? (
-                    <Badge variant="secondary" className="gap-1 text-xs">
-                      <FileText className="size-3" /> {saleForm.order_document.name}
-                      <button type="button" onClick={() => setSaleForm((p) => ({ ...p, order_document: null }))}>
-                        <X className="size-3" />
-                      </button>
-                    </Badge>
-                  ) : (
+                  {/* Total + Commission % + Close Date — same row */}
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="space-y-2">
+                      <Label>Total <span className="text-red-500">*</span></Label>
+                      <div className="flex items-center border rounded-md px-3 h-9 focus-within:ring-2 focus-within:ring-ring">
+                        <span className="text-sm text-muted-foreground select-none">$</span>
+                        <input
+                          inputMode="numeric"
+                          placeholder="0.00"
+                          value={centsToDisplay(row.total)}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, '')
+                            updateSaleRow(idx, 'total', digits)
+                          }}
+                          className="flex-1 text-sm bg-transparent outline-none ml-1 w-0"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Commission %</Label>
+                      <div className="flex items-center border rounded-md px-3 h-9 focus-within:ring-2 focus-within:ring-ring">
+                        <input
+                          type="number"
+                          step="0.1"
+                          min="0"
+                          max="100"
+                          placeholder={String(company?.commission_percent || 0)}
+                          value={row.commission_override}
+                          onChange={(e) => updateSaleRow(idx, 'commission_override', e.target.value)}
+                          className="flex-1 text-sm bg-transparent outline-none no-spinner w-0"
+                        />
+                        <span className="text-sm text-muted-foreground select-none">%</span>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Close Date</Label>
+                      <Input
+                        type="date"
+                        value={row.close_date}
+                        onChange={(e) => updateSaleRow(idx, 'close_date', e.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Additional Details toggle */}
+                  {!isEditMode && (
                     <button
                       type="button"
-                      onClick={() => orderDocRef.current?.click()}
-                      className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                      onClick={() => updateSaleRow(idx, 'showDetails', !row.showDetails)}
+                      className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
                     >
-                      <Upload className="size-3" /> Upload Doc
+                      {row.showDetails ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                      {row.showDetails ? 'Hide Additional Details' : 'Add Additional Details'}
                     </button>
                   )}
-                </div>
-                <Input
-                  value={saleForm.order_number}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, order_number: e.target.value }))}
-                />
-              </div>
 
-              {/* Total + Commission % side by side */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Total <span className="text-red-500">*</span></Label>
-                  <div className="flex items-center border rounded-md px-3 h-9 focus-within:ring-2 focus-within:ring-ring">
-                    <span className="text-sm text-muted-foreground select-none">$</span>
-                    <input
-                      inputMode="numeric"
-                      placeholder="0.00"
-                      value={centsToDisplay(saleForm.total)}
-                      onChange={(e) => {
-                        const digits = e.target.value.replace(/\D/g, '')
-                        setSaleForm((p) => ({ ...p, total: digits }))
-                      }}
-                      className="flex-1 text-sm bg-transparent outline-none ml-1"
-                      required
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label>Commission %</Label>
-                  <div className="flex items-center border rounded-md px-3 h-9 focus-within:ring-2 focus-within:ring-ring">
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      max="100"
-                      placeholder={String(company?.commission_percent || 0)}
-                      value={saleForm.commission_override}
-                      onChange={(e) => setSaleForm((p) => ({ ...p, commission_override: e.target.value }))}
-                      className="flex-1 text-sm bg-transparent outline-none no-spinner"
-                    />
-                    <span className="text-sm text-muted-foreground select-none">%</span>
-                  </div>
-                </div>
-              </div>
+                  {/* Additional Details section */}
+                  {showDetailsSection && (
+                    <div className="space-y-4 border-l-2 border-zinc-200 dark:border-zinc-700 pl-3 ml-1">
+                      {/* Category + Order # — same row */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Category</Label>
+                          <select
+                            value={row.order_type}
+                            onChange={(e) => {
+                              const newType = e.target.value
+                              const rate = getExpectedRate(newType)
+                              updateSaleRow(idx, 'order_type', newType)
+                              updateSaleRow(idx, 'commission_override', String(rate))
+                            }}
+                            className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
+                          >
+                            <option value="">Select category...</option>
+                            {companyOrderTypes.map((type) => (
+                              <option key={type} value={type}>{type}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <Label>Order #</Label>
+                            <input
+                              ref={(el) => { orderDocRefs.current[idx] = el }}
+                              type="file"
+                              onChange={(e) => handleOrderDocUpload(e, idx)}
+                              className="hidden"
+                            />
+                            {row.order_document ? (
+                              <Badge variant="secondary" className="gap-1 text-xs">
+                                <FileText className="size-3" /> {row.order_document.name}
+                                <button type="button" onClick={() => updateSaleRow(idx, 'order_document', null)}>
+                                  <X className="size-3" />
+                                </button>
+                              </Badge>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => orderDocRefs.current[idx]?.click()}
+                                className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                              >
+                                <Upload className="size-3" /> Upload Doc
+                              </button>
+                            )}
+                          </div>
+                          <Input
+                            value={row.order_number}
+                            onChange={(e) => updateSaleRow(idx, 'order_number', e.target.value)}
+                          />
+                        </div>
+                      </div>
 
-              {/* Close Date + Stage side by side */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label>Close Date</Label>
-                  <Input
-                    type="date"
-                    value={saleForm.close_date}
-                    onChange={(e) => setSaleForm((p) => ({ ...p, close_date: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Stage <span className="text-red-500">*</span></Label>
-                  <select
-                    value={saleForm.stage}
-                    onChange={(e) => handleStageChange(e.target.value)}
-                    className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
-                    required
-                  >
-                    <option value="" disabled>Select stage...</option>
-                    {companyStages.map((stage) => (
-                      <option key={stage} value={stage}>{stage}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+                      {/* Items Ordered */}
+                      <div className="space-y-2">
+                        <Label>Items Ordered</Label>
+                        {companyItems.length > 0 ? (
+                          <div className="flex flex-wrap gap-x-4 gap-y-2 border rounded-md p-3">
+                            {companyItems.map((item) => (
+                              <label key={item} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={row.items.includes(item)}
+                                  onChange={() => toggleItem(idx, item)}
+                                  className="size-4 rounded border-zinc-300"
+                                />
+                                {item}
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-muted-foreground border rounded-md p-3">
+                            No items configured. Add items in the Settings tab.
+                          </p>
+                        )}
+                      </div>
 
-              {/* Notes */}
-              <div className="space-y-2">
-                <Label>Notes</Label>
-                <textarea
-                  className="w-full border rounded-md px-3 py-2 text-sm min-h-16 resize-y"
-                  placeholder="Any notes about this sale..."
-                  value={saleForm.notes}
-                  onChange={(e) => setSaleForm((p) => ({ ...p, notes: e.target.value }))}
-                />
-              </div>
+                      {/* Stage */}
+                      <div className="space-y-2">
+                        <Label>Stage</Label>
+                        <select
+                          value={row.stage}
+                          onChange={(e) => handleStageChange(idx, e.target.value)}
+                          className="w-full border rounded-md px-3 py-2 text-sm dark:bg-zinc-800 dark:border-zinc-700 dark:text-zinc-100"
+                        >
+                          {companyStages.map((stage) => (
+                            <option key={stage} value={stage}>{stage}</option>
+                          ))}
+                        </select>
+                      </div>
 
-              {/* Action buttons */}
-              <div className="flex justify-end gap-2 pt-2">
-                <Button type="button" variant="outline" onClick={() => setSaleStep(1)}>
-                  <ChevronLeft className="size-4 mr-1" /> Back
-                </Button>
-                <Button type="button" variant="outline" onClick={closeSaleDialog}>Cancel</Button>
-                <Button type="submit" disabled={!saleForm.client_id || !saleForm.order_type || !saleForm.stage}>
-                  {isEditMode ? 'Save Changes' : 'Add Sale'}
-                </Button>
-              </div>
-            </form>
-          )}
+                      {/* Notes */}
+                      <div className="space-y-2">
+                        <Label>Notes</Label>
+                        <textarea
+                          className="w-full border rounded-md px-3 py-2 text-sm min-h-16 resize-y"
+                          placeholder="Any notes about this sale..."
+                          value={row.notes}
+                          onChange={(e) => updateSaleRow(idx, 'notes', e.target.value)}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+
+            {/* Add Row button (add mode only) */}
+            {!isEditMode && (
+              <button
+                type="button"
+                onClick={addSaleRow}
+                className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+              >
+                <Plus className="size-4" /> Add Row
+              </button>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={closeSaleDialog}>Cancel</Button>
+            <Button
+              onClick={handleSaleSubmit}
+              disabled={isEditMode
+                ? !saleRows[0]?.client_id || !centsToFloat(saleRows[0]?.total)
+                : saleRows.every((r) => !r.client_id || !centsToFloat(r.total))
+              }
+            >
+              {isEditMode ? 'Save Changes' : saleRows.filter((r) => r.client_id && centsToFloat(r.total) > 0).length > 1 ? 'Add Sales' : 'Add Sale'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -1244,42 +1390,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
         </DialogContent>
       </Dialog>
 
-      {/* CSV import confirmation dialog */}
-      <Dialog open={csvConfirmOpen} onOpenChange={(open) => { if (!open) { setCsvConfirmOpen(false); setCsvParsedRows([]); setCsvSkipped([]) } }}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Import Sales</DialogTitle>
-            <DialogDescription>
-              These sales will be imported to <span className="font-semibold text-foreground">{currentSeason?.label}</span>. Continue?
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <p className="text-sm">
-              <span className="font-medium">{csvParsedRows.length}</span> sale{csvParsedRows.length === 1 ? '' : 's'} ready to import.
-            </p>
-            {csvSkipped.length > 0 && (
-              <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3 space-y-1">
-                <p className="font-medium flex items-center gap-1">
-                  <AlertTriangle className="size-3.5" />
-                  {csvSkipped.length} row{csvSkipped.length === 1 ? '' : 's'} will be skipped:
-                </p>
-                <ul className="list-disc pl-5 space-y-0.5">
-                  {csvSkipped.slice(0, 5).map((s, i) => (
-                    <li key={i}>Row {s.line}: "{s.accountName}" — {s.reason}</li>
-                  ))}
-                  {csvSkipped.length > 5 && <li>...and {csvSkipped.length - 5} more</li>}
-                </ul>
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setCsvConfirmOpen(false); setCsvParsedRows([]); setCsvSkipped([]) }}>Cancel</Button>
-            <Button onClick={handleCSVConfirm} disabled={csvImporting}>
-              {csvImporting ? 'Importing...' : `Import ${csvParsedRows.length} Sale${csvParsedRows.length === 1 ? '' : 's'}`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <ImportSalesModal open={importSalesOpen} onOpenChange={setImportSalesOpen} companyId={companyId} />
 
       {/* Celebration popup after adding a sale */}
       <Dialog open={celebrationOpen} onOpenChange={setCelebrationOpen}>
@@ -1339,8 +1450,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       {/* Short Shipped confirmation dialog */}
       <Dialog open={shortShipConfirmOpen} onOpenChange={(open) => {
         if (!open) {
-          setSaleForm((p) => ({ ...p, stage: previousStage }))
+          if (shortShipRowIndex != null) updateSaleRow(shortShipRowIndex, 'stage', previousStage)
           setShortShipConfirmOpen(false)
+          setShortShipRowIndex(null)
         }
       }}>
         <DialogContent className="max-w-sm">
@@ -1352,10 +1464,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
           </DialogHeader>
           <DialogFooter>
             <Button variant="outline" onClick={() => {
-              setSaleForm((p) => ({ ...p, stage: previousStage }))
+              if (shortShipRowIndex != null) updateSaleRow(shortShipRowIndex, 'stage', previousStage)
               setShortShipConfirmOpen(false)
+              setShortShipRowIndex(null)
             }}>Cancel</Button>
-            <Button variant="destructive" onClick={() => setShortShipConfirmOpen(false)}>
+            <Button variant="destructive" onClick={() => { setShortShipConfirmOpen(false); setShortShipRowIndex(null) }}>
               Confirm Short Shipped
             </Button>
           </DialogFooter>
@@ -1471,7 +1584,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
       </Dialog>
 
       {/* Search and summary */}
-      {currentSeason && (
+      {(currentSeason || isAllView) && (
         <>
           {/* Summary cards — dynamic per order type */}
           <div className={`grid gap-4`} style={{ gridTemplateColumns: `repeat(${Math.min(Object.keys(orderTypeTotals).length + 2, 5)}, minmax(0, 1fr))` }}>
@@ -1510,15 +1623,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   className="pl-9"
                 />
               </div>
-              <input
-                ref={csvInputRef}
-                type="file"
-                accept=".csv"
-                onChange={handleCSVFileSelect}
-                className="hidden"
-              />
-              <Button variant="outline" size="sm" onClick={() => csvInputRef.current?.click()}>
-                <Upload className="size-4 mr-1" /> Import CSV
+              <Button variant="outline" size="sm" onClick={() => setImportSalesOpen(true)}>
+                <Upload className="size-4 mr-1" /> Import Sales
               </Button>
             </div>
 
@@ -1562,6 +1668,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                   <TableHead className="text-white">
                     <span className="whitespace-nowrap">Order Type</span>
                   </TableHead>
+                  {isAllView && (
+                    <TableHead className="text-white">
+                      <span className="whitespace-nowrap">Tracker</span>
+                    </TableHead>
+                  )}
                   <TableHead className="text-white">
                     <div className="relative flex items-center gap-1">
                       <button
@@ -1644,7 +1755,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
               <TableBody>
                 {groupedOrders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center text-muted-foreground">
+                    <TableCell colSpan={isAllView ? 11 : 10} className="text-center text-muted-foreground">
                       {searchQuery || filterOrderType || filterStage
                         ? 'No orders match your search or filters.'
                         : 'No orders for this tab.'}
@@ -1659,7 +1770,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                         group.isShortShipped ? 'bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/30' :
                         'bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-800/60 dark:hover:bg-zinc-700/60'
                       }`}>
-                        <TableCell colSpan={7} className="py-3">
+                        <TableCell colSpan={isAllView ? 8 : 7} className="py-3">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-zinc-900 dark:text-white text-base">{group.accountName}</span>
                             {group.allInvoices.length > 0 && (
@@ -1751,7 +1862,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen }) {
                                 </Button>
                               </div>
                             </TableCell>
-                            <TableCell className="whitespace-nowrap">{order.sale_type || 'Prebook'}</TableCell>
+                            <TableCell className="whitespace-nowrap">{(order.sale_type || 'Pre-Book').replace('Prebook', 'Pre-Book')}</TableCell>
+                            {isAllView && (
+                              <TableCell className="whitespace-nowrap text-xs text-muted-foreground">{getTrackerLabel(order.season_id)}</TableCell>
+                            )}
                             <TableCell>
                               <Badge variant="secondary">
                                 {order.order_type}

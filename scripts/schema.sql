@@ -52,10 +52,12 @@ create table seasons (
   id text primary key,
   user_id uuid references auth.users(id) not null default auth.uid(),
   label text not null,
+  company_id bigint references companies(id),
   country text,
   year text,
   start_date date,
   end_date date,
+  sale_cycle text,
   archived boolean not null default false,
   created_at timestamptz not null default now()
 );
@@ -174,6 +176,27 @@ on conflict (id) do nothing;
 insert into storage.buckets (id, name, public)
 values ('documents', 'documents', false)
 on conflict (id) do nothing;
+
+insert into storage.buckets (id, name, public)
+values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+-- Storage policies for avatars (public bucket)
+create policy "Users can upload avatars"
+  on storage.objects for insert
+  with check (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
+
+create policy "Users can update own avatars"
+  on storage.objects for update
+  using (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
+
+create policy "Users can delete own avatars"
+  on storage.objects for delete
+  using (bucket_id = 'avatars' and auth.uid()::text = (storage.foldername(name))[1]);
+
+create policy "Anyone can view avatars"
+  on storage.objects for select
+  using (bucket_id = 'avatars');
 
 -- Storage policies for logos (public bucket)
 create policy "Users can upload logos"

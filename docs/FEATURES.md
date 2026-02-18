@@ -17,7 +17,7 @@
 | CheckoutSuccess | src/pages/marketing/CheckoutSuccess.jsx | Success message with "Go to Dashboard" button after Stripe payment. |
 | CheckoutCancel | src/pages/marketing/CheckoutCancel.jsx | Cancellation message with retry options. |
 | Login | src/pages/Login.jsx | Email/password sign-in within MarketingLayout. Auto-redirects to /app if already logged in. Sign-up link. |
-| Dashboard | src/pages/Dashboard.jsx | Cross-brand reporting: year selector (2025–2050), summary cards (Total Sales, Commission Earned, Commission Owed), brand table with logo + per-brand totals + totals row |
+| Dashboard | src/pages/Dashboard.jsx | Cross-brand reporting: **cycle picker** (scrolls through only cycles with trackers — e.g. "2025 Winter", "2025-2026"), saves selected cycle to localStorage per user, summary cards (Total Sales, Commission Earned, Commission Owed), brand cards with logo + per-brand totals + progress bars |
 | Accounts | src/pages/Accounts.jsx | Account list with search, add/import accounts (CSV import, uses AccountContext) |
 | Sales | _(removed)_ | Sales now accessed only via CompanyDetail > Sales tab |
 | Commission | _(removed)_ | Commission now accessed only via CompanyDetail > Sales tab |
@@ -26,7 +26,7 @@
 | useTheme | src/hooks/useTheme.js | Dark mode hook: reads/writes localStorage, toggles `.dark` class on document root |
 | AuthContext | src/context/AuthContext.jsx | Auth state (user, loading, subscription), signUp, signIn, signOut, updateEmail, updatePassword, updateAvatar, refreshSubscription via Supabase Auth + subscriptions table |
 | AccountContext | src/context/AccountContext.jsx | Account CRUD (single + bulk CSV import) via Supabase + getAccountName helper |
-| SalesContext | src/context/SalesContext.jsx | Seasons + Orders + Commissions CRUD via Supabase |
+| SalesContext | src/context/SalesContext.jsx | Seasons + Orders + Commissions CRUD via Supabase. Exports `deriveCycle()` (derives cycle label from season's sale_cycle or year), `cycleSortKey()` (chronological sort), `getActiveCycles()` (sorted unique cycles from non-archived seasons). |
 | TodoContext | src/context/TodoContext.jsx | Per-company to-do CRUD via Supabase (add, edit, toggle complete, pin/unpin, reorder, delete) |
 | CompanyContext | src/context/CompanyContext.jsx | Company CRUD via Supabase (add, update, archive, reorder) + logo upload to Storage |
 | Companies | src/pages/Companies.jsx | Company list with add/edit, logo upload to Supabase Storage, archive/restore, drag-to-reorder, per-category commission rate overrides |
@@ -101,3 +101,4 @@
 | 2026-02-17 | Payment CSV Import: 4-step wizard modal (Upload → Review → Discrepancy Review → Confirm & Save). Auto-detects CSV columns, matches account numbers, shows matched/underpaid/overpaid/not-found status. Editable amounts, optional Short Shipped marking for underpaid accounts with unshipped sales calculation. "Import Payments" button added to CompanyDetail header. |
 | 2026-02-17 | Import Payments Step 1 redesign: Added Year dropdown (populated from brand's sales seasons, newest first) and Quarter dropdown (Q1-Q4). File upload disabled until at least one is selected. Removed description text and CSV format example. Added "Need a template?" with downloadable Payment Import Template.xlsx. |
 | 2026-02-17 | Add Sale modal redesigned from 2-step wizard to single-step multi-row layout. Account first (full width), Order Type + Sales Tracker on same row, Total + Commission % + Close Date on same row. Collapsible "Add Additional Details" per row (Category, Items, Order #, Stage, Notes). "+ Add Row" for bulk adding. Smart defaults (Prebook, Order Placed, today, company commission %). Only Account + Total required. Edit mode shows all fields. |
+| 2026-02-17 | Sale Cycle on trackers: Added `sale_cycle` column to seasons table. New/Edit Sales Tracker modal now has a "Sale Cycle" dropdown (Winter/Spring/Summer/Fall/Annual per year, 2021-2050). Auto-derives `year` field for backward compat. Dashboard year picker replaced with cycle picker that only shows cycles with trackers, saves to localStorage per user. Legacy trackers (no sale_cycle) treated as annual "YYYY-YYYY+1". SalesContext exports `deriveCycle()`, `cycleSortKey()`, `getActiveCycles()`. |

@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, DollarSign, TrendingUp, AlertCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import { useSales } from '@/context/SalesContext'
+import { useSales, deriveCycle, cycleSortKey } from '@/context/SalesContext'
+import { useAuth } from '@/context/AuthContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { EXCLUDED_STAGES } from '@/lib/constants'
 
@@ -14,14 +15,48 @@ const fmtCompact = (value) => {
   return fmt(value)
 }
 
-const currentYear = String(new Date().getFullYear())
+const currentYear = new Date().getFullYear()
+const defaultCycle = `${currentYear}-${currentYear + 1}`
 
 function Dashboard() {
-  const { seasons, orders, commissions } = useSales()
-  const { activeCompanies } = useCompanies()
+  const { seasons, orders, commissions, loading: salesLoading, getActiveCycles } = useSales()
+  const { user } = useAuth()
+  const { activeCompanies, loading: companiesLoading } = useCompanies()
   const navigate = useNavigate()
 
-  const [selectedYear, setSelectedYear] = useState(currentYear)
+  const dataLoading = salesLoading || companiesLoading
+
+  // Build sorted list of cycles that have trackers
+  const activeCycles = useMemo(() => getActiveCycles(), [seasons])
+
+  // Load saved cycle from localStorage, fall back to most recent or default
+  const [selectedCycle, setSelectedCycle] = useState(() => {
+    if (user) {
+      try {
+        const saved = localStorage.getItem(`rc_dashboard_cycle_${user.id}`)
+        if (saved) return saved
+      } catch {}
+    }
+    return defaultCycle
+  })
+
+  // Save selected cycle to localStorage
+  useEffect(() => {
+    if (user && selectedCycle) {
+      try { localStorage.setItem(`rc_dashboard_cycle_${user.id}`, selectedCycle) } catch {}
+    }
+  }, [selectedCycle, user])
+
+  // If saved cycle no longer exists in data, fall back to the most recent
+  useEffect(() => {
+    if (activeCycles.length > 0 && !activeCycles.includes(selectedCycle)) {
+      setSelectedCycle(activeCycles[activeCycles.length - 1])
+    }
+  }, [activeCycles])
+
+  const selectedCycleIndex = activeCycles.indexOf(selectedCycle)
+  const canGoLeft = activeCycles.length > 0 && selectedCycleIndex > 0
+  const canGoRight = activeCycles.length > 0 && selectedCycleIndex < activeCycles.length - 1
 
   // Build a company lookup for commission rates
   const companyMap = useMemo(() => {
@@ -31,9 +66,9 @@ function Dashboard() {
   }, [activeCompanies])
 
   const brandData = useMemo(() => {
-    // Get season IDs that match the selected year
+    // Get season IDs that match the selected cycle
     const matchingSeasonIds = new Set(
-      seasons.filter((s) => s.year === selectedYear).map((s) => s.id)
+      seasons.filter((s) => deriveCycle(s) === selectedCycle).map((s) => s.id)
     )
 
     // Filter excluded stage orders in those seasons
@@ -94,7 +129,7 @@ function Dashboard() {
     )
 
     return { rows, totals }
-  }, [seasons, orders, commissions, activeCompanies, companyMap, selectedYear])
+  }, [seasons, orders, commissions, activeCompanies, companyMap, selectedCycle])
 
   return (
     <div className="px-6 py-4 space-y-8">
@@ -103,18 +138,22 @@ function Dashboard() {
         <h1 className="text-2xl font-bold">Dashboard</h1>
         <div className="flex items-center">
           <button
-            onClick={() => setSelectedYear((y) => String(Math.max(2026, Number(y) - 1)))}
-            disabled={selectedYear === '2026'}
+            onClick={() => {
+              if (canGoLeft) setSelectedCycle(activeCycles[selectedCycleIndex - 1])
+            }}
+            disabled={!canGoLeft}
             className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-l-md border border-[#005b5b]/30 border-r-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronLeft className="size-4" />
           </button>
           <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold tabular-nums select-none min-w-[120px] text-center">
-            {Number(selectedYear) - 1}-{selectedYear}
+            {selectedCycle}
           </div>
           <button
-            onClick={() => setSelectedYear((y) => String(Math.min(2050, Number(y) + 1)))}
-            disabled={selectedYear === '2050'}
+            onClick={() => {
+              if (canGoRight) setSelectedCycle(activeCycles[selectedCycleIndex + 1])
+            }}
+            disabled={!canGoRight}
             className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-r-md border border-[#005b5b]/30 border-l-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronRight className="size-4" />
@@ -123,6 +162,12 @@ function Dashboard() {
       </div>
 
       {/* Summary Strip */}
+      {dataLoading ? (
+        <div className="flex items-center justify-center py-24">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-zinc-300 border-t-[#005b5b]" />
+        </div>
+      ) : (
+      <>
       <div className="grid grid-cols-3 gap-4">
         <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-5 py-4">
           <div className="p-2 bg-[#005b5b] rounded-lg">
@@ -233,13 +278,15 @@ function Dashboard() {
                   </div>
                 ) : (
                   <p className="text-sm text-center text-muted-foreground py-2">
-                    No sales in {Number(selectedYear) - 1}-{selectedYear}
+                    No sales in {selectedCycle}
                   </p>
                 )}
               </div>
             )
           })}
         </div>
+      )}
+      </>
       )}
     </div>
   )

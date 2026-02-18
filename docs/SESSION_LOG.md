@@ -1,5 +1,27 @@
 # Session Log
 
+## 2026-02-17 (Session 11)
+
+**Worked on:** Sale Cycle feature, Dashboard cycle picker, celebration message overhaul.
+
+**Changes made:**
+- **schema.sql:** Added `sale_cycle text` column to seasons table (nullable, backward-compatible). Migration run in Supabase SQL Editor.
+- **CompanySales.jsx:** Added "Sale Cycle" dropdown to New/Edit Sales Tracker modal with options: Winter, Spring, Summer, Fall, Annual (YYYY-YYYY+1) per year from 2025 to 2050. Auto-derives `year` field from cycle selection for backward compat. Pre-selects saved cycle on edit. Removed placeholder text from Tracker Name input.
+- **SalesContext.jsx:** Added `deriveCycle()` (returns sale_cycle or derives from year), `cycleSortKey()` (chronological sort key), `getActiveCycles()` (sorted unique cycles from ALL seasons including archived). Exported as named exports and via context value.
+- **Dashboard.jsx:** Replaced year-based picker with cycle picker that scrolls through only cycles that have trackers. Saves selected cycle to localStorage keyed by user ID. Falls back to most recent cycle if saved cycle no longer exists. Legacy trackers (no sale_cycle) treated as annual.
+- **Celebration messages:** Restructured from flat arrays to category-grouped `HYPE_CATEGORIES` object (snow, skate, surf, cheesy). Openers and closers are now matched by category so they don't mix. Added `getRandomHype()` function with 60% weight for cheesy/punny, 40% split between snow/skate/surf. Expanded cheesy openers (25 total) and closers (23 total) with new punny/bro-humor lines.
+- **db.js:** No changes needed — insertSeason/updateSeason already pass through all fields via spread operator.
+- Deployed to production (repcommish.com) multiple times.
+
+**Next steps:**
+- Test full sale cycle flow on production
+- Fix the Supabase insert hang from Session 10 (still outstanding)
+
+**Open questions:**
+- None
+
+---
+
 ## 2026-02-17 (Session 10)
 
 **Worked on:** Redesigned Add Sale modal from 2-step wizard to single-step multi-row layout. Debugged save issue.

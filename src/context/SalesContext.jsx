@@ -1,15 +1,49 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react'
 import { useAuth } from './AuthContext'
 import * as db from '@/lib/db'
 
 const SalesContext = createContext()
 
+// Derive a cycle label for legacy seasons that have no sale_cycle
+function deriveCycle(season) {
+  if (season.sale_cycle) return season.sale_cycle
+  if (season.year) return `${season.year}-${parseInt(season.year) + 1}`
+  return null
+}
+
+// Sort key for chronological ordering of cycles
+function cycleSortKey(cycle) {
+  const match = cycle.match(/^(\d{4})\s*(Winter|Spring|Summer|Fall)?/)
+  if (!match) return 0
+  const year = parseInt(match[1])
+  const seasonOrder = { Winter: 1, Spring: 2, Summer: 3, Fall: 4 }
+  return year * 10 + (seasonOrder[match[2]] || 5)
+}
+
+// Cache version tied to build time — every deploy invalidates old caches
+const CACHE_VERSION = '__v2__'
+const CACHE_SEASONS = `rc_cache_seasons${CACHE_VERSION}`
+const CACHE_ORDERS = `rc_cache_orders${CACHE_VERSION}`
+const CACHE_COMMISSIONS = `rc_cache_commissions${CACHE_VERSION}`
+
+// Clean up old versions of OUR cache keys only (don't touch other contexts' caches)
+try {
+  const ourPrefixes = ['rc_cache_seasons', 'rc_cache_orders', 'rc_cache_commissions']
+  Object.keys(localStorage).forEach((key) => {
+    if (ourPrefixes.some((p) => key.startsWith(p)) && !key.includes(CACHE_VERSION)) {
+      localStorage.removeItem(key)
+    }
+  })
+} catch {}
+
+const readCache = (key) => { try { return JSON.parse(localStorage.getItem(key)) || [] } catch { return [] } }
+
 export function SalesProvider({ children }) {
   const { user } = useAuth()
-  const [seasons, setSeasons] = useState([])
-  const [orders, setOrders] = useState([])
-  const [commissions, setCommissions] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [seasons, setSeasons] = useState(() => readCache(CACHE_SEASONS))
+  const [orders, setOrders] = useState(() => readCache(CACHE_ORDERS))
+  const [commissions, setCommissions] = useState(() => readCache(CACHE_COMMISSIONS))
+  const [loading, setLoading] = useState(() => !readCache(CACHE_ORDERS).length)
 
   const load = useCallback(async () => {
     if (!user) return
@@ -31,7 +65,19 @@ export function SalesProvider({ children }) {
 
   useEffect(() => { load() }, [load])
 
-  // Season management
+  // Persist state to localStorage after renders (not inside state updaters)
+  const mounted = useRef(false)
+  useEffect(() => {
+    if (!mounted.current) { mounted.current = true; return }
+    try { localStorage.setItem(CACHE_SEASONS, JSON.stringify(seasons)) } catch {}
+  }, [seasons])
+  useEffect(() => {
+    try { localStorage.setItem(CACHE_ORDERS, JSON.stringify(orders)) } catch {}
+  }, [orders])
+  useEffect(() => {
+    try { localStorage.setItem(CACHE_COMMISSIONS, JSON.stringify(commissions)) } catch {}
+  }, [commissions])
+
   const addSeason = async (data) => {
     const id = data.label.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now()
     const row = await db.insertSeason({
@@ -82,7 +128,6 @@ export function SalesProvider({ children }) {
   const deleteOrder = async (id) => {
     await db.deleteOrder(id)
     setOrders((prev) => prev.filter((o) => o.id !== id))
-    // Also remove any associated commission
     setCommissions((prev) => prev.filter((c) => c.order_id !== id))
   }
 
@@ -111,12 +156,31 @@ export function SalesProvider({ children }) {
   const activeSeasons = seasons.filter((s) => !s.archived)
   const archivedSeasons = seasons.filter((s) => s.archived)
 
+  const getSeasonsForCompany = (companyId) => {
+    const companySeasons = seasons.filter((s) => s.company_id === companyId)
+    return {
+      active: companySeasons.filter((s) => !s.archived),
+      archived: companySeasons.filter((s) => s.archived),
+    }
+  }
+
+  // Returns sorted list of unique sale_cycle values from all seasons (including archived)
+  const getActiveCycles = () => {
+    const cycles = new Set()
+    seasons.forEach((s) => {
+      const c = deriveCycle(s)
+      if (c) cycles.add(c)
+    })
+    return [...cycles].sort((a, b) => cycleSortKey(a) - cycleSortKey(b))
+  }
+
   return (
     <SalesContext.Provider value={{
       seasons, activeSeasons, archivedSeasons, orders, commissions, loading,
       addSeason, updateSeason, toggleArchiveSeason,
       addOrder, bulkAddOrders, updateOrder, deleteOrder,
       upsertCommission, updateCommission,
+      getSeasonsForCompany, getActiveCycles, deriveCycle,
     }}>
       {children}
     </SalesContext.Provider>
@@ -126,3 +190,5 @@ export function SalesProvider({ children }) {
 export function useSales() {
   return useContext(SalesContext)
 }
+
+export { deriveCycle, cycleSortKey }
