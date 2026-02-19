@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { FolderArchive, ChevronDown, Pencil, Search, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
@@ -24,19 +24,30 @@ const SortIcon = ({ column, sortConfig }) => {
   return sortConfig.dir === 'asc' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />
 }
 
-function CompanyPayments({ companyId }) {
+function CompanyPayments({ companyId, activeTracker, setActiveTracker }) {
   const { getAccountName } = useAccounts()
   const { companies } = useCompanies()
-  const { orders, commissions } = useSales()
+  const { orders, commissions, getSeasonsForCompany } = useSales()
 
   const [searchQuery, setSearchQuery] = useState('')
   const [sortConfig, setSortConfig] = useState({ key: 'date', dir: 'desc' })
+  const [showArchived, setShowArchived] = useState(false)
 
   const company = companies.find((c) => c.id === companyId)
+  const { active: activeSeasons, archived: archivedSeasons } = getSeasonsForCompany(companyId)
+  const isAllView = activeTracker === 'all'
+  const showAllTab = activeSeasons.length >= 2
+
+  // Helper to get tracker label from season_id
+  const getTrackerLabel = (seasonId) => activeSeasons.find(s => s.id === seasonId)?.label || archivedSeasons.find(s => s.id === seasonId)?.label || '—'
 
   // Flatten all payments from commissions linked to this company's orders
   const allPayments = useMemo(() => {
-    const companyOrders = orders.filter((o) => o.company_id === companyId)
+    let companyOrders = orders.filter((o) => o.company_id === companyId)
+    // Filter by tracker unless "all" view
+    if (!isAllView && activeTracker) {
+      companyOrders = companyOrders.filter((o) => o.season_id === activeTracker)
+    }
     const orderMap = {}
     companyOrders.forEach((o) => { orderMap[o.id] = o })
 
@@ -53,6 +64,7 @@ function CompanyPayments({ companyId }) {
             payments.push({
               accountName: getAccountName(order.client_id),
               clientId: order.client_id,
+              seasonId: order.season_id,
               date: p.date || '',
               amount: p.amount,
             })
@@ -63,6 +75,7 @@ function CompanyPayments({ companyId }) {
         payments.push({
           accountName: getAccountName(order.client_id),
           clientId: order.client_id,
+          seasonId: order.season_id,
           date: comm.paid_date || '',
           amount: comm.amount_paid,
         })
@@ -70,7 +83,7 @@ function CompanyPayments({ companyId }) {
     })
 
     return payments
-  }, [orders, commissions, companyId, getAccountName])
+  }, [orders, commissions, companyId, getAccountName, activeTracker, isAllView])
 
   // Filter by search
   const filteredPayments = useMemo(() => {
@@ -119,8 +132,67 @@ function CompanyPayments({ companyId }) {
 
   const totalAmount = filteredPayments.reduce((sum, p) => sum + p.amount, 0)
 
+  const colCount = isAllView ? 4 : 3
+
   return (
     <div className="space-y-6">
+      {/* Tracker tabs — read-only */}
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 overflow-x-auto min-w-0 flex-1">
+          {showAllTab && (
+            <button
+              onClick={() => setActiveTracker('all')}
+              className={`py-1.5 whitespace-nowrap transition-colors ${
+                isAllView
+                  ? 'text-[#005b5b] font-bold text-base'
+                  : 'text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 text-sm font-medium'
+              }`}
+            >
+              All Payments
+            </button>
+          )}
+          {activeSeasons.map((season) => (
+            <button
+              key={season.id}
+              onClick={() => setActiveTracker(season.id)}
+              className={`py-1.5 whitespace-nowrap transition-colors ${
+                activeTracker === season.id
+                  ? 'text-[#005b5b] font-bold text-base'
+                  : 'text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 text-sm font-medium'
+              }`}
+            >
+              {season.label}
+            </button>
+          ))}
+        </div>
+
+        {archivedSeasons.length > 0 && (
+          <div className="relative shrink-0">
+            <button
+              onClick={() => setShowArchived(!showArchived)}
+              className="px-3 py-2 text-sm text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 flex items-center gap-1 whitespace-nowrap"
+            >
+              <FolderArchive className="size-3.5" />
+              Archived ({archivedSeasons.length})
+              <ChevronDown className={`size-3 transition-transform ${showArchived ? 'rotate-180' : ''}`} />
+            </button>
+            {showArchived && (
+              <div className="absolute top-full left-0 mt-1 bg-white dark:bg-zinc-800 border dark:border-zinc-700 rounded-lg shadow-lg z-10 min-w-48">
+                {archivedSeasons.map((season) => (
+                  <button
+                    key={season.id}
+                    onClick={() => { setActiveTracker(season.id); setShowArchived(false) }}
+                    className="flex items-center gap-2 w-full px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-sm text-muted-foreground hover:text-zinc-900 dark:hover:text-zinc-100"
+                  >
+                    <span className="flex-1 text-left">{season.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Summary */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-white dark:bg-zinc-800 border-2 border-[#005b5b]/30 dark:border-zinc-700 rounded-xl px-4 py-3">
@@ -153,6 +225,11 @@ function CompanyPayments({ companyId }) {
             <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
               <span className="flex items-center gap-1 whitespace-nowrap">Account <SortIcon column="account" sortConfig={sortConfig} /></span>
             </TableHead>
+            {isAllView && (
+              <TableHead className="text-white">
+                <span className="whitespace-nowrap">Tracker</span>
+              </TableHead>
+            )}
             <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('date')}>
               <span className="flex items-center gap-1 whitespace-nowrap">Date of Payment <SortIcon column="date" sortConfig={sortConfig} /></span>
             </TableHead>
@@ -164,7 +241,7 @@ function CompanyPayments({ companyId }) {
         <TableBody>
           {groupedByDate.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={3} className="text-center text-muted-foreground">
+              <TableCell colSpan={colCount} className="text-center text-muted-foreground">
                 {searchQuery ? 'No payments match your search.' : 'No payment data yet.'}
               </TableCell>
             </TableRow>
@@ -173,7 +250,7 @@ function CompanyPayments({ companyId }) {
               <>
                 {/* Date group header */}
                 <TableRow key={`date-${dateKey}`} className="bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-800">
-                  <TableCell colSpan={2} className="font-bold text-zinc-900 dark:text-white py-2">
+                  <TableCell colSpan={colCount - 1} className="font-bold text-zinc-900 dark:text-white py-2">
                     {dateKey === 'No Date' ? 'No Date' : fmtDate(dateKey)}
                   </TableCell>
                   <TableCell className="text-right font-bold text-zinc-900 dark:text-white py-2">
@@ -184,6 +261,9 @@ function CompanyPayments({ companyId }) {
                 {payments.map((payment, idx) => (
                   <TableRow key={`${dateKey}-${idx}`}>
                     <TableCell>{payment.accountName}</TableCell>
+                    {isAllView && (
+                      <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{getTrackerLabel(payment.seasonId)}</TableCell>
+                    )}
                     <TableCell>{payment.date ? fmtDate(payment.date) : '—'}</TableCell>
                     <TableCell className="text-right">{fmt(payment.amount)}</TableCell>
                   </TableRow>

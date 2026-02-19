@@ -7,7 +7,7 @@ function MarketingFooter() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           {/* Brand */}
           <div>
-            <img src="/repcommish-logo.png" alt="REPCOMMISH" className="h-8 mb-3 dark:invert" />
+            <img src="/repcommish-logo.png" alt="REPCOMMISH" className="h-14 mb-3 dark:invert" />
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
               Sales and commission tracking built for independent sales reps.
             </p>
@@ -20,6 +20,7 @@ function MarketingFooter() {
               <li><Link to="/features" className="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">Features</Link></li>
               <li><Link to="/pricing" className="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">Pricing</Link></li>
               <li><Link to="/about" className="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">About</Link></li>
+              <li><Link to="/contact" className="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">Contact</Link></li>
             </ul>
           </div>
 

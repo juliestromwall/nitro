@@ -18,7 +18,7 @@ serve(async (req) => {
 
   let event: Stripe.Event
   try {
-    event = stripe.webhooks.constructEvent(body, signature, webhookSecret)
+    event = await stripe.webhooks.constructEventAsync(body, signature, webhookSecret)
   } catch (err) {
     return new Response(`Webhook signature verification failed: ${err.message}`, { status: 400 })
   }
@@ -38,7 +38,7 @@ serve(async (req) => {
         .from('subscriptions')
         .update({
           stripe_subscription_id: subscriptionId,
-          status: 'active',
+          status: subscription.status, // 'active' or 'trialing'
           plan: subscription.items.data[0]?.price?.recurring?.interval === 'year' ? 'annual' : 'monthly',
           current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
           updated_at: new Date().toISOString(),

@@ -1,7 +1,12 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
-import { Tag, Store, BarChart3, LogOut, Home, RotateCcw } from 'lucide-react'
+import { Tag, Store, BarChart3, LogOut, Home, RotateCcw, ChevronUp, ChevronDown } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog'
 import TopBar from '@/components/TopBar'
+import OnboardingTour from '@/components/OnboardingTour'
 import { useAuth } from '@/context/AuthContext'
 import { CompanyProvider, useCompanies } from '@/context/CompanyContext'
 import { AccountProvider } from '@/context/AccountContext'
@@ -11,40 +16,73 @@ import Dashboard from '@/pages/Dashboard'
 import Companies from '@/pages/Companies'
 import CompanyDetail from '@/pages/CompanyDetail'
 import Accounts from '@/pages/Accounts'
+import Reports from '@/pages/Reports'
 
 function CompanyLinks() {
   const { activeCompanies } = useCompanies()
+  const scrollRef = useRef(null)
+  const [canScrollUp, setCanScrollUp] = useState(false)
+  const [canScrollDown, setCanScrollDown] = useState(false)
+
+  const checkScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    setCanScrollUp(el.scrollTop > 4)
+    setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 4)
+  }, [])
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    checkScroll()
+    el.addEventListener('scroll', checkScroll, { passive: true })
+    const ro = new ResizeObserver(checkScroll)
+    ro.observe(el)
+    return () => { el.removeEventListener('scroll', checkScroll); ro.disconnect() }
+  }, [checkScroll, activeCompanies.length])
 
   return (
-    <div className="flex flex-col gap-2 w-full px-2 overflow-y-auto scrollbar-none">
-      {activeCompanies.map((company) => (
-        <NavLink
-          key={company.id}
-          to={`/app/companies/${company.id}`}
-          title={company.name}
-          className={({ isActive }) =>
-            `flex items-center justify-center p-2 rounded-lg transition-colors ${
-              isActive
-                ? 'bg-[#005b5b]'
-                : 'text-zinc-400 hover:text-white hover:bg-zinc-600'
-            }`
-          }
-        >
-          {company.logo_path ? (
-            <div className="w-9 h-9 shrink-0 rounded bg-white flex items-center justify-center p-0.5">
-              <img
-                src={company.logo_path}
-                alt={company.name}
-                className="w-full h-full object-contain"
-              />
-            </div>
-          ) : (
-            <div className="w-9 h-9 shrink-0 rounded bg-zinc-700 flex items-center justify-center text-white text-sm font-bold">
-              {company.name.charAt(0)}
-            </div>
-          )}
-        </NavLink>
-      ))}
+    <div className="relative h-full flex flex-col">
+      {canScrollUp && (
+        <div className="flex justify-center py-0.5 text-zinc-500">
+          <ChevronUp className="size-3.5" />
+        </div>
+      )}
+      <div ref={scrollRef} className="flex flex-col gap-2 w-full px-2 flex-1 min-h-0 overflow-y-auto scrollbar-none">
+        {activeCompanies.map((company) => (
+          <NavLink
+            key={company.id}
+            to={`/app/companies/${company.id}`}
+            title={company.name}
+            className={({ isActive }) =>
+              `flex items-center justify-center p-2 rounded-lg transition-colors shrink-0 ${
+                isActive
+                  ? 'bg-[#005b5b]'
+                  : 'text-zinc-400 hover:text-white hover:bg-zinc-600'
+              }`
+            }
+          >
+            {company.logo_path ? (
+              <div className="w-9 h-9 shrink-0 rounded bg-white flex items-center justify-center p-0.5">
+                <img
+                  src={company.logo_path}
+                  alt={company.name}
+                  className="w-full h-full object-contain"
+                />
+              </div>
+            ) : (
+              <div className="w-9 h-9 shrink-0 rounded bg-zinc-700 flex items-center justify-center text-white text-sm font-bold">
+                {company.name.charAt(0)}
+              </div>
+            )}
+          </NavLink>
+        ))}
+      </div>
+      {canScrollDown && (
+        <div className="flex justify-center py-0.5 text-zinc-500">
+          <ChevronDown className="size-3.5" />
+        </div>
+      )}
     </div>
   )
 }
@@ -54,6 +92,7 @@ function AppLayout() {
   const location = useLocation()
   const [showHomeMenu, setShowHomeMenu] = useState(false)
   const [homeConfirm, setHomeConfirm] = useState(null) // 'set' | 'reset'
+  const [signOutOpen, setSignOutOpen] = useState(false)
   const longPressTimer = useRef(null)
   const menuRef = useRef(null)
 
@@ -132,6 +171,7 @@ function AppLayout() {
           <div className="relative">
             <NavLink
               to={homePath}
+              data-tour="sidebar-logo"
               className="flex items-center justify-center mb-1 px-1"
               onPointerDown={handlePointerDown}
               onPointerUp={handlePointerUp}
@@ -178,7 +218,9 @@ function AppLayout() {
           <div className="border-t border-zinc-700 w-12 mb-3" />
 
           {/* Brand quick links */}
-          <CompanyLinks />
+          <div data-tour="brand-links" className="flex-1 min-h-0 overflow-hidden">
+            <CompanyLinks />
+          </div>
 
           <div className="border-t border-zinc-700 w-12 my-3" />
 
@@ -187,6 +229,7 @@ function AppLayout() {
             <NavLink
               to="/app"
               end
+              data-tour="nav-dashboard"
               title="Dashboard"
               className={({ isActive }) =>
                 `flex items-center justify-center p-2 rounded-lg transition-colors ${
@@ -196,11 +239,12 @@ function AppLayout() {
                 }`
               }
             >
-              <BarChart3 className="size-5" />
+              <Home className="size-5" />
             </NavLink>
             <NavLink
               to="/app/companies"
               end
+              data-tour="nav-brands"
               title="My Brands"
               className={({ isActive }) =>
                 `flex items-center justify-center p-2 rounded-lg transition-colors ${
@@ -215,6 +259,7 @@ function AppLayout() {
             <NavLink
               to="/app/accounts"
               end
+              data-tour="nav-accounts"
               title="Accounts"
               className={({ isActive }) =>
                 `flex items-center justify-center p-2 rounded-lg transition-colors ${
@@ -226,12 +271,27 @@ function AppLayout() {
             >
               <Store className="size-5" />
             </NavLink>
+            <NavLink
+              to="/app/reports"
+              end
+              data-tour="nav-reports"
+              title="Reports"
+              className={({ isActive }) =>
+                `flex items-center justify-center p-2 rounded-lg transition-colors ${
+                  isActive
+                    ? 'bg-[#005b5b] text-white'
+                    : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
+                }`
+              }
+            >
+              <BarChart3 className="size-5" />
+            </NavLink>
           </nav>
 
           {/* Sign Out — pushed to bottom */}
           <div className="mt-4 px-2 w-full">
             <button
-              onClick={signOut}
+              onClick={() => setSignOutOpen(true)}
               title="Sign Out"
               className="flex items-center justify-center w-full p-2 rounded-lg text-zinc-500 hover:text-white hover:bg-zinc-600 transition-colors"
             >
@@ -239,6 +299,20 @@ function AppLayout() {
             </button>
           </div>
         </aside>
+
+        {/* Sign Out confirmation */}
+        <Dialog open={signOutOpen} onOpenChange={setSignOutOpen}>
+          <DialogContent className="max-w-xs">
+            <DialogHeader>
+              <DialogTitle>Sign Out</DialogTitle>
+              <DialogDescription>Are you sure you want to sign out?</DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSignOutOpen(false)}>Cancel</Button>
+              <Button variant="destructive" onClick={() => { setSignOutOpen(false); signOut() }}>Sign Out</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Main content */}
         <div className="flex-1 flex flex-col overflow-hidden bg-background">
@@ -249,8 +323,10 @@ function AppLayout() {
               <Route path="companies" element={<Companies />} />
               <Route path="companies/:id" element={<CompanyDetail />} />
               <Route path="accounts" element={<Accounts />} />
+              <Route path="reports" element={<Reports />} />
             </Routes>
           </main>
+          <OnboardingTour />
         </div>
       </div>
     </TodoProvider>

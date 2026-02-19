@@ -1,9 +1,17 @@
-import { Link } from 'react-router-dom'
+import { useState } from 'react'
+import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { Navigate } from 'react-router-dom'
+import { X, ChevronLeft, ChevronRight } from 'lucide-react'
+
+const screenshots = [
+  { src: '/preview-dashboard.png', alt: 'Multi-brand dashboard with sales and commission overview' },
+  { src: '/preview-commission.png', alt: 'Commission tracking with pay status and payment management' },
+  { src: '/preview-brand.png', alt: 'Brand dashboard with to-dos, notepad, and calculator' },
+]
 
 function HomePage() {
   const { user } = useAuth()
+  const [lightbox, setLightbox] = useState(null) // index or null
 
   // Redirect authenticated users to the app
   if (user) {
@@ -53,7 +61,7 @@ function HomePage() {
             Everything you need to manage your commissions
           </h2>
           <p className="text-center text-zinc-600 dark:text-zinc-400 mb-12 max-w-2xl mx-auto">
-            Built specifically for independent sales reps who work with multiple brands.
+            Built for independent sales reps — whether you carry one brand or many.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
@@ -118,9 +126,95 @@ function HomePage() {
               <div className="w-16 h-1 rounded-full bg-amber-500" />
             </div>
             <h2 className="text-3xl font-bold text-zinc-900 dark:text-white mb-3">See it in action</h2>
-            <p className="text-zinc-600 dark:text-zinc-400">Your entire sales operation in one clean dashboard.</p>
+            <p className="text-zinc-600 dark:text-zinc-400">A quick look at what's waiting inside.</p>
           </div>
-          <div className="bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-700 shadow-2xl">
+
+          {/* Stacked screenshots */}
+          <div className="group relative mx-auto max-w-3xl h-[420px] md:h-[520px] cursor-pointer">
+            {/* Back: Commission (bottom-left, fans out left on hover) */}
+            <div
+              onClick={() => setLightbox(1)}
+              className="absolute w-[85%] transition-all duration-500 ease-out group-hover:translate-x-[-60px] group-hover:translate-y-[30px] group-hover:rotate-[-5deg]"
+              style={{ transform: 'rotate(-2.5deg)', left: '-2%', top: '60px', zIndex: 1 }}
+            >
+              <div className="bg-zinc-900 rounded-xl overflow-hidden border border-zinc-700 shadow-2xl">
+                <div className="flex items-center gap-1.5 px-3 py-2 border-b border-zinc-700">
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  <div className="w-2 h-2 rounded-full bg-yellow-500" />
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <span className="ml-1.5 text-[10px] text-zinc-400">repcommish.com/app</span>
+                </div>
+                <img src="/preview-commission.png" alt="Commission tracking" className="w-full" />
+              </div>
+            </div>
+
+            {/* Middle: Brand (offset right, fans out right on hover) */}
+            <div
+              onClick={() => setLightbox(2)}
+              className="absolute w-[85%] transition-all duration-500 ease-out group-hover:translate-x-[60px] group-hover:translate-y-[20px] group-hover:rotate-[4deg]"
+              style={{ transform: 'rotate(1.5deg)', right: '-2%', top: '30px', zIndex: 2 }}
+            >
+              <div className="bg-zinc-900 rounded-xl overflow-hidden border border-zinc-700 shadow-2xl">
+                <div className="flex items-center gap-1.5 px-3 py-2 border-b border-zinc-700">
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  <div className="w-2 h-2 rounded-full bg-yellow-500" />
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <span className="ml-1.5 text-[10px] text-zinc-400">repcommish.com/app</span>
+                </div>
+                <img src="/preview-brand.png" alt="Brand dashboard" className="w-full" />
+              </div>
+            </div>
+
+            {/* Top: Dashboard (front and center, lifts up on hover) */}
+            <div
+              onClick={() => setLightbox(0)}
+              className="absolute w-[85%] left-[7.5%] transition-all duration-500 ease-out group-hover:translate-y-[-16px] group-hover:rotate-[0deg]"
+              style={{ transform: 'rotate(-0.5deg)', top: '0px', zIndex: 3 }}
+            >
+              <div className="bg-zinc-900 rounded-xl overflow-hidden border border-zinc-700 shadow-2xl group-hover:shadow-[0_25px_60px_-12px_rgba(0,0,0,0.4)]">
+                <div className="flex items-center gap-1.5 px-3 py-2 border-b border-zinc-700">
+                  <div className="w-2 h-2 rounded-full bg-red-500" />
+                  <div className="w-2 h-2 rounded-full bg-yellow-500" />
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <span className="ml-1.5 text-[10px] text-zinc-400">repcommish.com/app</span>
+                </div>
+                <img src="/preview-dashboard.png" alt="Multi-brand dashboard" className="w-full" />
+              </div>
+            </div>
+          </div>
+          <p className="text-center text-sm text-zinc-400 dark:text-zinc-500 mt-6">Click to explore</p>
+        </div>
+      </section>
+
+      {/* Lightbox Modal */}
+      {lightbox !== null && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 md:p-8"
+          onClick={() => setLightbox(null)}
+        >
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 text-white/70 hover:text-white z-50"
+          >
+            <X className="size-8" />
+          </button>
+
+          {/* Previous */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setLightbox((lightbox - 1 + screenshots.length) % screenshots.length)
+            }}
+            className="absolute left-4 md:left-8 text-white/70 hover:text-white z-50"
+          >
+            <ChevronLeft className="size-10" />
+          </button>
+
+          {/* Image */}
+          <div
+            className="max-w-6xl w-full bg-zinc-900 rounded-2xl overflow-hidden border border-zinc-700 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center gap-2 px-4 py-3 border-b border-zinc-700">
               <div className="w-3 h-3 rounded-full bg-red-500" />
               <div className="w-3 h-3 rounded-full bg-yellow-500" />
@@ -128,13 +222,40 @@ function HomePage() {
               <span className="ml-2 text-xs text-zinc-400">repcommish.com/app</span>
             </div>
             <img
-              src="/dashboard-preview.png"
-              alt="REPCOMMISH dashboard showing sales and commission tracking"
-              className="w-full object-cover"
+              src={screenshots[lightbox].src}
+              alt={screenshots[lightbox].alt}
+              className="w-full object-contain"
             />
           </div>
+
+          {/* Next */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              setLightbox((lightbox + 1) % screenshots.length)
+            }}
+            className="absolute right-4 md:right-8 text-white/70 hover:text-white z-50"
+          >
+            <ChevronRight className="size-10" />
+          </button>
+
+          {/* Dots */}
+          <div className="absolute bottom-6 flex gap-2">
+            {screenshots.map((_, i) => (
+              <button
+                key={i}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setLightbox(i)
+                }}
+                className={`w-2.5 h-2.5 rounded-full transition-colors ${
+                  i === lightbox ? 'bg-white' : 'bg-white/30'
+                }`}
+              />
+            ))}
+          </div>
         </div>
-      </section>
+      )}
 
       {/* Stats Section */}
       <section className="py-16 bg-zinc-900 dark:bg-zinc-900">

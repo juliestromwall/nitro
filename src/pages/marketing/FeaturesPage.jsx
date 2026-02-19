@@ -1,23 +1,23 @@
 import { Link } from 'react-router-dom'
-import { BarChart3, Package, DollarSign, CreditCard, Upload, Users, Sun, ListTodo } from 'lucide-react'
+import { BarChart3, Package, DollarSign, CreditCard, Upload, Users, FileDown, ListTodo } from 'lucide-react'
 
 const features = [
   {
     icon: BarChart3,
     title: 'Multi-Brand Dashboard',
-    desc: 'See sales, commissions earned, and commissions owed across all your brands in one view. Filter by season year and track progress with visual progress bars.',
+    desc: 'See sales, commissions earned, and commissions owed across all your brands in one view. Filter by year or quarter and track progress with visual progress bars.',
     color: 'bg-[#005b5b]',
   },
   {
     icon: Package,
     title: 'Order Tracking',
-    desc: 'Track every order with custom categories (rental, retail, etc.), items, stages, and close dates. Import orders in bulk via CSV or add them one by one.',
+    desc: 'Track every order with custom categories, items, stages, and close dates. Import orders in bulk via CSV or add them one by one.',
     color: 'bg-amber-500',
   },
   {
     icon: DollarSign,
     title: 'Automatic Commission Calculation',
-    desc: 'Set commission rates per brand and per category. REPCOMMISH automatically calculates what you\'re owed on every order.',
+    desc: 'Set commission rates per brand and per custom category. REPCOMMISH automatically calculates what you\'re owed on every order.',
     color: 'bg-emerald-500',
   },
   {
@@ -29,25 +29,25 @@ const features = [
   {
     icon: Users,
     title: 'Account Management',
-    desc: 'Manage all your retail accounts in one place. Add individually, import from CSV, and track which accounts belong to which region.',
+    desc: 'Manage all your accounts in one place. Add individually or import from CSV.',
     color: 'bg-rose-500',
   },
   {
     icon: ListTodo,
-    title: 'Per-Brand To-Do Lists',
-    desc: 'Keep track of tasks for each brand with pinnable, reorderable to-do items. Never miss a follow-up or deadline.',
+    title: 'To-Do Lists',
+    desc: 'Stay on top of every follow-up, deadline, and action item with pinnable, reorderable to-do lists. Never let anything slip through the cracks.',
     color: 'bg-sky-500',
   },
   {
     icon: Upload,
     title: 'Document Attachments',
-    desc: 'Attach invoices, purchase orders, and other documents directly to orders. Private storage with secure signed URLs.',
+    desc: 'Attach invoices, purchase orders, and other documents directly to orders. Your files stay private and securely stored.',
     color: 'bg-orange-500',
   },
   {
-    icon: Sun,
-    title: 'Dark Mode',
-    desc: 'Full dark mode support across the entire app. Toggle with one click from the top bar.',
+    icon: FileDown,
+    title: 'Reporting & Exports',
+    desc: 'Export your sales, commissions, payments, and brand data anytime. Download clean reports ready for your records or your brands.',
     color: 'bg-zinc-700',
   },
 ]

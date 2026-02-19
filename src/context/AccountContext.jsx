@@ -4,16 +4,23 @@ import * as db from '@/lib/db'
 
 const AccountContext = createContext()
 
+const CACHE_KEY = 'rc_cache_accounts'
+
 export function AccountProvider({ children }) {
   const { user } = useAuth()
-  const [accounts, setAccounts] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [accounts, setAccounts] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY)) || [] } catch { return [] }
+  })
+  const [loading, setLoading] = useState(() => {
+    try { return !JSON.parse(localStorage.getItem(CACHE_KEY))?.length } catch { return true }
+  })
 
   const load = useCallback(async () => {
     if (!user) return
     try {
       const data = await db.fetchAccounts()
       setAccounts(data)
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data))
     } catch (err) {
       console.error('Failed to load accounts:', err)
     } finally {

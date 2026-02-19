@@ -103,6 +103,11 @@ export function SalesProvider({ children }) {
     setSeasons((prev) => prev.map((s) => (s.id === id ? row : s)))
   }
 
+  const deleteSeason = async (id) => {
+    await db.deleteSeason(id)
+    setSeasons((prev) => prev.filter((s) => s.id !== id))
+  }
+
   // Order management
   const addOrder = async (data) => {
     const row = await db.insertOrder({
@@ -177,7 +182,7 @@ export function SalesProvider({ children }) {
   return (
     <SalesContext.Provider value={{
       seasons, activeSeasons, archivedSeasons, orders, commissions, loading,
-      addSeason, updateSeason, toggleArchiveSeason,
+      addSeason, updateSeason, toggleArchiveSeason, deleteSeason,
       addOrder, bulkAddOrders, updateOrder, deleteOrder,
       upsertCommission, updateCommission,
       getSeasonsForCompany, getActiveCycles, deriveCycle,

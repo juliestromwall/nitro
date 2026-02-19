@@ -23,9 +23,9 @@ serve(async (req) => {
   }
 
   try {
-    const { userId, email, plan } = await req.json()
+    const { userId, email, plan, embedded } = await req.json()
 
-    if (!userId || !email || !plan) {
+    if (!email || !plan) {
       return new Response(JSON.stringify({ error: 'Missing required fields' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -40,46 +40,76 @@ serve(async (req) => {
       })
     }
 
-    // Check if user already has a Stripe customer
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
-    const { data: existingSub } = await supabase
-      .from('subscriptions')
-      .select('stripe_customer_id')
-      .eq('user_id', userId)
-      .single()
 
     let customerId: string
 
-    if (existingSub?.stripe_customer_id) {
-      customerId = existingSub.stripe_customer_id
-    } else {
-      // Create Stripe customer
-      const customer = await stripe.customers.create({ email, metadata: { user_id: userId } })
-      customerId = customer.id
+    if (userId) {
+      // Existing user flow — check for existing Stripe customer
+      const { data: existingSub } = await supabase
+        .from('subscriptions')
+        .select('stripe_customer_id')
+        .eq('user_id', userId)
+        .single()
 
-      // Insert subscription row with incomplete status
-      await supabase.from('subscriptions').upsert({
-        user_id: userId,
-        stripe_customer_id: customerId,
-        plan,
-        status: 'incomplete',
-      }, { onConflict: 'user_id' })
+      if (existingSub?.stripe_customer_id) {
+        try {
+          await stripe.customers.retrieve(existingSub.stripe_customer_id)
+          customerId = existingSub.stripe_customer_id
+        } catch {
+          const customer = await stripe.customers.create({ email, metadata: { user_id: userId } })
+          customerId = customer.id
+          await supabase.from('subscriptions').update({ stripe_customer_id: customerId }).eq('user_id', userId)
+        }
+      } else {
+        const customer = await stripe.customers.create({ email, metadata: { user_id: userId } })
+        customerId = customer.id
+        await supabase.from('subscriptions').upsert({
+          user_id: userId,
+          stripe_customer_id: customerId,
+          plan,
+          status: 'incomplete',
+        }, { onConflict: 'user_id' })
+      }
+    } else {
+      // Guest checkout — no user account yet, just create Stripe customer
+      const customer = await stripe.customers.create({ email })
+      customerId = customer.id
     }
 
-    // Create checkout session
     const siteUrl = Deno.env.get('SITE_URL') || 'https://repcommish.com'
-    const session = await stripe.checkout.sessions.create({
-      customer: customerId,
-      mode: 'subscription',
-      line_items: [{ price: priceId, quantity: 1 }],
-      success_url: `${siteUrl}/checkout/success`,
-      cancel_url: `${siteUrl}/checkout/cancel`,
-      metadata: { user_id: userId },
-    })
 
-    return new Response(JSON.stringify({ url: session.url }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    if (embedded) {
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId,
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items: [{ price: priceId, quantity: 1 }],
+        subscription_data: { trial_period_days: 7 },
+        saved_payment_method_options: { payment_method_save: 'disabled' },
+        ui_mode: 'embedded',
+        return_url: `${siteUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+        metadata: { user_id: userId || '', email },
+      })
+
+      return new Response(JSON.stringify({ clientSecret: session.client_secret }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    } else {
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId,
+        mode: 'subscription',
+        line_items: [{ price: priceId, quantity: 1 }],
+        subscription_data: { trial_period_days: 7 },
+        success_url: `${siteUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${siteUrl}/checkout/cancel`,
+        metadata: { user_id: userId || '', email },
+      })
+
+      return new Response(JSON.stringify({ url: session.url }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,

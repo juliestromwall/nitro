@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { Upload, Trash2, Pencil } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,54 +9,19 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogTrigger,
 } from '@/components/ui/dialog'
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select'
 import { useAccounts } from '@/context/AccountContext'
-import { regions, accountTypes } from '@/lib/constants'
-import { parseCSVLine } from '@/lib/csv'
-
-function parseCSV(text) {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim())
-  if (lines.length < 2) return []
-
-  const headers = parseCSVLine(lines[0]).map((h) => h.toLowerCase().replace(/['"]/g, ''))
-
-  const map = {}
-  headers.forEach((h, i) => {
-    if (['account_name', 'account name', 'name'].includes(h)) map.name = i
-    else if (['account_number', 'account number', 'account #', 'account#'].includes(h)) map.account_number = i
-    else if (h === 'region') map.region = i
-    else if (h === 'type') map.type = i
-    else if (h === 'city') map.city = i
-    else if (h === 'state') map.state = i
-  })
-
-  if (map.name === undefined) return []
-
-  return lines.slice(1).map((line) => {
-    const cols = parseCSVLine(line)
-    return {
-      name: cols[map.name] || '',
-      account_number: map.account_number !== undefined ? cols[map.account_number] || '' : '',
-      region: map.region !== undefined ? cols[map.region] || '' : '',
-      type: map.type !== undefined ? cols[map.type] || '' : '',
-      city: map.city !== undefined ? cols[map.city] || '' : '',
-      state: map.state !== undefined ? cols[map.state] || '' : '',
-    }
-  }).filter((r) => r.name)
-}
+import ImportAccountsModal from '@/components/ImportAccountsModal'
 
 function Accounts() {
-  const { accounts, addAccount, addAccounts, updateAccount, removeAccount } = useAccounts()
+  const { accounts, addAccount, updateAccount, removeAccount } = useAccounts()
   const [search, setSearch] = useState('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
-  const [importing, setImporting] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState(null)
-  const fileInputRef = useRef(null)
   const emptyForm = { name: '', account_number: '', region: '', type: '', city: '', state: '' }
   const [form, setForm] = useState(emptyForm)
+  const [saving, setSaving] = useState(false)
 
   const filteredAccounts = accounts.filter((a) =>
     a.name.toLowerCase().includes(search.toLowerCase())
@@ -79,76 +44,55 @@ function Accounts() {
     setDialogOpen(true)
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault()
-    if (editingId) {
-      await updateAccount(editingId, form)
-    } else {
-      await addAccount(form)
+  const handleSave = async () => {
+    if (!form.name.trim()) return
+    setSaving(true)
+    try {
+      if (editingId) {
+        await updateAccount(editingId, form)
+      } else {
+        await addAccount(form)
+      }
+      setForm(emptyForm)
+      setEditingId(null)
+      setDialogOpen(false)
+    } catch (err) {
+      console.error('Failed to save account:', err)
+      alert('Failed to save account: ' + (err.message || 'Unknown error'))
+    } finally {
+      setSaving(false)
     }
-    setForm(emptyForm)
-    setEditingId(null)
-    setDialogOpen(false)
   }
 
-  const handleCSVImport = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setImporting(true)
-    try {
-      const text = await file.text()
-      const rows = parseCSV(text)
-      if (rows.length === 0) {
-        alert('No valid rows found. Make sure your CSV has an "account_name" column header.')
-        return
-      }
-      await addAccounts(rows)
-      alert(`Successfully imported ${rows.length} account${rows.length === 1 ? '' : 's'}.`)
-    } catch (err) {
-      console.error('CSV import failed:', err)
-      alert('Import failed. Please check the file format.')
-    } finally {
-      setImporting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
 
   return (
     <div className="px-6 py-4 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Accounts</h1>
         <div className="flex items-center gap-2">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv"
-            onChange={handleCSVImport}
-            className="hidden"
-          />
-          <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={importing}>
+          <Button data-tour="import-csv" variant="outline" onClick={() => setImportOpen(true)}>
             <Upload className="size-4 mr-1" />
-            {importing ? 'Importing...' : 'Import CSV'}
+            Import Accounts
           </Button>
           <Dialog open={dialogOpen} onOpenChange={(open) => {
             setDialogOpen(open)
             if (!open) { setEditingId(null); setForm(emptyForm) }
           }}>
             <DialogTrigger asChild>
-              <Button>Add Account</Button>
+              <Button data-tour="add-account">Add Account</Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>{editingId ? 'Edit Account' : 'Add Account'}</DialogTitle>
                 <DialogDescription>{editingId ? 'Update account details.' : 'Add a new account.'}</DialogDescription>
               </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="space-y-4">
                 <div className="space-y-2">
                   <Label htmlFor="name">Account Name</Label>
                   <Input
                     id="name"
                     value={form.name}
                     onChange={(e) => handleFormChange('name', e.target.value)}
-                    required
                   />
                 </div>
                 <div className="space-y-2">
@@ -157,35 +101,26 @@ function Accounts() {
                     id="accountNumber"
                     value={form.account_number}
                     onChange={(e) => handleFormChange('account_number', e.target.value)}
-                    required
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label>Region</Label>
-                    <Select value={form.region} onValueChange={(v) => handleFormChange('region', v)}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select region" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {regions.map((r) => (
-                          <SelectItem key={r} value={r}>{r}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="region">Region</Label>
+                    <Input
+                      id="region"
+                      value={form.region}
+                      onChange={(e) => handleFormChange('region', e.target.value)}
+                      placeholder=""
+                    />
                   </div>
                   <div className="space-y-2">
-                    <Label>Type</Label>
-                    <Select value={form.type} onValueChange={(v) => handleFormChange('type', v)}>
-                      <SelectTrigger className="w-full">
-                        <SelectValue placeholder="Select type" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {accountTypes.map((t) => (
-                          <SelectItem key={t} value={t}>{t}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="type">Territory</Label>
+                    <Input
+                      id="type"
+                      value={form.type}
+                      onChange={(e) => handleFormChange('type', e.target.value)}
+                      placeholder=""
+                    />
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
@@ -207,9 +142,11 @@ function Accounts() {
                   </div>
                 </div>
                 <DialogFooter>
-                  <Button type="submit">{editingId ? 'Save Changes' : 'Save Account'}</Button>
+                  <Button onClick={handleSave} disabled={saving || !form.name.trim()}>
+                    {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Save Account'}
+                  </Button>
                 </DialogFooter>
-              </form>
+              </div>
             </DialogContent>
           </Dialog>
         </div>
@@ -293,6 +230,8 @@ function Accounts() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ImportAccountsModal open={importOpen} onOpenChange={setImportOpen} />
     </div>
   )
 }

@@ -10,7 +10,7 @@ function AboutPage() {
           </h1>
           <div className="prose prose-zinc dark:prose-invert max-w-none">
             <p className="text-lg text-zinc-600 dark:text-zinc-400">
-              REPCOMMISH was built by an independent sales rep who was tired of tracking commissions in spreadsheets.
+              REPCOMMISH was built by an independent sales rep who was tired of losing time, money, and sanity to commission spreadsheets.
             </p>
           </div>
         </div>
@@ -18,32 +18,32 @@ function AboutPage() {
 
       <section className="py-16">
         <div className="max-w-3xl mx-auto px-6 space-y-8">
-          <div className="flex gap-5">
-            <div className="shrink-0 w-1 rounded-full bg-rose-400" />
+          <div className="group/problem flex gap-5 cursor-default hover:-translate-y-0.5 transition-all duration-200">
+            <div className="shrink-0 w-1 rounded-full bg-rose-400 transition-all duration-200 group-hover/problem:w-1.5 group-hover/problem:shadow-[0_0_8px_rgba(251,113,133,0.5)]" />
             <div>
               <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">The Problem</h2>
               <p className="text-zinc-600 dark:text-zinc-400">
-                When you're an independent sales rep working with multiple brands, keeping track of what you've sold, what commission you've earned, and what's actually been paid gets complicated fast. Spreadsheets break down. Details slip through the cracks. You end up spending hours reconciling instead of selling.
+                When you're an independent sales rep working with multiple brands, keeping track of what you've sold, what commission you've earned, and what's actually been paid gets complicated fast — especially when every brand does things differently. Spreadsheets break down. Details slip through the cracks. You end up spending hours reconciling instead of selling.
               </p>
             </div>
           </div>
 
-          <div className="flex gap-5">
-            <div className="shrink-0 w-1 rounded-full bg-[#005b5b]" />
+          <div className="group/solution flex gap-5 cursor-default hover:-translate-y-0.5 transition-all duration-200">
+            <div className="shrink-0 w-1 rounded-full bg-[#005b5b] transition-all duration-200 group-hover/solution:w-1.5 group-hover/solution:shadow-[0_0_8px_rgba(0,91,91,0.5)]" />
             <div>
               <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">The Solution</h2>
               <p className="text-zinc-600 dark:text-zinc-400">
-                REPCOMMISH is purpose-built for independent reps. It tracks your orders across all your brands, automatically calculates commissions based on your negotiated rates, and keeps a clear record of what's been paid and what's outstanding. No more guessing, no more spreadsheet headaches.
+                REPCOMMISH is purpose-built for independent reps. It tracks your orders across all your brands, automatically calculates commissions based on <em className="not-italic font-medium text-zinc-800 dark:text-zinc-200">your</em> negotiated rates and keeps a clear record of what's been paid and what's outstanding. No more guessing, no more spreadsheet headaches.
               </p>
             </div>
           </div>
 
-          <div className="flex gap-5">
-            <div className="shrink-0 w-1 rounded-full bg-amber-500" />
+          <div className="group/built flex gap-5 cursor-default hover:-translate-y-0.5 transition-all duration-200">
+            <div className="shrink-0 w-1 rounded-full bg-amber-500 transition-all duration-200 group-hover/built:w-1.5 group-hover/built:shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
             <div>
               <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">Built Different</h2>
               <p className="text-zinc-600 dark:text-zinc-400">
-                Unlike bloated enterprise CRMs, REPCOMMISH is focused on what matters to independent reps: tracking sales, knowing your commission, and getting paid. It's fast, simple, and designed to stay out of your way so you can focus on selling.
+                Unlike bloated enterprise CRMs, REPCOMMISH is focused on what matters to independent reps: tracking sales, knowing exactly what you're owed, and getting paid. It's fast, simple, and designed to stay out of your way so you can focus on selling.
               </p>
             </div>
           </div>

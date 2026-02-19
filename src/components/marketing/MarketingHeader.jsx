@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
 
 const navLinks = [
@@ -7,17 +7,38 @@ const navLinks = [
   { to: '/features', label: 'Features' },
   { to: '/pricing', label: 'Pricing' },
   { to: '/about', label: 'About' },
+  { to: '/contact', label: 'Contact' },
 ]
 
 function MarketingHeader() {
   const [mobileOpen, setMobileOpen] = useState(false)
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // Scroll to hash after navigation
+  useEffect(() => {
+    if (location.hash) {
+      const el = document.querySelector(location.hash)
+      if (el) el.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [location])
+
+  const handleFaqClick = (e) => {
+    e.preventDefault()
+    setMobileOpen(false)
+    if (location.pathname === '/pricing') {
+      document.querySelector('#faq')?.scrollIntoView({ behavior: 'smooth' })
+    } else {
+      navigate('/pricing#faq')
+    }
+  }
 
   return (
     <header className="sticky top-0 z-50 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-zinc-200 dark:border-zinc-800">
-      <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+      <div className="max-w-6xl mx-auto px-6 h-24 flex items-center justify-between">
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2">
-          <img src="/repcommish-logo.png" alt="REPCOMMISH" className="h-12 dark:invert" />
+          <img src="/repcommish-logo.png" alt="REPCOMMISH" className="h-20 dark:invert" />
         </Link>
 
         {/* Desktop nav */}
@@ -28,16 +49,23 @@ function MarketingHeader() {
               to={link.to}
               end={link.to === '/'}
               className={({ isActive }) =>
-                `text-sm font-medium transition-colors ${
+                `text-sm font-medium transition-colors pb-1 ${
                   isActive
-                    ? 'text-[#005b5b] dark:text-teal-400'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+                    ? 'text-[#005b5b] dark:text-teal-400 border-b-2 border-[#005b5b] dark:border-teal-400'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white border-b-2 border-transparent'
                 }`
               }
             >
               {link.label}
             </NavLink>
           ))}
+          <a
+            href="/pricing#faq"
+            onClick={handleFaqClick}
+            className="text-sm font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors pb-1 border-b-2 border-transparent"
+          >
+            FAQs
+          </a>
         </nav>
 
         {/* Auth buttons */}
@@ -85,6 +113,13 @@ function MarketingHeader() {
               {link.label}
             </NavLink>
           ))}
+          <a
+            href="/pricing#faq"
+            onClick={handleFaqClick}
+            className="block text-sm font-medium py-2 text-zinc-600 dark:text-zinc-400"
+          >
+            FAQs
+          </a>
           <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 flex flex-col gap-2">
             <Link
               to="/login"

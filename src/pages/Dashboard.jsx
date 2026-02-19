@@ -136,28 +136,31 @@ function Dashboard() {
       {/* Header */}
       <div className="flex items-center gap-4">
         <h1 className="text-2xl font-bold">Dashboard</h1>
-        <div className="flex items-center">
-          <button
-            onClick={() => {
-              if (canGoLeft) setSelectedCycle(activeCycles[selectedCycleIndex - 1])
-            }}
-            disabled={!canGoLeft}
-            className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-l-md border border-[#005b5b]/30 border-r-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronLeft className="size-4" />
-          </button>
-          <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold tabular-nums select-none min-w-[120px] text-center">
-            {selectedCycle}
+        <div data-tour="cycle-picker" className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Sales Cycle:</span>
+          <div className="flex items-center">
+            <button
+              onClick={() => {
+                if (canGoLeft) setSelectedCycle(activeCycles[selectedCycleIndex - 1])
+              }}
+              disabled={!canGoLeft}
+              className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-l-md border border-[#005b5b]/30 border-r-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold tabular-nums select-none min-w-[120px] text-center">
+              {selectedCycle}
+            </div>
+            <button
+              onClick={() => {
+                if (canGoRight) setSelectedCycle(activeCycles[selectedCycleIndex + 1])
+              }}
+              disabled={!canGoRight}
+              className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-r-md border border-[#005b5b]/30 border-l-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRight className="size-4" />
+            </button>
           </div>
-          <button
-            onClick={() => {
-              if (canGoRight) setSelectedCycle(activeCycles[selectedCycleIndex + 1])
-            }}
-            disabled={!canGoRight}
-            className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-r-md border border-[#005b5b]/30 border-l-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronRight className="size-4" />
-          </button>
         </div>
       </div>
 

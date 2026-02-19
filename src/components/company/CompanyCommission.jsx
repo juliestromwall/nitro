@@ -82,12 +82,15 @@ const SortIcon = ({ column, sortConfig }) => {
   return sortConfig.dir === 'asc' ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />
 }
 
-function CompanyCommission({ companyId }) {
+function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
   const { getAccountName } = useAccounts()
   const { companies } = useCompanies()
-  const { activeSeasons, archivedSeasons, orders, commissions, updateSeason, toggleArchiveSeason, upsertCommission, updateCommission, updateOrder } = useSales()
+  const { orders, commissions, updateSeason, toggleArchiveSeason, upsertCommission, updateCommission, updateOrder, getSeasonsForCompany } = useSales()
 
-  const [activeTab, setActiveTab] = useState(activeSeasons[0]?.id || '')
+  const { active: activeSeasons, archived: archivedSeasons } = getSeasonsForCompany(companyId)
+
+  const activeTab = activeTracker
+  const setActiveTab = setActiveTracker
   const [cardFilter, setCardFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
@@ -96,7 +99,7 @@ function CompanyCommission({ companyId }) {
   // Edit tab dialog state
   const [tabDialogOpen, setTabDialogOpen] = useState(false)
   const [editingTabId, setEditingTabId] = useState(null)
-  const [tabForm, setTabForm] = useState({ label: '', year: '', start_date: '', end_date: '' })
+  const [tabForm, setTabForm] = useState({ label: '' })
 
   // Payment modal state — account-level
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
@@ -125,10 +128,16 @@ function CompanyCommission({ companyId }) {
     })
   }
 
+  const isAllView = activeTab === 'all'
+  const showAllTab = activeSeasons.length >= 2
+
+  // Helper to get tracker label from season_id
+  const getTrackerLabel = (seasonId) => activeSeasons.find(s => s.id === seasonId)?.label || archivedSeasons.find(s => s.id === seasonId)?.label || '—'
+
   const allVisibleSeasons = showArchived
     ? [...activeSeasons, ...archivedSeasons]
     : activeSeasons
-  const currentSeason = allVisibleSeasons.find((s) => s.id === activeTab) || activeSeasons[0]
+  const currentSeason = isAllView ? null : (allVisibleSeasons.find((s) => s.id === activeTab) || activeSeasons[0])
   const company = companies.find((c) => c.id === companyId)
   const commissionPct = company?.commission_percent || 0
 
@@ -138,11 +147,13 @@ function CompanyCommission({ companyId }) {
   }
 
   // Get all non-cancelled orders for this company + season
-  const closedWonOrders = currentSeason
-    ? orders.filter(
-        (o) => o.company_id === companyId && o.season_id === currentSeason.id && o.stage !== 'Cancelled'
-      )
-    : []
+  const closedWonOrders = isAllView
+    ? orders.filter((o) => o.company_id === companyId && o.stage !== 'Cancelled' && activeSeasons.some(s => s.id === o.season_id))
+    : currentSeason
+      ? orders.filter(
+          (o) => o.company_id === companyId && o.season_id === currentSeason.id && o.stage !== 'Cancelled'
+        )
+      : []
 
   // Build commission rows from orders
   const commissionRows = closedWonOrders.map((order) => {
@@ -153,6 +164,7 @@ function CompanyCommission({ companyId }) {
         id: order.id,
         orderId: order.id,
         client_id: order.client_id,
+        season_id: order.season_id,
         order_number: order.order_number,
         order_document: order.order_document,
         close_date: order.close_date,
@@ -174,6 +186,7 @@ function CompanyCommission({ companyId }) {
       id: order.id,
       orderId: order.id,
       client_id: order.client_id,
+      season_id: order.season_id,
       order_number: order.order_number,
       order_document: order.order_document,
       close_date: order.close_date,
@@ -400,39 +413,40 @@ function CompanyCommission({ companyId }) {
   // Tab dialog handlers
   const openEditTab = (season) => {
     setEditingTabId(season.id)
-    setTabForm({
-      label: season.label,
-      year: season.year || '',
-      start_date: season.start_date || '',
-      end_date: season.end_date || '',
-    })
+    setTabForm({ label: season.label })
     setTabDialogOpen(true)
   }
 
-  const handleTabSubmit = async (e) => {
-    e.preventDefault()
-    if (editingTabId) {
-      await updateSeason(editingTabId, {
-        label: tabForm.label,
-        year: tabForm.year,
-        start_date: tabForm.start_date,
-        end_date: tabForm.end_date,
-      })
-    }
-    setTabForm({ label: '', year: '', start_date: '', end_date: '' })
-    setEditingTabId(null)
+  const handleTabSubmit = async () => {
+    const label = tabForm.label
+    const id = editingTabId
+    // Close dialog immediately, then run API
     setTabDialogOpen(false)
+    setTabForm({ label: '' })
+    setEditingTabId(null)
+    try {
+      if (id) {
+        await updateSeason(id, { label })
+      }
+    } catch (err) {
+      console.error('Failed to save tracker:', err)
+    }
   }
 
   const handleArchiveFromModal = async () => {
     const id = editingTabId
-    await toggleArchiveSeason(id)
+    // Close dialog immediately, then run API
     setTabDialogOpen(false)
     setEditingTabId(null)
-    setTabForm({ label: '', year: '', start_date: '', end_date: '' })
+    setTabForm({ label: '' })
     if (activeTab === id) {
       const remaining = activeSeasons.filter((s) => s.id !== id)
       setActiveTab(remaining[0]?.id || '')
+    }
+    try {
+      await toggleArchiveSeason(id)
+    } catch (err) {
+      console.error('Failed to archive tracker:', err)
     }
   }
 
@@ -627,23 +641,35 @@ function CompanyCommission({ companyId }) {
   return (
     <div className="space-y-6">
       {/* Season tabs — with archive support */}
-      <div className="flex items-center gap-1 border-b">
-        <div className="flex items-center gap-1 overflow-x-auto min-w-0 flex-1">
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 overflow-x-auto min-w-0 flex-1">
+          {showAllTab && (
+            <button
+              onClick={() => handleTabChange('all')}
+              className={`py-1.5 whitespace-nowrap transition-colors ${
+                isAllView
+                  ? 'text-[#005b5b] font-bold text-base'
+                  : 'text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 text-sm font-medium'
+              }`}
+            >
+              All Commissions
+            </button>
+          )}
           {activeSeasons.map((season) => (
             <div key={season.id} className="group flex items-center">
               <button
                 onClick={() => handleTabChange(season.id)}
-                className={`px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors ${
+                className={`py-1.5 whitespace-nowrap transition-colors ${
                   activeTab === season.id
-                    ? 'border-b-2 border-[#005b5b] text-[#005b5b]'
-                    : 'text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300'
+                    ? 'text-[#005b5b] font-bold text-base'
+                    : 'text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 text-sm font-medium'
                 }`}
               >
                 {season.label}
               </button>
               <button
                 onClick={() => openEditTab(season)}
-                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 -ml-2"
+                className="opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 ml-1"
                 title="Edit tab"
               >
                 <Pencil className="size-3" />
@@ -683,14 +709,14 @@ function CompanyCommission({ companyId }) {
       {/* Edit tab dialog */}
       <Dialog open={tabDialogOpen} onOpenChange={(open) => {
         setTabDialogOpen(open)
-        if (!open) { setEditingTabId(null); setTabForm({ label: '', year: '', start_date: '', end_date: '' }) }
+        if (!open) { setEditingTabId(null); setTabForm({ label: '' }) }
       }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Edit Commission Tracker</DialogTitle>
             <DialogDescription>Update this tracker or change its archive status.</DialogDescription>
           </DialogHeader>
-          <form onSubmit={handleTabSubmit} className="space-y-4">
+          <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="tabLabel">Tracker Name</Label>
               <Input
@@ -698,47 +724,13 @@ function CompanyCommission({ companyId }) {
                 placeholder='e.g. "US 2027-2028" or "Demos"'
                 value={tabForm.label}
                 onChange={(e) => setTabForm((p) => ({ ...p, label: e.target.value }))}
-                required
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="tabYear">Year</Label>
-              <Input
-                id="tabYear"
-                placeholder="e.g. 2027"
-                value={tabForm.year}
-                onChange={(e) => setTabForm((p) => ({ ...p, year: e.target.value }))}
-                required
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="startDate">Start Date</Label>
-                <Input
-                  id="startDate"
-                  type="date"
-                  value={tabForm.start_date}
-                  onChange={(e) => setTabForm((p) => ({ ...p, start_date: e.target.value }))}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="endDate">End Date</Label>
-                <Input
-                  id="endDate"
-                  type="date"
-                  value={tabForm.end_date}
-                  onChange={(e) => setTabForm((p) => ({ ...p, end_date: e.target.value }))}
-                  required
-                />
-              </div>
             </div>
             <DialogFooter className="flex gap-2">
               {editingTabId && (() => {
                 const isArchived = archivedSeasons.some((s) => s.id === editingTabId)
                 return (
                   <Button
-                    type="button"
                     variant={isArchived ? 'default' : 'destructive'}
                     className={isArchived ? 'bg-[#005b5b] hover:bg-[#007a7a] mr-auto' : 'mr-auto'}
                     onClick={handleArchiveFromModal}
@@ -748,13 +740,13 @@ function CompanyCommission({ companyId }) {
                   </Button>
                 )
               })()}
-              <Button type="submit">Save Changes</Button>
+              <Button onClick={handleTabSubmit}>Save Changes</Button>
             </DialogFooter>
-          </form>
+          </div>
         </DialogContent>
       </Dialog>
 
-      {currentSeason && (
+      {(currentSeason || isAllView) && (
         <>
           {/* Summary cards — clickable filters */}
           <div className="grid grid-cols-3 gap-4">
@@ -802,6 +794,11 @@ function CompanyCommission({ companyId }) {
                   <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('account')}>
                     <span className="flex items-center gap-1 whitespace-nowrap">Account Name <SortIcon column="account" sortConfig={sortConfig} /></span>
                   </TableHead>
+                  {isAllView && (
+                    <TableHead className="text-white">
+                      <span className="whitespace-nowrap">Tracker</span>
+                    </TableHead>
+                  )}
                   <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('total')}>
                     <span className="flex items-center justify-end gap-1 whitespace-nowrap">Total <SortIcon column="total" sortConfig={sortConfig} /></span>
                   </TableHead>
@@ -825,7 +822,7 @@ function CompanyCommission({ companyId }) {
               <TableBody>
                 {groupedRows.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground">
+                    <TableCell colSpan={isAllView ? 9 : 8} className="text-center text-muted-foreground">
                       {searchQuery ? 'No commissions match your search.' : 'No commission data for this season.'}
                     </TableCell>
                   </TableRow>
@@ -849,6 +846,12 @@ function CompanyCommission({ companyId }) {
                             <span className="font-bold text-zinc-900 dark:text-white">{group.accountName}</span>
                           </div>
                         </TableCell>
+                        {isAllView && (
+                          <TableCell className="text-xs text-muted-foreground whitespace-nowrap">
+                            {/* Show trackers for this group's orders */}
+                            {[...new Set(group.rows.map(r => r.season_id))].map(sid => getTrackerLabel(sid)).join(', ')}
+                          </TableCell>
+                        )}
                         <TableCell className="text-right">
                           <span className="font-bold dark:text-zinc-100">{fmt(group.totalOrder)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
@@ -891,7 +894,7 @@ function CompanyCommission({ companyId }) {
                             <span className="font-bold dark:text-zinc-100">{fmt(group.totalPaid)}</span>
                             <button
                               onClick={(e) => { e.stopPropagation(); openPaymentModal(group) }}
-                              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5 whitespace-nowrap"
+                              className="px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed border-zinc-300 dark:border-zinc-600 rounded-md whitespace-nowrap flex items-center gap-0.5 transition-colors"
                             >
                               <Plus className="size-3" /> Payment
                             </button>
@@ -929,6 +932,9 @@ function CompanyCommission({ companyId }) {
                                 )}
                               </div>
                             </TableCell>
+                            {isAllView && (
+                              <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{getTrackerLabel(row.season_id)}</TableCell>
+                            )}
                             <TableCell className={`text-right ${isExcluded ? 'text-purple-600 dark:text-purple-400' : 'text-muted-foreground'}`}>
                               {fmt(row.orderTotal)}
                             </TableCell>

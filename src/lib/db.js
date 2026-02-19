@@ -1,5 +1,15 @@
 import { supabase } from './supabase'
 
+// Wrap a promise with a timeout so Supabase calls don't hang forever.
+// The Supabase JS v2 auth lock can get stuck after a failed token refresh,
+// causing insert/update calls to never resolve.
+function withTimeout(promise, ms = 15000) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out — please sign out and sign back in.')), ms)),
+  ])
+}
+
 // ── Companies ──────────────────────────────────────────────
 
 export async function fetchCompanies() {
@@ -30,6 +40,11 @@ export async function updateCompany(id, updates) {
     .single()
   if (error) throw error
   return data
+}
+
+export async function deleteCompany(id) {
+  const { error } = await supabase.from('companies').delete().eq('id', id)
+  if (error) throw error
 }
 
 export async function updateCompanySortOrders(updates) {
@@ -129,6 +144,11 @@ export async function updateSeason(id, updates) {
   return data
 }
 
+export async function deleteSeason(id) {
+  const { error } = await supabase.from('seasons').delete().eq('id', id)
+  if (error) throw error
+}
+
 // ── Orders ─────────────────────────────────────────────────
 
 export async function fetchOrders() {
@@ -150,20 +170,17 @@ export async function fetchOrders() {
 }
 
 export async function insertOrder(order) {
-  const { data, error } = await supabase
-    .from('orders')
-    .insert(order)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    supabase.from('orders').insert(order).select().single()
+  )
   if (error) throw error
   return data
 }
 
 export async function bulkInsertOrders(orders) {
-  const { data, error } = await supabase
-    .from('orders')
-    .insert(orders)
-    .select()
+  const { data, error } = await withTimeout(
+    supabase.from('orders').insert(orders).select()
+  )
   if (error) throw error
   return data
 }

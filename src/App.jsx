@@ -1,6 +1,6 @@
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
-import { Tag, Store, BarChart3, LogOut, Home, RotateCcw } from 'lucide-react'
+import { Tag, Store, BarChart3, LogOut, Home, RotateCcw, Loader2 } from 'lucide-react'
 import TopBar from './components/TopBar'
 import { useAuth } from './context/AuthContext'
 import { CompanyProvider, useCompanies } from './context/CompanyContext'
@@ -11,6 +11,7 @@ import Dashboard from './pages/Dashboard'
 import Companies from './pages/Companies'
 import CompanyDetail from './pages/CompanyDetail'
 import Accounts from './pages/Accounts'
+import Reports from './pages/Reports'
 import Login from './pages/Login'
 
 function CompanyLinks() {
@@ -50,8 +51,28 @@ function CompanyLinks() {
   )
 }
 
+const LOADING_MESSAGES = [
+  "Loading something awesome...",
+  "Patience, young grasshopper...",
+  "Good things come to reps who wait...",
+  "Counting your commissions...",
+  "Crunching the numbers...",
+  "Warming up the engines...",
+  "Almost there, champ...",
+  "Rounding up your data...",
+  "Fueling the commission machine...",
+  "Hold tight, big things incoming...",
+  "Sharpening the pencils...",
+  "Waxing the board...",
+  "Dropping into your dashboard...",
+  "Checking the snow report...",
+  "Freshies ahead...",
+  "Lacing up the boots...",
+]
+
 function App() {
   const { user, loading, signOut } = useAuth()
+  const loadingMessage = useMemo(() => LOADING_MESSAGES[Math.floor(Math.random() * LOADING_MESSAGES.length)], [])
   const location = useLocation()
   const [showHomeMenu, setShowHomeMenu] = useState(false)
   const [homeConfirm, setHomeConfirm] = useState(null) // 'set' | 'reset'
@@ -116,8 +137,9 @@ function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <p className="text-muted-foreground">Loading...</p>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+        <Loader2 className="size-8 text-[#005b5b] animate-spin" />
+        <p className="text-muted-foreground text-sm italic">{loadingMessage}</p>
       </div>
     )
   }
@@ -204,7 +226,7 @@ function App() {
                 }`
               }
             >
-              <BarChart3 className="size-5" />
+              <Home className="size-5" />
             </NavLink>
             <NavLink
               to="/companies"
@@ -234,6 +256,20 @@ function App() {
             >
               <Store className="size-5" />
             </NavLink>
+            <NavLink
+              to="/reports"
+              end
+              title="Reports"
+              className={({ isActive }) =>
+                `flex items-center justify-center p-2 rounded-lg transition-colors ${
+                  isActive
+                    ? 'bg-[#005b5b] text-white'
+                    : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
+                }`
+              }
+            >
+              <BarChart3 className="size-5" />
+            </NavLink>
           </nav>
 
           {/* Sign Out — pushed to bottom */}
@@ -257,6 +293,7 @@ function App() {
               <Route path="/companies" element={<Companies />} />
               <Route path="/companies/:id" element={<CompanyDetail />} />
               <Route path="/accounts" element={<Accounts />} />
+              <Route path="/reports" element={<Reports />} />
             </Routes>
           </main>
         </div>

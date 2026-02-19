@@ -4,6 +4,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select'
+import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
 import { useAccounts } from '@/context/AccountContext'
@@ -47,8 +50,9 @@ const payStatusOptions = [
 function BulkPaymentModal({ open, onOpenChange, companyId }) {
   const { getAccountName } = useAccounts()
   const { companies } = useCompanies()
-  const { orders, commissions, upsertCommission } = useSales()
+  const { orders, commissions, seasons, upsertCommission } = useSales()
 
+  const [selectedTracker, setSelectedTracker] = useState('')
   const [date, setDate] = useState('')
   const [rows, setRows] = useState([{ accountSearch: '', clientId: null, accountName: '', payStatus: '', amount: '', showDropdown: false }])
   const [saving, setSaving] = useState(false)
@@ -60,14 +64,21 @@ function BulkPaymentModal({ open, onOpenChange, companyId }) {
   const company = companies.find((c) => c.id === companyId)
   const commPct = company?.commission_percent || 0
 
+  // Get trackers (seasons) for this brand
+  const availableTrackers = useMemo(() => {
+    return seasons
+      .filter((s) => s.company_id === companyId && !s.archived)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+  }, [seasons, companyId])
+
   const getExpectedRate = (orderType) => {
     const categoryPct = company?.category_commissions?.[orderType]
     return categoryPct != null ? categoryPct : commPct
   }
 
-  // Precompute per-account commission summaries
+  // Precompute per-account commission summaries scoped to selected tracker
   const accountSummaries = useMemo(() => {
-    const companyOrders = orders.filter((o) => o.company_id === companyId && o.stage !== 'Cancelled')
+    const companyOrders = orders.filter((o) => o.company_id === companyId && o.stage !== 'Cancelled' && (!selectedTracker || o.season_id === selectedTracker))
     const byClient = new Map()
 
     companyOrders.forEach((o) => {
@@ -131,7 +142,7 @@ function BulkPaymentModal({ open, onOpenChange, companyId }) {
     }
 
     return summaries
-  }, [orders, commissions, companyId, getAccountName, company])
+  }, [orders, commissions, companyId, selectedTracker, getAccountName, company])
 
   // Build dropdown list from summaries
   const commissionAccounts = useMemo(() => {
@@ -288,6 +299,7 @@ function BulkPaymentModal({ open, onOpenChange, companyId }) {
       // Reset and close
       setRows([{ accountSearch: '', clientId: null, accountName: '', payStatus: '', amount: '', showDropdown: false }])
       setDate('')
+      setSelectedTracker('')
       onOpenChange(false)
     } catch (err) {
       console.error('Failed to save bulk payments:', err)
@@ -300,6 +312,7 @@ function BulkPaymentModal({ open, onOpenChange, companyId }) {
   const handleClose = () => {
     setRows([{ accountSearch: '', clientId: null, accountName: '', payStatus: '', amount: '', showDropdown: false }])
     setDate('')
+    setSelectedTracker('')
     onOpenChange(false)
   }
 
@@ -400,6 +413,25 @@ function BulkPaymentModal({ open, onOpenChange, companyId }) {
           </DialogHeader>
 
           <div className="space-y-4">
+            {/* Commission Tracker */}
+            <div className="space-y-2">
+              <Label>Commission Tracker</Label>
+              <Select value={selectedTracker} onValueChange={(v) => {
+                setSelectedTracker(v)
+                // Clear account selections when tracker changes since accounts may differ
+                setRows([{ accountSearch: '', clientId: null, accountName: '', payStatus: '', amount: '', showDropdown: false }])
+              }}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a tracker" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableTrackers.map((s) => (
+                    <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             {/* Shared date */}
             <div className="space-y-2">
               <Label>Payment Date</Label>

@@ -4,16 +4,23 @@ import * as db from '@/lib/db'
 
 const TodoContext = createContext()
 
+const CACHE_KEY = 'rc_cache_todos'
+
 export function TodoProvider({ children }) {
   const { user } = useAuth()
-  const [todos, setTodos] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [todos, setTodos] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(CACHE_KEY)) || [] } catch { return [] }
+  })
+  const [loading, setLoading] = useState(() => {
+    try { return !JSON.parse(localStorage.getItem(CACHE_KEY))?.length } catch { return true }
+  })
 
   const load = useCallback(async () => {
     if (!user) return
     try {
       const data = await db.fetchTodos()
       setTodos(data)
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data))
     } catch (err) {
       console.error('Failed to load todos:', err)
     } finally {

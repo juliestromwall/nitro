@@ -240,7 +240,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
 
   const {
     orders, commissions,
-    addSeason, updateSeason, toggleArchiveSeason,
+    addSeason, updateSeason, toggleArchiveSeason, deleteSeason,
     addOrder, bulkAddOrders, updateOrder, deleteOrder,
     getSeasonsForCompany,
   } = useSales()
@@ -272,8 +272,22 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
   const [tabDialogOpen, setTabDialogOpen] = useState(false)
   const [editingTabId, setEditingTabId] = useState(null)
   const [tabForm, setTabForm] = useState({ label: '', sale_cycle: '' })
+  const [deleteTrackerTarget, setDeleteTrackerTarget] = useState(null)
+  const [deleteTrackerConfirm, setDeleteTrackerConfirm] = useState('')
+  const [deletingTracker, setDeletingTracker] = useState(false)
   const [hoveredRow, setHoveredRow] = useState(null)
   const [showArchived, setShowArchived] = useState(false)
+
+  // Collapsed groups — expanded by default, track which are collapsed
+  const [collapsedGroups, setCollapsedGroups] = useState(new Set())
+  const toggleGroup = (clientId) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(clientId)) next.delete(clientId)
+      else next.add(clientId)
+      return next
+    })
+  }
 
   // Search and filter state
   const [searchQuery, setSearchQuery] = useState('')
@@ -788,11 +802,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
     setGroupInvoiceClientId(group.clientId)
     // Collect all invoices from all orders in the group
     const allInvoices = group.orders.flatMap((o) => getInvoices(o))
-    setGroupInvoiceList(allInvoices.map((inv) => ({
+    const mapped = allInvoices.map((inv) => ({
       number: inv.number || '',
       amount: typeof inv.amount === 'number' && inv.amount > 0 ? floatToCents(inv.amount) : inv.amount || '',
       document: inv.document || null,
-    })))
+    }))
+    // Always start with at least one blank row
+    if (mapped.length === 0) mapped.push({ number: '', amount: '', document: null })
+    setGroupInvoiceList(mapped)
     setGroupInvoiceOpen(true)
   }
 
@@ -937,6 +954,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
             </div>
           ))}
           <button
+            data-tour="new-tracker"
             onClick={openCreateTab}
             className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed border-zinc-300 dark:border-zinc-600 rounded-md whitespace-nowrap flex items-center gap-1 shrink-0 transition-colors"
           >
@@ -945,7 +963,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
         </div>
 
         {archivedSeasons.length > 0 && (
-          <div className="relative shrink-0 ml-auto">
+          <div className="relative shrink-0">
             <button
               onClick={() => setShowArchived(!showArchived)}
               className="px-3 py-2 text-sm text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 flex items-center gap-1 whitespace-nowrap"
@@ -1011,17 +1029,86 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
               {editingTabId && (() => {
                 const isArchived = archivedSeasons.some((s) => s.id === editingTabId)
                 return (
-                  <Button
-                    variant={isArchived ? 'default' : 'destructive'}
-                    className={isArchived ? 'bg-[#005b5b] hover:bg-[#007a7a] mr-auto' : 'mr-auto'}
-                    onClick={handleArchiveFromModal}
-                  >
-                    <FolderArchive className="size-4 mr-1" />
-                    {isArchived ? 'Unarchive' : 'Archive'}
-                  </Button>
+                  <>
+                    <Button
+                      variant={isArchived ? 'default' : 'destructive'}
+                      className={isArchived ? 'bg-[#005b5b] hover:bg-[#007a7a] mr-auto' : 'mr-auto'}
+                      onClick={handleArchiveFromModal}
+                    >
+                      <FolderArchive className="size-4 mr-1" />
+                      {isArchived ? 'Unarchive' : 'Archive'}
+                    </Button>
+                    {(() => {
+                      const hasOrders = orders.some((o) => o.season_id === editingTabId)
+                      return (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          disabled={hasOrders}
+                          onClick={() => {
+                            const season = [...activeSeasons, ...archivedSeasons].find((s) => s.id === editingTabId)
+                            setDeleteTrackerTarget(season)
+                            setDeleteTrackerConfirm('')
+                            setTabDialogOpen(false)
+                          }}
+                          title={hasOrders ? 'Cannot delete — tracker has sales' : 'Delete tracker'}
+                        >
+                          <Trash2 className={`size-4 ${hasOrders ? 'text-zinc-300' : 'text-red-500'}`} />
+                        </Button>
+                      )
+                    })()}
+                  </>
                 )
               })()}
               <Button onClick={handleTabSubmit} disabled={tabSaving || !tabForm.label.trim()}>{tabSaving ? 'Saving...' : (editingTabId ? 'Save Changes' : 'Create Tracker')}</Button>
+            </DialogFooter>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete tracker confirmation */}
+      <Dialog open={!!deleteTrackerTarget} onOpenChange={(open) => { if (!open) { setDeleteTrackerTarget(null); setDeleteTrackerConfirm('') } }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-red-600">Delete Sales Tracker</DialogTitle>
+            <DialogDescription>
+              This will permanently delete <span className="font-semibold text-foreground">{deleteTrackerTarget?.label}</span> and all orders within it. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-sm">Type <span className="font-mono font-bold">delete</span> to confirm</Label>
+              <Input
+                value={deleteTrackerConfirm}
+                onChange={(e) => setDeleteTrackerConfirm(e.target.value)}
+                placeholder="delete"
+                autoComplete="off"
+              />
+            </div>
+            <DialogFooter className="gap-2">
+              <Button variant="outline" onClick={() => { setDeleteTrackerTarget(null); setDeleteTrackerConfirm('') }}>Cancel</Button>
+              <Button
+                variant="destructive"
+                disabled={deleteTrackerConfirm !== 'delete' || deletingTracker}
+                onClick={async () => {
+                  setDeletingTracker(true)
+                  try {
+                    await deleteSeason(deleteTrackerTarget.id)
+                    if (activeTab === deleteTrackerTarget.id) {
+                      const remaining = activeSeasons.filter((s) => s.id !== deleteTrackerTarget.id)
+                      setActiveTab(remaining[0]?.id || '')
+                    }
+                    setDeleteTrackerTarget(null)
+                    setDeleteTrackerConfirm('')
+                  } catch (err) {
+                    console.error('Failed to delete tracker:', err)
+                  } finally {
+                    setDeletingTracker(false)
+                  }
+                }}
+              >
+                {deletingTracker ? 'Deleting...' : 'Delete Forever'}
+              </Button>
             </DialogFooter>
           </div>
         </DialogContent>
@@ -1569,9 +1656,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
             <button
               type="button"
               onClick={addGroupInvoice}
-              className="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1"
+              className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed border-zinc-300 dark:border-zinc-600 rounded-md whitespace-nowrap flex items-center gap-1 transition-colors"
             >
-              <Plus className="size-4" /> Add Invoice
+              <Plus className="size-3.5" /> Add Invoice
             </button>
           </div>
           <DialogFooter>
@@ -1612,7 +1699,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
           </div>
 
           {/* Sticky search bar */}
-          <div className="sticky top-[107px] z-20 bg-background pb-2 pt-1 space-y-3 border-b border-zinc-100 dark:border-zinc-700">
+          <div className="sticky top-[107px] z-20 bg-background pb-2 pt-1 space-y-3">
             <div className="flex items-center gap-3">
               <div className="relative max-w-sm flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -1658,7 +1745,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
           </div>
 
           {/* Orders table */}
-          <div style={{ minWidth: '1400px' }}>
+          <div style={{ minWidth: '1200px' }}>
             <Table>
               <TableHeader className="sticky top-[149px] z-[15]">
                 <TableRow className="bg-[#005b5b] hover:bg-[#005b5b]">
@@ -1764,12 +1851,15 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                 ) : (
                   groupedOrders.map((group) => (
                     <Fragment key={`group-${group.clientId}`}>
-                      {/* Group header row — always expanded, aligned with table columns */}
-                      <TableRow className={`border-t-4 border-zinc-300 dark:border-zinc-600 ${
+                      {/* Group header row — collapsible */}
+                      <TableRow
+                        className={`border-t-2 border-[#005b5b]/20 cursor-pointer select-none ${
                         group.isOverpaid ? 'bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/30' :
                         group.isShortShipped ? 'bg-purple-50 hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/30' :
                         'bg-zinc-50 hover:bg-zinc-100 dark:bg-zinc-800/60 dark:hover:bg-zinc-700/60'
-                      }`}>
+                      }`}
+                        onClick={() => toggleGroup(group.clientId)}
+                      >
                         <TableCell colSpan={isAllView ? 8 : 7} className="py-3">
                           <div className="flex items-center gap-2 flex-wrap">
                             <span className="font-bold text-zinc-900 dark:text-white text-base">{group.accountName}</span>
@@ -1778,13 +1868,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                                 <span className="text-muted-foreground text-xs">|</span>
                                 {group.allInvoices.map((inv, i) => {
                                   const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
-                                  const label = `Inv ${inv.number || '—'}${amt > 0 ? ` (${fmt(amt)})` : ''}`
+                                  const num = inv.number || '—'
                                   return inv.document ? (
-                                    <a
+                                    <button
                                       key={i}
-                                      href="#"
                                       onClick={async (e) => {
-                                        e.preventDefault()
+                                        e.stopPropagation()
                                         try {
                                           const url = await getDocumentUrl(inv.document.path)
                                           window.open(url, '_blank')
@@ -1792,19 +1881,22 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                                           console.error('Failed to get document URL:', err)
                                         }
                                       }}
-                                      className="text-blue-600 underline text-xs whitespace-nowrap"
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-[#005b5b]/10 hover:bg-[#005b5b]/20 text-[#005b5b] dark:text-[#00b3b3] rounded-md whitespace-nowrap transition-colors"
                                     >
-                                      {label}
-                                    </a>
+                                      <FileText className="size-3" />
+                                      #{num}
+                                    </button>
                                   ) : (
-                                    <span key={i} className="text-xs text-zinc-600 dark:text-zinc-400 whitespace-nowrap">{label}</span>
+                                    <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-[#005b5b]/10 text-[#005b5b] dark:text-[#00b3b3] rounded-md whitespace-nowrap">
+                                      #{num}
+                                    </span>
                                   )
                                 })}
                               </>
                             )}
                             <button
-                              onClick={() => openGroupInvoiceModal(group)}
-                              className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                              onClick={(e) => { e.stopPropagation(); openGroupInvoiceModal(group) }}
+                              className="px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed border-zinc-300 dark:border-zinc-600 rounded-md whitespace-nowrap flex items-center gap-0.5 transition-colors"
                             >
                               <Plus className="size-3" /> Add Invoice
                             </button>
@@ -1831,8 +1923,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                         <TableCell></TableCell>
                       </TableRow>
 
-                      {/* Sub-rows for each order in the group — always visible */}
-                      {group.orders.map((order) => {
+                      {/* Sub-rows for each order in the group — collapsible */}
+                      {!collapsedGroups.has(group.clientId) && group.orders.map((order) => {
                         const isHovered = hoveredRow === order.id
                         const isCancelled = order.stage === 'Cancelled'
                         const isShortShipped = order.stage === 'Short Shipped'
@@ -1871,16 +1963,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                                 {order.order_type}
                               </Badge>
                             </TableCell>
-                            <TableCell className="max-w-48 truncate" title={getItems(order)}>{getItems(order)}</TableCell>
+                            <TableCell className="max-w-36 truncate" title={getItems(order)}>{getItems(order)}</TableCell>
                             <TableCell>
-                              <div className="flex flex-col gap-0.5">
+                              <div className="flex flex-wrap gap-1">
                                 {(order.order_number || '').split(',').map((num) => num.trim()).filter(Boolean).map((num, i) => (
                                   order.order_document ? (
-                                    <a
+                                    <button
                                       key={i}
-                                      href="#"
-                                      onClick={async (e) => {
-                                        e.preventDefault()
+                                      onClick={async () => {
                                         try {
                                           const url = await getDocumentUrl(order.order_document.path)
                                           window.open(url, '_blank')
@@ -1888,19 +1978,20 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                                           console.error('Failed to get document URL:', err)
                                         }
                                       }}
-                                      className="text-blue-600 underline text-sm whitespace-nowrap"
+                                      className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-[#005b5b]/10 hover:bg-[#005b5b]/20 text-[#005b5b] dark:text-[#00b3b3] rounded-md whitespace-nowrap transition-colors"
                                     >
+                                      <FileText className="size-3" />
                                       {num}
-                                    </a>
+                                    </button>
                                   ) : (
-                                    <span key={i} className="text-sm whitespace-nowrap">{num}</span>
+                                    <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-[#005b5b]/10 text-[#005b5b] dark:text-[#00b3b3] rounded-md whitespace-nowrap">{num}</span>
                                   )
                                 ))}
                                 {!order.order_number && '—'}
                               </div>
                             </TableCell>
                             <TableCell className="whitespace-nowrap">{fmtDate(order.close_date)}</TableCell>
-                            <TableCell className="whitespace-nowrap">{order.stage}</TableCell>
+                            <TableCell className="max-w-32 truncate" title={order.stage}>{order.stage}</TableCell>
                             <TableCell className="text-right whitespace-nowrap">{fmt(order.total)}</TableCell>
                             <TableCell className="text-right whitespace-nowrap">
                               <div className="flex items-center justify-end gap-1">
@@ -1915,23 +2006,22 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                                 </span>
                               </div>
                             </TableCell>
-                            <TableCell className="text-center">
+                            <TableCell className="text-center w-10">
                               {hasNote ? (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7"
+                                <button
                                   onClick={() => openNoteModal(order)}
+                                  className="inline-flex items-center justify-center h-7 w-7 rounded-full bg-[#005b5b]/10 hover:bg-[#005b5b]/20 transition-colors mx-auto"
                                   title={order.notes}
                                 >
-                                  <StickyNote className="size-4 text-amber-500 fill-amber-100" />
-                                </Button>
+                                  <StickyNote className="size-3.5 text-[#005b5b] dark:text-[#00b3b3]" />
+                                </button>
                               ) : (
                                 <button
                                   onClick={() => openNoteModal(order)}
-                                  className="text-xs text-muted-foreground hover:text-zinc-700 dark:hover:text-zinc-300 flex items-center gap-0.5 mx-auto"
+                                  className="inline-flex items-center justify-center h-7 w-7 rounded-full hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors mx-auto"
+                                  title="Add note"
                                 >
-                                  <Plus className="size-3" />Note
+                                  <Plus className="size-3.5 text-zinc-300 dark:text-zinc-600" />
                                 </button>
                               )}
                             </TableCell>

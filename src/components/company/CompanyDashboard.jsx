@@ -16,30 +16,34 @@ const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 
 function CompanyDashboard({ companyId }) {
-  const { activeSeasons, orders, commissions } = useSales()
+  const { orders, commissions, getSeasonsForCompany } = useSales()
+  const { active: activeSeasons } = getSeasonsForCompany(companyId)
   const { getTodosByCompany, addTodo, updateTodo, toggleComplete, togglePin, reorderTodos, deleteTodo } = useTodos()
   const { companies } = useCompanies()
   const { accounts, getAccountName } = useAccounts()
   const company = companies.find((c) => c.id === companyId)
 
-  // Season selector persisted in localStorage (stores year like "2026" for "2025-2026")
-  const currentYear = String(new Date().getFullYear())
-  const storageKey = `dashboard-year-${companyId}`
-  const [selectedYear, setSelectedYear] = useState(() => {
+  // Tracker selector — flip through company trackers
+  const storageKey = `dashboard-tracker-${companyId}`
+  const [selectedTrackerId, setSelectedTrackerId] = useState(() => {
     const saved = localStorage.getItem(storageKey)
-    if (saved && Number(saved) >= 2026 && Number(saved) <= 2050) return saved
-    return currentYear
+    if (saved && activeSeasons.some((s) => s.id === saved)) return saved
+    return activeSeasons[0]?.id || ''
   })
 
-  const handleSeasonChange = (year) => {
-    setSelectedYear(year)
-    localStorage.setItem(storageKey, year)
+  // Keep selectedTrackerId valid when seasons change
+  const trackerIdx = activeSeasons.findIndex((s) => s.id === selectedTrackerId)
+  const currentIdx = trackerIdx >= 0 ? trackerIdx : 0
+  const currentTracker = activeSeasons[currentIdx]
+
+  const handleTrackerChange = (idx) => {
+    const id = activeSeasons[idx]?.id || ''
+    setSelectedTrackerId(id)
+    localStorage.setItem(storageKey, id)
   }
 
-  // Get all season IDs matching the selected year
-  const matchingSeasonIds = new Set(
-    activeSeasons.filter((s) => s.year === selectedYear).map((s) => s.id)
-  )
+  // Use the selected tracker's ID for filtering
+  const matchingSeasonIds = new Set(currentTracker ? [currentTracker.id] : [])
 
   // Summary data — filter by all matching seasons
   const seasonOrders = orders.filter((o) => o.company_id === companyId && matchingSeasonIds.has(o.season_id) && !EXCLUDED_STAGES.includes(o.stage))
@@ -253,29 +257,28 @@ function CompanyDashboard({ companyId }) {
 
   return (
     <div className="space-y-6">
-      {/* Season selector */}
-      <div className="flex items-center gap-3">
-        <Label className="text-sm text-muted-foreground">Season</Label>
+      {/* Tracker selector */}
+      {activeSeasons.length > 0 && (
         <div className="flex items-center">
           <button
-            onClick={() => handleSeasonChange(String(Math.max(2026, Number(selectedYear) - 1)))}
-            disabled={selectedYear === '2026'}
+            onClick={() => handleTrackerChange(currentIdx - 1)}
+            disabled={currentIdx === 0}
             className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-l-md border border-[#005b5b]/30 border-r-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronLeft className="size-4" />
           </button>
           <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold select-none min-w-[120px] text-center">
-            {Number(selectedYear) - 1}-{selectedYear}
+            {currentTracker?.label || '—'}
           </div>
           <button
-            onClick={() => handleSeasonChange(String(Math.min(2050, Number(selectedYear) + 1)))}
-            disabled={selectedYear === '2050'}
+            onClick={() => handleTrackerChange(currentIdx + 1)}
+            disabled={currentIdx >= activeSeasons.length - 1}
             className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-r-md border border-[#005b5b]/30 border-l-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
           >
             <ChevronRight className="size-4" />
           </button>
         </div>
-      </div>
+      )}
 
       {/* Summary cards — white with teal border and colored icon badges */}
       <div className="grid grid-cols-4 gap-4">
@@ -323,7 +326,7 @@ function CompanyDashboard({ companyId }) {
         <div className="col-span-3 space-y-3">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">To Dos</h2>
-            <Button size="sm" onClick={openAddTodo}>
+            <Button data-tour="add-todo" size="sm" onClick={openAddTodo}>
               <Plus className="size-4 mr-1" /> Add To Do
             </Button>
           </div>
@@ -407,7 +410,7 @@ function CompanyDashboard({ companyId }) {
         {/* Right column — Notepad + Calculator (2/5 width) */}
         <div className="col-span-2 space-y-6">
           {/* Notepad */}
-          <div className="space-y-2">
+          <div data-tour="notepad" className="space-y-2">
             <div className="flex items-center gap-2">
               <FileText className="size-4 text-[#005b5b]" />
               <h2 className="text-lg font-semibold">Notepad</h2>
