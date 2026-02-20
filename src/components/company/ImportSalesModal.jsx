@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react'
-import { Upload, Download, CheckCircle, AlertTriangle } from 'lucide-react'
+import { Upload, Download, CheckCircle, AlertTriangle, ChevronDown, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import {
@@ -15,6 +15,92 @@ import { splitCSVRows, parseCSVLine } from '@/lib/csv'
 import TableBuilder from '@/components/ui/TableBuilder'
 
 const STAGE_OPTIONS = ['Order Placed', 'Invoiced', 'Shipped', 'Cancelled']
+
+// Inline searchable account picker for unmatched rows
+function AccountPicker({ label, accounts, onSelect }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState(null)
+  const ref = useRef(null)
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return accounts.slice(0, 50)
+    const q = search.toLowerCase()
+    return accounts.filter((a) => a.name.toLowerCase().includes(q)).slice(0, 50)
+  }, [accounts, search])
+
+  // Close on outside click
+  const handleBlur = (e) => {
+    if (ref.current && !ref.current.contains(e.relatedTarget)) {
+      setTimeout(() => setOpen(false), 150)
+    }
+  }
+
+  if (selected) {
+    return (
+      <div className="flex items-center gap-2 text-sm">
+        <span className="text-amber-600 dark:text-amber-400 min-w-0 truncate">{label}</span>
+        <span className="text-xs text-muted-foreground">&rarr;</span>
+        <span className="font-medium text-emerald-700 dark:text-emerald-400 flex items-center gap-1">
+          <CheckCircle className="size-3.5" />
+          {selected.name}
+        </span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2" ref={ref} onBlur={handleBlur}>
+      <span className="text-sm text-amber-600 dark:text-amber-400 min-w-0 shrink-0">{label}</span>
+      <div className="relative flex-1 max-w-[240px]">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="w-full flex items-center justify-between gap-1 text-xs border rounded-md px-2 py-1.5 bg-white dark:bg-zinc-800 hover:border-[#005b5b] transition-colors"
+        >
+          <span className="text-muted-foreground">Select account...</span>
+          <ChevronDown className="size-3.5 text-muted-foreground" />
+        </button>
+        {open && (
+          <div className="absolute z-50 top-full mt-1 w-64 bg-white dark:bg-zinc-800 border rounded-lg shadow-lg overflow-hidden">
+            <div className="flex items-center gap-2 px-2 py-1.5 border-b">
+              <Search className="size-3.5 text-muted-foreground shrink-0" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search accounts..."
+                className="w-full text-xs bg-transparent outline-none"
+                autoFocus
+              />
+            </div>
+            <div className="max-h-48 overflow-y-auto">
+              {filtered.length === 0 && (
+                <div className="px-3 py-2 text-xs text-muted-foreground">No accounts found</div>
+              )}
+              {filtered.map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  className="w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    setSelected(a)
+                    setOpen(false)
+                    onSelect(a.id)
+                  }}
+                >
+                  {a.name}
+                  {a.account_number && <span className="text-muted-foreground ml-2">#{a.account_number}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function ImportSalesModal({ open, onOpenChange, companyId }) {
   const { accounts } = useAccounts()
@@ -56,6 +142,39 @@ function ImportSalesModal({ open, onOpenChange, companyId }) {
     { key: 'notes', label: 'Notes', type: 'text', placeholder: '' },
   ], [company?.order_types])
 
+  // Build a single order row from raw CSV/table data + a known account
+  const buildOrderRow = (raw, account) => {
+    const companyOrderTypes = company?.order_types || []
+    const orderType = raw.order_type || companyOrderTypes[0] || ''
+    const itemsStr = raw.items || ''
+    const items = itemsStr.split(';').map((s) => s.trim()).filter(Boolean)
+    const total = parseFloat(String(raw.total || '0').replace(/[$,]/g, '')) || 0
+    const commOverride = raw.commission_override != null && String(raw.commission_override).trim()
+      ? parseFloat(String(raw.commission_override).replace(/[%]/g, ''))
+      : null
+
+    const rawInvoice = (raw.invoice_number || '').replace(/\n/g, ' ')
+    const invoiceNums = rawInvoice.split(',').map((s) => s.trim()).filter(Boolean)
+    const invoices = invoiceNums.map((num) => ({ number: num, amount: 0, document: null }))
+
+    return {
+      client_id: account.id,
+      company_id: companyId,
+      season_id: selectedTracker,
+      sale_type: 'Pre-Book',
+      order_type: orderType,
+      items: items.length ? items : [],
+      order_number: raw.order_number || '',
+      invoice_number: rawInvoice,
+      invoices,
+      close_date: raw.close_date || '',
+      stage: raw.stage || 'Order Placed',
+      total,
+      commission_override: commOverride,
+      notes: raw.notes || '',
+    }
+  }
+
   const parseSalesCSV = (text) => {
     const lines = splitCSVRows(text)
     if (lines.length < 2) return { rows: [], skipped: [] }
@@ -85,41 +204,26 @@ function ImportSalesModal({ open, onOpenChange, companyId }) {
       const accountName = cols[map.account_name] || ''
       if (!accountName) return
 
+      // Build raw data object for this row
+      const raw = {
+        order_type: map.order_type !== undefined ? cols[map.order_type] || '' : '',
+        items: map.items !== undefined ? cols[map.items] || '' : '',
+        order_number: map.order_number !== undefined ? cols[map.order_number] || '' : '',
+        invoice_number: map.invoice_number !== undefined ? cols[map.invoice_number] || '' : '',
+        close_date: map.close_date !== undefined ? cols[map.close_date] || '' : '',
+        stage: map.stage !== undefined ? cols[map.stage] || '' : '',
+        total: map.total !== undefined ? cols[map.total] || '' : '',
+        commission_override: map.commission_override !== undefined ? cols[map.commission_override] || '' : '',
+        notes: map.notes !== undefined ? cols[map.notes] || '' : '',
+      }
+
       const account = accounts.find((a) => a.name.toLowerCase() === accountName.toLowerCase())
       if (!account) {
-        skipped.push({ line: idx + 2, accountName, reason: 'Account not found' })
+        skipped.push({ line: idx + 2, accountName, reason: 'Account not found', raw })
         return
       }
 
-      const companyOrderTypes = company?.order_types || []
-      const orderType = map.order_type !== undefined ? cols[map.order_type] || companyOrderTypes[0] || '' : companyOrderTypes[0] || ''
-      const itemsStr = map.items !== undefined ? cols[map.items] || '' : ''
-      const items = itemsStr.split(';').map((s) => s.trim()).filter(Boolean)
-      const total = map.total !== undefined ? parseFloat(cols[map.total]?.replace(/[$,]/g, '')) || 0 : 0
-      const commOverride = map.commission_override !== undefined && cols[map.commission_override]?.trim()
-        ? parseFloat(cols[map.commission_override]?.replace(/[%]/g, ''))
-        : null
-
-      const rawInvoice = map.invoice_number !== undefined ? (cols[map.invoice_number] || '').replace(/\n/g, ' ') : ''
-      const invoiceNums = rawInvoice.split(',').map((s) => s.trim()).filter(Boolean)
-      const invoices = invoiceNums.map((num) => ({ number: num, amount: 0, document: null }))
-
-      rows.push({
-        client_id: account.id,
-        company_id: companyId,
-        season_id: selectedTracker,
-        sale_type: 'Pre-Book',
-        order_type: orderType,
-        items: items.length ? items : [],
-        order_number: map.order_number !== undefined ? cols[map.order_number] || '' : '',
-        invoice_number: rawInvoice,
-        invoices,
-        close_date: map.close_date !== undefined ? cols[map.close_date] || '' : '',
-        stage: map.stage !== undefined ? cols[map.stage] || 'Order Placed' : 'Order Placed',
-        total,
-        commission_override: commOverride,
-        notes: map.notes !== undefined ? cols[map.notes] || '' : '',
-      })
+      rows.push(buildOrderRow(raw, account))
     })
 
     return { rows, skipped }
@@ -133,41 +237,40 @@ function ImportSalesModal({ open, onOpenChange, companyId }) {
       const accountName = (row.account_name || '').trim()
       if (!accountName) return
 
+      const raw = {
+        order_type: row.order_type || '',
+        items: row.items || '',
+        order_number: row.order_number || '',
+        invoice_number: row.invoice_number || '',
+        close_date: row.close_date || '',
+        stage: row.stage || '',
+        total: row.total || '',
+        commission_override: null,
+        notes: row.notes || '',
+      }
+
       const account = accounts.find((a) => a.name.toLowerCase() === accountName.toLowerCase())
       if (!account) {
-        skipped.push({ line: idx + 1, accountName, reason: 'Account not found' })
+        skipped.push({ line: idx + 1, accountName, reason: 'Account not found', raw })
         return
       }
 
-      const companyOrderTypes = company?.order_types || []
-      const orderType = row.order_type || companyOrderTypes[0] || ''
-      const itemsStr = row.items || ''
-      const items = itemsStr.split(';').map((s) => s.trim()).filter(Boolean)
-      const total = parseFloat((row.total || '0').replace(/[$,]/g, '')) || 0
-
-      const rawInvoice = (row.invoice_number || '').replace(/\n/g, ' ')
-      const invoiceNums = rawInvoice.split(',').map((s) => s.trim()).filter(Boolean)
-      const invoices = invoiceNums.map((num) => ({ number: num, amount: 0, document: null }))
-
-      rows.push({
-        client_id: account.id,
-        company_id: companyId,
-        season_id: selectedTracker,
-        sale_type: 'Pre-Book',
-        order_type: orderType,
-        items: items.length ? items : [],
-        order_number: row.order_number || '',
-        invoice_number: rawInvoice,
-        invoices,
-        close_date: row.close_date || '',
-        stage: row.stage || 'Order Placed',
-        total,
-        commission_override: null,
-        notes: row.notes || '',
-      })
+      rows.push(buildOrderRow(raw, account))
     })
 
     return { rows, skipped }
+  }
+
+  // When user picks an account for a skipped row, resolve it
+  const resolveSkippedRow = (skippedIndex, accountId) => {
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account) return
+
+    const skipped = skippedRows[skippedIndex]
+    const order = buildOrderRow(skipped.raw, account)
+
+    setParsedRows((prev) => [...prev, order])
+    setSkippedRows((prev) => prev.filter((_, i) => i !== skippedIndex))
   }
 
   const handleFileSelect = (e) => {
@@ -183,11 +286,6 @@ function ImportSalesModal({ open, onOpenChange, companyId }) {
 
         if (rows.length === 0 && skipped.length === 0) {
           setError('Could not find "account_name" column. Check your CSV headers.')
-          return
-        }
-
-        if (rows.length === 0) {
-          setError('No valid rows found. All rows were skipped.')
           return
         }
 
@@ -219,7 +317,11 @@ function ImportSalesModal({ open, onOpenChange, companyId }) {
 
     setParsedRows(rows)
     setSkippedRows(skipped)
-    setStep(2)
+    if (rows.length === 0 && skipped.length > 0) {
+      setStep(2) // all skipped — let user fix with account picker
+    } else {
+      setStep(2)
+    }
   }
 
   const handleImport = async () => {
@@ -397,29 +499,21 @@ function ImportSalesModal({ open, onOpenChange, companyId }) {
               </div>
 
               {skippedRows.length > 0 && (
-                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 space-y-2">
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 space-y-3">
                   <div className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-400">
                     <AlertTriangle className="size-4" />
-                    {skippedRows.length} row{skippedRows.length !== 1 ? 's' : ''} skipped
+                    {skippedRows.length} unmatched account{skippedRows.length !== 1 ? 's' : ''} — select the correct account
                   </div>
-                  <ul className="text-xs text-amber-600 dark:text-amber-400 space-y-1 ml-6 list-disc">
-                    {skippedRows.slice(0, 5).map((s, i) => (
-                      <li key={i}>
-                        Row {s.line}: &quot;{s.accountName}&quot; &mdash; {s.reason}
-                      </li>
+                  <div className="space-y-2">
+                    {skippedRows.map((s, i) => (
+                      <AccountPicker
+                        key={`${s.line}-${s.accountName}`}
+                        label={`Row ${s.line}: "${s.accountName}"`}
+                        accounts={accounts}
+                        onSelect={(accountId) => resolveSkippedRow(i, accountId)}
+                      />
                     ))}
-                    {skippedRows.length > 5 && (
-                      <li>...and {skippedRows.length - 5} more</li>
-                    )}
-                  </ul>
-                  {mode === 'table' && (
-                    <button
-                      onClick={handleBackToEdit}
-                      className="text-xs font-medium text-[#005b5b] hover:text-[#007a7a] underline transition-colors"
-                    >
-                      Go back and fix account names
-                    </button>
-                  )}
+                  </div>
                 </div>
               )}
 

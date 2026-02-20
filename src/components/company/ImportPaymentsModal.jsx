@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react'
-import { Upload, CheckCircle, AlertTriangle, XCircle, Info, Download } from 'lucide-react'
+import { Upload, CheckCircle, AlertTriangle, XCircle, Info, Download, ChevronDown, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -24,6 +24,73 @@ const TABLE_COLUMNS = [
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+
+// Inline searchable account picker for unmatched rows
+function PaymentAccountPicker({ accounts, onSelect }) {
+  const [open, setOpen] = useState(false)
+  const [search, setSearch] = useState('')
+  const ref = useRef(null)
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return accounts.slice(0, 50)
+    const q = search.toLowerCase()
+    return accounts.filter((a) => a.name.toLowerCase().includes(q)).slice(0, 50)
+  }, [accounts, search])
+
+  const handleBlur = (e) => {
+    if (ref.current && !ref.current.contains(e.relatedTarget)) {
+      setTimeout(() => setOpen(false), 150)
+    }
+  }
+
+  return (
+    <div className="relative" ref={ref} onBlur={handleBlur}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 text-xs border border-amber-300 rounded-md px-2 py-1 bg-white dark:bg-zinc-800 hover:border-[#005b5b] transition-colors text-amber-600"
+      >
+        <span>Select account...</span>
+        <ChevronDown className="size-3 shrink-0" />
+      </button>
+      {open && (
+        <div className="absolute z-50 top-full mt-1 left-0 w-56 bg-white dark:bg-zinc-800 border rounded-lg shadow-lg overflow-hidden">
+          <div className="flex items-center gap-2 px-2 py-1.5 border-b">
+            <Search className="size-3.5 text-muted-foreground shrink-0" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search accounts..."
+              className="w-full text-xs bg-transparent outline-none"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-48 overflow-y-auto">
+            {filtered.length === 0 && (
+              <div className="px-3 py-2 text-xs text-muted-foreground">No accounts found</div>
+            )}
+            {filtered.map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  setOpen(false)
+                  onSelect(a)
+                }}
+              >
+                {a.name}
+                {a.account_number && <span className="text-muted-foreground ml-2">#{a.account_number}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function ImportPaymentsModal({ open, onOpenChange, companyId }) {
   const { accounts, getAccountName } = useAccounts()
@@ -236,6 +303,39 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
         shortShipped: false,
       }
     }).filter((r) => r.accountNum || r.amount > 0)
+  }
+
+  // When user picks an account for a "not found" row, re-evaluate it
+  const resolveNotFoundRow = (rowIndex, account) => {
+    setParsedRows((prev) => {
+      const updated = [...prev]
+      const row = updated[rowIndex]
+      const clientId = account.id
+      const summary = accountSummaries.get(clientId) || null
+
+      let status = 'not_found'
+      if (summary) {
+        const commDue = summary.totalCommDue - summary.totalPaid
+        const dueCents = Math.round(commDue * 100)
+        const amountCents = Math.round(row.amount * 100)
+        if (amountCents >= dueCents && dueCents > 0) status = 'matched'
+        else if (amountCents > 0 && amountCents < dueCents) status = 'underpaid'
+        else if (dueCents <= 0) status = 'overpaid'
+        else status = 'matched'
+      } else {
+        // Account exists but has no orders for this tracker — still mark as not_found
+        status = 'no_orders'
+      }
+
+      updated[rowIndex] = {
+        ...row,
+        clientId,
+        accountName: account.name,
+        status: status === 'no_orders' ? 'not_found' : status,
+        summary,
+      }
+      return updated
+    })
   }
 
   const handleFileSelect = (e) => {
@@ -669,7 +769,18 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
                       className={`border-b last:border-0 ${row.status === 'not_found' ? 'opacity-50 bg-zinc-50 dark:bg-zinc-800/50' : ''}`}
                     >
                       <td className="py-2 px-3 font-mono text-xs">{row.accountNum}</td>
-                      <td className="py-2 px-3">{row.accountName || <span className="text-red-500 italic">Unknown</span>}</td>
+                      <td className="py-2 px-3">
+                        {row.status === 'not_found' && !row.accountName ? (
+                          <PaymentAccountPicker
+                            accounts={accounts}
+                            onSelect={(account) => resolveNotFoundRow(idx, account)}
+                          />
+                        ) : row.accountName ? (
+                          row.accountName
+                        ) : (
+                          <span className="text-red-500 italic">Unknown</span>
+                        )}
+                      </td>
                       <td className="py-2 px-3 text-muted-foreground">{row.date || '—'}</td>
                       <td className="py-2 px-3 text-right">
                         {row.status !== 'not_found' ? (
