@@ -1,5 +1,36 @@
 # Session Log
 
+## 2026-02-19 (Session 12)
+
+**Worked on:** Account Management & Quick View feature, session/auth bug fixes, cache versioning, tour persistence.
+
+**Changes made:**
+- **AccountDetail page** (`/app/accounts/:id`): Full account management hub with auto-detected logo (Clearbit → Google favicon), inline contact editing (primary + additional with role/extension fields), auto-saving notes (debounced 800ms to Supabase), todos section, and order history reporting (lifetime summary cards, by-cycle table, by-brand table). Two-column layout, pencil icon next to account name for editing.
+- **AccountQuickView dialog**: Info icon on sales/commission group headers opens dialog with logo, account name (linked), website, phone, contacts (inline CRUD with role/extension), notes, todos display, and quick-add todo. Only shows if account has info or todos. Role-gated to master_admin and pro_rep.
+- **Accounts.jsx expanded**: Edit dialog now includes website, phone, logo upload (manual + auto-detect from website). Account names link to detail page (role-gated). Logo thumbnails in table rows. Globe/User icons for accounts with website/contacts.
+- **CompanySales.jsx + CompanyCommission.jsx**: Account names in group headers now link to detail page (role-gated). AccountQuickView info icon added. Uses `useAuth()` for role check.
+- **Context helpers**: Added `getAccount(id)` to AccountContext, `getTodosByAccount(clientId)` to TodoContext.
+- **Export updates**: Added Website, Phone, Primary Contact, Contact Email, Contact Phone columns to XLSX and PDF account exports.
+- **Route added**: `accounts/:id` route in AppLayout.jsx pointing to AccountDetail.
+- **Popover component**: Installed via `npx shadcn@latest add popover`.
+- **Contact form focus bug fix**: Changed `ContactEditForm` from a component defined inside AccountDetail (causing unmount/remount on each keystroke) to a plain render function (`renderContactForm`).
+- **Session logout bug fix**: Rewrote `visibilitychange` session health check in AuthContext — now only signs out on confirmed auth errors (expired JWT, 401/403), NOT on network timeouts or transient failures. Previously any failure would call `forceSignOut()`.
+- **Cache versioning**: Added `CACHE_VERSION = '__v2__'` to AccountContext, CompanyContext, and TodoContext (matching SalesContext pattern). Old unversioned cache keys auto-purged on startup. Fixes "works in new Chrome session" bug caused by stale localStorage data missing new columns.
+- **Tour persistence**: Tour completion now saved to both localStorage AND Supabase `user_metadata.tour_done`. On load, if either says done, tour is skipped. "Restart Tour" clears both. Prevents deploys from resetting the onboarding tour.
+- **DB migration** (run in Supabase SQL Editor): Added `website`, `phone`, `notes`, `primary_contact` (JSONB), `additional_contacts` (JSONB), `logo_path` columns to clients table.
+- Multiple builds and deploys to repcommish.com.
+- All changes committed and pushed to GitHub.
+
+**Next steps:**
+- Monitor session stability after auth fix — verify users aren't being logged out
+- Test account management flow end-to-end on production
+- Consider adding account search/filter by contact info
+
+**Open questions:**
+- None
+
+---
+
 ## 2026-02-17 (Session 11)
 
 **Worked on:** Sale Cycle feature, Dashboard cycle picker, celebration message overhaul.

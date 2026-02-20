@@ -68,7 +68,7 @@
 | Subscription | Stripe-managed subscription (monthly or annual) required to access the app. Tracked in subscriptions table with status (active, incomplete, past_due, canceled). |
 | User Role | One of: master_admin, admin, manager, pro_rep, rep, sub_rep. Stored in app_metadata.role (secure, user can't modify). Default: rep. Labels only for now — no feature gating yet. |
 | Free Account | Users with user_metadata.plan='free' bypass subscription checks. Set in Supabase Dashboard > Authentication > Users. |
-| Onboarding Tour | 13-step guided walkthrough shown on first login. Navigates through app pages, explains features, offers CSV import templates. Stored in localStorage (repcommish_tour_done). Restartable from User Settings. |
+| Onboarding Tour | 13-step guided walkthrough shown on first login. Navigates through app pages, explains features, offers CSV import templates. Completion persisted to both localStorage and Supabase user_metadata.tour_done (survives deploys/cache clears). Restartable from Help menu. |
 | Marketing Site | Public-facing pages (/, /features, /pricing, /about) with MarketingLayout. Password-gated (BringMore$now!) until Stripe is set up. |
 | Stripe Checkout | Hosted Stripe payment page for subscription signup. Redirects to /checkout/success or /checkout/cancel. |
 | Contact Message | A message submitted through the /contact page form. Saved to contact_messages table and emailed to hello@repcommish.com via Edge Function. |
