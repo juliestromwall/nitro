@@ -24,15 +24,22 @@ async function ensureFreshSession() {
   }
 }
 
-// Wrap a promise with a session freshness check + timeout.
-// 1. Refreshes JWT if it's close to expiry (prevents stale-token hangs)
-// 2. Races against a timeout so calls don't hang forever
-async function withTimeout(promise, ms = 15000) {
+// Wrap a Supabase call with session refresh, timeout, and one auto-retry.
+// Browsers kill idle connections in background tabs, so the first request
+// after waking often fails. The retry silently recovers.
+async function withTimeout(buildQuery, ms = 15000) {
   await ensureFreshSession()
-  return Promise.race([
-    promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out — please try again.')), ms)),
-  ])
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await Promise.race([
+        buildQuery(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out — please try again.')), ms)),
+      ])
+    } catch (err) {
+      if (attempt === 0) continue // silent retry
+      throw err
+    }
+  }
 }
 
 // ── Companies ──────────────────────────────────────────────
@@ -196,7 +203,7 @@ export async function fetchOrders() {
 
 export async function insertOrder(order) {
   const { data, error } = await withTimeout(
-    supabase.from('orders').insert(order).select().single()
+    () => supabase.from('orders').insert(order).select().single()
   )
   if (error) throw error
   return data
@@ -204,7 +211,7 @@ export async function insertOrder(order) {
 
 export async function bulkInsertOrders(orders) {
   const { data, error } = await withTimeout(
-    supabase.from('orders').insert(orders).select()
+    () => supabase.from('orders').insert(orders).select()
   )
   if (error) throw error
   return data
@@ -212,7 +219,7 @@ export async function bulkInsertOrders(orders) {
 
 export async function updateOrder(id, updates) {
   const { data, error } = await withTimeout(
-    supabase.from('orders').update(updates).eq('id', id).select().single()
+    () => supabase.from('orders').update(updates).eq('id', id).select().single()
   )
   if (error) throw error
   return data
@@ -338,16 +345,21 @@ export async function uploadLogo(userId, companyId, file) {
 export async function uploadDocument(userId, orderId, type, file) {
   const ext = file.name.split('.').pop()
   const path = `${userId}/${orderId}/${type}/${Date.now()}.${ext}`
-  // Single 30s timeout wraps everything: session refresh + upload
-  const result = await Promise.race([
-    (async () => {
-      await ensureFreshSession()
-      return supabase.storage.from('documents').upload(path, file)
-    })(),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Please try again.')), 30000)),
-  ])
-  if (result.error) throw result.error
-  return { name: file.name, path: result.data.path }
+  // Session refresh + upload with one auto-retry (browser kills idle connections)
+  await ensureFreshSession()
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const result = await Promise.race([
+        supabase.storage.from('documents').upload(path, file),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Please try again.')), 30000)),
+      ])
+      if (result.error) throw result.error
+      return { name: file.name, path: result.data.path }
+    } catch (err) {
+      if (attempt === 0) continue // silent retry
+      throw err
+    }
+  }
 }
 
 export async function getDocumentUrl(path) {
