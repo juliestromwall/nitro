@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useRef } from 'react'
 import { supabase, nukeSession } from '@/lib/supabase'
 import { fetchSubscription } from '@/lib/db'
 import { DEFAULT_ROLE } from '@/lib/constants'
@@ -26,6 +26,28 @@ export function AuthProvider({ children }) {
     setSubscription(null)
     window.location.href = '/login'
   }
+
+  // Idle timeout — force sign out after 4 hours of no activity
+  const lastActivityRef = useRef(Date.now())
+  useEffect(() => {
+    if (!user) return
+    const IDLE_LIMIT = 4 * 60 * 60 * 1000 // 4 hours
+    const resetTimer = () => { lastActivityRef.current = Date.now() }
+
+    const events = ['mousedown', 'keydown', 'scroll', 'touchstart']
+    events.forEach((e) => window.addEventListener(e, resetTimer, { passive: true }))
+
+    const interval = setInterval(() => {
+      if (Date.now() - lastActivityRef.current > IDLE_LIMIT) {
+        forceSignOut()
+      }
+    }, 60_000)
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, resetTimer))
+      clearInterval(interval)
+    }
+  }, [user])
 
   useEffect(() => {
     let mounted = true
