@@ -84,12 +84,7 @@ function UserSettingsDialog({ open, onOpenChange }) {
       setSaved(true)
       setTimeout(() => onOpenChange(false), 500)
     } catch (err) {
-      if (err.message?.includes('timed out') || err.message?.includes('signal is aborted')) {
-        alert('Your session has expired. Please sign in again.')
-        window.location.href = '/login'
-        return
-      }
-      setSaveError(err.message || 'Failed to save profile.')
+      setSaveError(err.message?.includes('timed out') ? 'Save timed out. Please try again.' : (err.message || 'Failed to save profile.'))
     } finally {
       setSaving(false)
     }

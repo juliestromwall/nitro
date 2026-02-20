@@ -7,7 +7,7 @@ import { DEFAULT_ROLE } from '@/lib/constants'
 function withTimeout(promise, ms = 15000) {
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Your session has expired. Please sign in again.')), ms)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out — please try again.')), ms)),
   ])
 }
 
