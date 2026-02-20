@@ -591,12 +591,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
           })
         } catch (err) {
           console.error('Failed to save order:', err)
-          if (err.message?.includes('timed out') || err.message?.includes('signal is aborted')) {
-            alert('Your session has expired. Please sign in again.')
-            window.location.href = '/login'
-          } else {
-            alert('Failed to save. Please try again.')
-          }
+          alert(err.message?.includes('timed out') ? 'Save timed out. Please try again.' : 'Failed to save. Please try again.')
           setSaving(false)
           return
         }
@@ -635,12 +630,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
           await addOrder(orderData)
         } catch (err) {
           console.error('Failed to add order:', err)
-          if (err.message?.includes('timed out') || err.message?.includes('signal is aborted')) {
-            alert('Your session has expired. Please sign in again.')
-            window.location.href = '/login'
-          } else {
-            alert('Failed to add a sale. Please try again.')
-          }
+          alert(err.message?.includes('timed out') ? 'Save timed out. Please try again.' : 'Failed to add a sale. Please try again.')
           setSaving(false)
           return
         }
@@ -1437,6 +1427,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                             {uploadingRows.has(idx) ? (
                               <span className="text-xs text-muted-foreground flex items-center gap-1">
                                 <Loader2 className="size-3 animate-spin" /> Uploading...
+                                <button type="button" onClick={() => setUploadingRows((prev) => { const next = new Set(prev); next.delete(idx); return next })} className="text-red-500 hover:text-red-700 ml-1">
+                                  <X className="size-3" />
+                                </button>
                               </span>
                             ) : row.order_document ? (
                               <Badge variant="secondary" className="gap-1 text-xs">

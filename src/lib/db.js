@@ -186,12 +186,9 @@ export async function bulkInsertOrders(orders) {
 }
 
 export async function updateOrder(id, updates) {
-  const { data, error } = await supabase
-    .from('orders')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    supabase.from('orders').update(updates).eq('id', id).select().single()
+  )
   if (error) throw error
   return data
 }
@@ -316,9 +313,12 @@ export async function uploadLogo(userId, companyId, file) {
 export async function uploadDocument(userId, orderId, type, file) {
   const ext = file.name.split('.').pop()
   const path = `${userId}/${orderId}/${type}/${Date.now()}.${ext}`
-  const { data, error } = await supabase.storage.from('documents').upload(path, file)
-  if (error) throw error
-  return { name: file.name, path: data.path }
+  const result = await Promise.race([
+    supabase.storage.from('documents').upload(path, file),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Please check your connection and try again.')), 30000)),
+  ])
+  if (result.error) throw result.error
+  return { name: file.name, path: result.data.path }
 }
 
 export async function getDocumentUrl(path) {
