@@ -115,39 +115,35 @@ export function AuthProvider({ children }) {
       }
     )
 
-    // Session health check — runs when tab becomes visible (after sleep/tab switch).
-    // Verifies the session is still valid. Only signs out on confirmed auth failures,
-    // NOT on network timeouts or transient errors.
+    // Session refresh — runs when tab becomes visible (after sleep/tab switch).
+    // Proactively refreshes the JWT so DB calls don't fail with expired tokens.
     let checking = false
-    const checkSession = async () => {
+    const refreshOnWake = async () => {
       if (!mounted || checking || document.hidden) return
-      // Only check if we think we have a user
       const { data: { session: currentSession } } = await supabase.auth.getSession()
-      if (!currentSession) return // no session to check
+      if (!currentSession) return
       checking = true
       try {
-        const { error } = await Promise.race([
-          supabase.from('companies').select('id').limit(1),
+        const { data, error } = await Promise.race([
+          supabase.auth.refreshSession(),
           new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
         ])
-        // Only sign out on actual auth errors (expired/invalid token),
-        // NOT on network timeouts or transient server errors
-        if (error && (error.message?.includes('JWT') || error.message?.includes('token') || error.code === 'PGRST301' || error.status === 401 || error.status === 403)) {
+        if (error || !data.session) {
+          // Refresh failed — token is truly dead, sign out
           if (mounted) forceSignOut()
         }
       } catch {
-        // Timeout or network error — do NOT sign out, just ignore.
-        // The user's token may still be valid, just a slow network.
+        // Timeout or network error — don't sign out, the token might still work
       } finally {
         checking = false
       }
     }
-    document.addEventListener('visibilitychange', checkSession)
+    document.addEventListener('visibilitychange', refreshOnWake)
 
     return () => {
       mounted = false
       clearTimeout(timeout)
-      document.removeEventListener('visibilitychange', checkSession)
+      document.removeEventListener('visibilitychange', refreshOnWake)
       authSub.unsubscribe()
     }
   }, [])
