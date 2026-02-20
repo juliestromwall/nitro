@@ -1,42 +1,54 @@
-import { supabase } from './supabase'
+import { supabase, AUTH_STORAGE_KEY } from './supabase'
 
-// Ensure the JWT is fresh before making a DB call.
-// Browsers throttle timers in background tabs, so autoRefreshToken
-// often doesn't fire. This checks the stored session's expires_at
-// and refreshes if it's within 5 minutes of expiry.
-// Has its own 5s timeout so a stuck auth client can't block forever.
-async function ensureFreshSession() {
+// Read the session expiry directly from localStorage.
+// This avoids calling getSession() which can hang after tab switches
+// (see supabase.js comments for the full explanation).
+function getStoredExpiry() {
   try {
-    await Promise.race([
-      (async () => {
-        const { data: { session } } = await supabase.auth.getSession()
-        if (!session) return
-        const expiresAt = session.expires_at // unix seconds
-        const fiveMinFromNow = Math.floor(Date.now() / 1000) + 300
-        if (expiresAt && expiresAt < fiveMinFromNow) {
-          await supabase.auth.refreshSession()
-        }
-      })(),
-      new Promise((resolve) => setTimeout(resolve, 5000)), // bail after 5s
-    ])
+    const stored = localStorage.getItem(AUTH_STORAGE_KEY)
+    if (!stored) return null
+    const { expires_at } = JSON.parse(stored)
+    return expires_at || null
   } catch {
-    // If refresh fails, let the actual DB call handle the error
+    return null
   }
 }
 
-// Wrap a Supabase call with session refresh, timeout, and one auto-retry.
-// Browsers kill idle connections in background tabs, so the first request
-// after waking often fails. The retry silently recovers.
-async function withTimeout(buildQuery, ms = 15000) {
+// Ensure the JWT is fresh before making a DB call.
+// Reads expiry from localStorage (instant) and only calls refreshSession()
+// if we're within 5 minutes of expiry. Has a 5s bail-out timeout.
+async function ensureFreshSession() {
+  try {
+    const expiresAt = getStoredExpiry()
+    if (!expiresAt) return
+    const fiveMinFromNow = Math.floor(Date.now() / 1000) + 300
+    if (expiresAt < fiveMinFromNow) {
+      await Promise.race([
+        supabase.auth.refreshSession(),
+        new Promise((resolve) => setTimeout(resolve, 5000)),
+      ])
+    }
+  } catch {
+    // If refresh fails, proceed anyway — the token might still work
+  }
+}
+
+// Wrap a Supabase call with session refresh, timeout, and auto-retry.
+// The custom fetch in supabase.js uses AbortController to properly cancel
+// hung requests (clearing dead TCP connections), so retries get fresh connections.
+async function withTimeout(buildQuery, ms = 20000) {
   await ensureFreshSession()
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       return await Promise.race([
         buildQuery(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out — please try again.')), ms)),
       ])
     } catch (err) {
-      if (attempt === 0) continue // silent retry
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        continue
+      }
       throw err
     }
   }
@@ -345,18 +357,19 @@ export async function uploadLogo(userId, companyId, file) {
 export async function uploadDocument(userId, orderId, type, file) {
   const ext = file.name.split('.').pop()
   const path = `${userId}/${orderId}/${type}/${Date.now()}.${ext}`
-  // Session refresh + upload with one auto-retry (browser kills idle connections)
   await ensureFreshSession()
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // The custom fetch in supabase.js gives uploads a 60s AbortController timeout,
+  // properly cancelling hung requests on dead connections. 3 retries with delay.
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      const result = await Promise.race([
-        supabase.storage.from('documents').upload(path, file),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Please try again.')), 30000)),
-      ])
+      const result = await supabase.storage.from('documents').upload(path, file)
       if (result.error) throw result.error
       return { name: file.name, path: result.data.path }
     } catch (err) {
-      if (attempt === 0) continue // silent retry
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        continue
+      }
       throw err
     }
   }

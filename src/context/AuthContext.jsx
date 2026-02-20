@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useRef } from 'react'
-import { supabase, nukeSession } from '@/lib/supabase'
+import { supabase, nukeSession, warmConnection } from '@/lib/supabase'
 import { fetchSubscription } from '@/lib/db'
 import { DEFAULT_ROLE } from '@/lib/constants'
 
@@ -115,35 +115,20 @@ export function AuthProvider({ children }) {
       }
     )
 
-    // Session refresh — runs when tab becomes visible (after sleep/tab switch).
-    // Proactively refreshes the JWT so DB calls don't fail with expired tokens.
-    let checking = false
-    const refreshOnWake = async () => {
-      if (!mounted || checking || document.hidden) return
-      const { data: { session: currentSession } } = await supabase.auth.getSession()
-      if (!currentSession) return
-      checking = true
-      try {
-        const { data, error } = await Promise.race([
-          supabase.auth.refreshSession(),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
-        ])
-        if (error || !data.session) {
-          // Refresh failed — token is truly dead, sign out
-          if (mounted) forceSignOut()
-        }
-      } catch {
-        // Timeout or network error — don't sign out, the token might still work
-      } finally {
-        checking = false
-      }
+    // Tab wake-up handler — re-establishes the TCP connection to Supabase.
+    // After a tab switch, the connection is often dead. warmConnection() makes
+    // a lightweight HEAD request that forces the browser to detect and replace
+    // the dead connection BEFORE the user clicks anything.
+    const onTabVisible = () => {
+      if (!mounted || document.hidden) return
+      warmConnection() // fire-and-forget — fast, non-blocking
     }
-    document.addEventListener('visibilitychange', refreshOnWake)
+    document.addEventListener('visibilitychange', onTabVisible)
 
     return () => {
       mounted = false
       clearTimeout(timeout)
-      document.removeEventListener('visibilitychange', refreshOnWake)
+      document.removeEventListener('visibilitychange', onTabVisible)
       authSub.unsubscribe()
     }
   }, [])
