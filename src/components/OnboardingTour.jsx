@@ -8,6 +8,7 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useAccounts } from '@/context/AccountContext'
+import { supabase } from '@/lib/supabase'
 
 const steps = [
   // 0 — Welcome
@@ -233,9 +234,18 @@ export default function OnboardingTour() {
 
   const storageKey = user ? `repcommish_tour_done_${user.id}` : null
 
+  // Tour is "done" if EITHER localStorage OR user_metadata says so.
+  // This prevents deploys/cache clears from resetting the tour.
+  const tourDoneInMeta = !!user?.user_metadata?.tour_done
+
   // Show on first visit (per-user)
   useEffect(() => {
     if (!storageKey) return
+    // If user_metadata says tour is done, sync to localStorage and skip
+    if (tourDoneInMeta) {
+      localStorage.setItem(storageKey, 'true')
+      return
+    }
     if (!localStorage.getItem(storageKey)) {
       const t = setTimeout(() => {
         setInitialBrandCount(companies.length)
@@ -244,7 +254,7 @@ export default function OnboardingTour() {
       }, 600)
       return () => clearTimeout(t)
     }
-  }, [storageKey])
+  }, [storageKey, tourDoneInMeta])
 
   // Restart from settings
   useEffect(() => {
@@ -423,13 +433,19 @@ export default function OnboardingTour() {
     }
   }, [step, active, goTo, isForced])
 
-  const skip = () => {
+  const markTourDone = () => {
     if (storageKey) localStorage.setItem(storageKey, 'true')
+    // Persist to user_metadata so it survives localStorage clears / new devices
+    supabase.auth.updateUser({ data: { tour_done: true } }).catch(() => {})
+  }
+
+  const skip = () => {
+    markTourDone()
     setActive(false)
   }
 
   const finish = () => {
-    if (storageKey) localStorage.setItem(storageKey, 'true')
+    markTourDone()
     setActive(false)
     navigate('/app/companies')
   }

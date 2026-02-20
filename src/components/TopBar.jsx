@@ -3,6 +3,7 @@ import { Moon, Sun, HelpCircle, RotateCcw, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/hooks/useTheme'
+import { supabase } from '@/lib/supabase'
 import UserSettingsDialog from '@/components/UserSettingsDialog'
 import {
   Dialog,
@@ -23,7 +24,10 @@ function TopBar() {
   const handleRestartTour = () => {
     setHelpOpen(false)
     setTimeout(() => {
-      if (user) localStorage.removeItem(`repcommish_tour_done_${user.id}`)
+      if (user) {
+        localStorage.removeItem(`repcommish_tour_done_${user.id}`)
+        supabase.auth.updateUser({ data: { tour_done: false } }).catch(() => {})
+      }
       window.dispatchEvent(new Event('restart-tour'))
     }, 300)
   }
