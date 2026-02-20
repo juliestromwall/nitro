@@ -24,76 +24,90 @@ Deno.serve(async (req) => {
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session
-      const customerId = session.customer as string
-      const subscriptionId = session.subscription as string
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session
+        const customerId = session.customer as string
+        const subscriptionId = session.subscription as string
 
-      // Get subscription details from Stripe
-      const subscription = await stripe.subscriptions.retrieve(subscriptionId)
+        // Get subscription details from Stripe
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId)
+        const interval = subscription.items?.data?.[0]?.price?.recurring?.interval
 
-      await supabase
-        .from('subscriptions')
-        .update({
-          stripe_subscription_id: subscriptionId,
-          status: subscription.status, // 'active' or 'trialing'
-          plan: subscription.items.data[0]?.price?.recurring?.interval === 'year' ? 'annual' : 'monthly',
-          current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('stripe_customer_id', customerId)
+        await supabase
+          .from('subscriptions')
+          .update({
+            stripe_subscription_id: subscriptionId,
+            status: subscription.status,
+            plan: interval === 'year' ? 'annual' : 'monthly',
+            current_period_end: subscription.current_period_end
+              ? new Date(subscription.current_period_end * 1000).toISOString()
+              : null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('stripe_customer_id', customerId)
 
-      break
+        break
+      }
+
+      case 'customer.subscription.updated': {
+        const subscription = event.data.object as Stripe.Subscription
+        const customerId = subscription.customer as string
+        const interval = subscription.items?.data?.[0]?.price?.recurring?.interval
+
+        await supabase
+          .from('subscriptions')
+          .update({
+            status: subscription.status,
+            plan: interval === 'year' ? 'annual' : 'monthly',
+            current_period_end: subscription.current_period_end
+              ? new Date(subscription.current_period_end * 1000).toISOString()
+              : null,
+            cancel_at_period_end: subscription.cancel_at_period_end,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('stripe_customer_id', customerId)
+
+        break
+      }
+
+      case 'customer.subscription.deleted': {
+        const subscription = event.data.object as Stripe.Subscription
+        const customerId = subscription.customer as string
+
+        await supabase
+          .from('subscriptions')
+          .update({
+            status: 'canceled',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('stripe_customer_id', customerId)
+
+        break
+      }
+
+      case 'invoice.payment_failed': {
+        const invoice = event.data.object as Stripe.Invoice
+        const customerId = invoice.customer as string
+
+        await supabase
+          .from('subscriptions')
+          .update({
+            status: 'past_due',
+            updated_at: new Date().toISOString(),
+          })
+          .eq('stripe_customer_id', customerId)
+
+        break
+      }
     }
-
-    case 'customer.subscription.updated': {
-      const subscription = event.data.object as Stripe.Subscription
-      const customerId = subscription.customer as string
-
-      await supabase
-        .from('subscriptions')
-        .update({
-          status: subscription.status,
-          plan: subscription.items.data[0]?.price?.recurring?.interval === 'year' ? 'annual' : 'monthly',
-          current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-          cancel_at_period_end: subscription.cancel_at_period_end,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('stripe_customer_id', customerId)
-
-      break
-    }
-
-    case 'customer.subscription.deleted': {
-      const subscription = event.data.object as Stripe.Subscription
-      const customerId = subscription.customer as string
-
-      await supabase
-        .from('subscriptions')
-        .update({
-          status: 'canceled',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('stripe_customer_id', customerId)
-
-      break
-    }
-
-    case 'invoice.payment_failed': {
-      const invoice = event.data.object as Stripe.Invoice
-      const customerId = invoice.customer as string
-
-      await supabase
-        .from('subscriptions')
-        .update({
-          status: 'past_due',
-          updated_at: new Date().toISOString(),
-        })
-        .eq('stripe_customer_id', customerId)
-
-      break
-    }
+  } catch (err) {
+    console.error(`Webhook handler error [${event.type}]:`, err)
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   return new Response(JSON.stringify({ received: true }), {
