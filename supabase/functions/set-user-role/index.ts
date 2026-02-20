@@ -1,4 +1,3 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0'
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
@@ -11,7 +10,7 @@ const corsHeaders = {
 
 const VALID_ROLES = ['master_admin', 'admin', 'manager', 'pro_rep', 'rep', 'sub_rep']
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }

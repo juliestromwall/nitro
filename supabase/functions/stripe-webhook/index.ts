@@ -1,4 +1,3 @@
-import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import Stripe from 'https://esm.sh/stripe@13.6.0?target=deno'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0'
 
@@ -8,7 +7,7 @@ const webhookSecret = Deno.env.get('STRIPE_WEBHOOK_SECRET')!
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 
-serve(async (req) => {
+Deno.serve(async (req) => {
   const signature = req.headers.get('stripe-signature')
   if (!signature) {
     return new Response('Missing stripe-signature header', { status: 400 })
