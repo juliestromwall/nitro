@@ -1,12 +1,31 @@
 import { supabase } from './supabase'
 
-// Wrap a promise with a timeout so Supabase calls don't hang forever.
-// The Supabase JS v2 auth lock can get stuck after a failed token refresh,
-// causing insert/update calls to never resolve.
-function withTimeout(promise, ms = 15000) {
+// Ensure the JWT is fresh before making a DB call.
+// Browsers throttle timers in background tabs, so autoRefreshToken
+// often doesn't fire. This checks the stored session's expires_at
+// and refreshes if it's within 5 minutes of expiry.
+async function ensureFreshSession() {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return
+    const expiresAt = session.expires_at // unix seconds
+    const fiveMinFromNow = Math.floor(Date.now() / 1000) + 300
+    if (expiresAt && expiresAt < fiveMinFromNow) {
+      await supabase.auth.refreshSession()
+    }
+  } catch {
+    // If refresh fails, let the actual DB call handle the error
+  }
+}
+
+// Wrap a promise with a session freshness check + timeout.
+// 1. Refreshes JWT if it's close to expiry (prevents stale-token hangs)
+// 2. Races against a timeout so calls don't hang forever
+async function withTimeout(promise, ms = 15000) {
+  await ensureFreshSession()
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out — please sign out and sign back in.')), ms)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out — please try again.')), ms)),
   ])
 }
 
@@ -311,6 +330,7 @@ export async function uploadLogo(userId, companyId, file) {
 }
 
 export async function uploadDocument(userId, orderId, type, file) {
+  await ensureFreshSession()
   const ext = file.name.split('.').pop()
   const path = `${userId}/${orderId}/${type}/${Date.now()}.${ext}`
   const result = await Promise.race([
