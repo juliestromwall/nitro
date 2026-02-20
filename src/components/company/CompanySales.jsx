@@ -222,20 +222,20 @@ const CELEBRATIONS = [
   () => {
     const end = Date.now() + 1500
     const frame = () => {
-      confetti({ particleCount: 3, angle: 60, spread: 55, origin: { x: 0, y: 0.6 } })
-      confetti({ particleCount: 3, angle: 120, spread: 55, origin: { x: 1, y: 0.6 } })
+      confetti({ particleCount: 3, angle: 60, spread: 55, origin: { x: 0, y: 0.6 }, scalar: 1.8 })
+      confetti({ particleCount: 3, angle: 120, spread: 55, origin: { x: 1, y: 0.6 }, scalar: 1.8 })
       if (Date.now() < end) requestAnimationFrame(frame)
     }
     frame()
   },
   // Big center explosion
   () => {
-    confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#22c55e', '#005b5b', '#f59e0b', '#3b82f6', '#ec4899'] })
-    setTimeout(() => confetti({ particleCount: 80, spread: 120, origin: { y: 0.5 }, colors: ['#8b5cf6', '#ef4444', '#14b8a6'] }), 300)
+    confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, scalar: 1.8, colors: ['#22c55e', '#005b5b', '#f59e0b', '#3b82f6', '#ec4899'] })
+    setTimeout(() => confetti({ particleCount: 80, spread: 120, origin: { y: 0.5 }, scalar: 1.8, colors: ['#8b5cf6', '#ef4444', '#14b8a6'] }), 300)
   },
   // Fireworks — multiple bursts at different positions
   () => {
-    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 }
+    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999, scalar: 1.8 }
     setTimeout(() => confetti({ ...defaults, particleCount: 50, origin: { x: 0.3, y: 0.3 } }), 0)
     setTimeout(() => confetti({ ...defaults, particleCount: 50, origin: { x: 0.7, y: 0.4 } }), 250)
     setTimeout(() => confetti({ ...defaults, particleCount: 50, origin: { x: 0.5, y: 0.2 } }), 500)
@@ -247,15 +247,15 @@ const CELEBRATIONS = [
     const end = Date.now() + 2000
     const colors = ['#22c55e', '#16a34a', '#f59e0b', '#eab308']
     const frame = () => {
-      confetti({ particleCount: 4, angle: 270, spread: 160, origin: { x: Math.random(), y: -0.1 }, colors, gravity: 0.6, scalar: 1.2 })
+      confetti({ particleCount: 4, angle: 270, spread: 160, origin: { x: Math.random(), y: -0.1 }, colors, gravity: 0.6, scalar: 2 })
       if (Date.now() < end) requestAnimationFrame(frame)
     }
     frame()
   },
-  // Emoji cannon — snowflakes, stars, unicorns
+  // Emoji cannon — stars, unicorns, fire, money bags
   () => {
     const emojis = ['⭐', '🦄', '🔥', '💰', '🎉', '🏆']
-    const scalar = 2
+    const scalar = 4
     const shapes = emojis.map(e => confetti.shapeFromText({ text: e, scalar }))
     confetti({ particleCount: 30, spread: 100, origin: { y: 0.6 }, shapes, scalar, flat: true })
     setTimeout(() => confetti({ particleCount: 20, spread: 120, origin: { y: 0.5 }, shapes, scalar, flat: true }), 400)
@@ -265,7 +265,7 @@ const CELEBRATIONS = [
     const end = Date.now() + 2500
     const colors = ['#ffffff', '#dbeafe', '#bfdbfe', '#93c5fd', '#005b5b', '#14b8a6']
     const frame = () => {
-      confetti({ particleCount: 2, angle: 270, spread: 180, origin: { x: Math.random(), y: -0.05 }, colors, gravity: 0.3, scalar: 0.8, drift: Math.random() - 0.5 })
+      confetti({ particleCount: 2, angle: 270, spread: 180, origin: { x: Math.random(), y: -0.05 }, colors, gravity: 0.3, scalar: 1.6, drift: Math.random() - 0.5 })
       if (Date.now() < end) requestAnimationFrame(frame)
     }
     frame()
@@ -274,8 +274,8 @@ const CELEBRATIONS = [
   () => {
     for (let i = 0; i < 5; i++) {
       setTimeout(() => {
-        confetti({ particleCount: 40, angle: 60, spread: 40, origin: { x: 0, y: 1 }, startVelocity: 45 })
-        confetti({ particleCount: 40, angle: 120, spread: 40, origin: { x: 1, y: 1 }, startVelocity: 45 })
+        confetti({ particleCount: 40, angle: 60, spread: 40, origin: { x: 0, y: 1 }, startVelocity: 45, scalar: 1.8 })
+        confetti({ particleCount: 40, angle: 120, spread: 40, origin: { x: 1, y: 1 }, startVelocity: 45, scalar: 1.8 })
       }, i * 200)
     }
   },
