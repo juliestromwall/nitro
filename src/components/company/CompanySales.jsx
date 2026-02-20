@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
-import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
+import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown, Loader2 } from 'lucide-react'
+import confetti from 'canvas-confetti'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -215,6 +216,76 @@ const HYPE_CATEGORIES = {
   },
 }
 
+// Confetti celebration effects — picks a random one each time
+const CELEBRATIONS = [
+  // Classic cannon burst from both sides
+  () => {
+    const end = Date.now() + 1500
+    const frame = () => {
+      confetti({ particleCount: 3, angle: 60, spread: 55, origin: { x: 0, y: 0.6 } })
+      confetti({ particleCount: 3, angle: 120, spread: 55, origin: { x: 1, y: 0.6 } })
+      if (Date.now() < end) requestAnimationFrame(frame)
+    }
+    frame()
+  },
+  // Big center explosion
+  () => {
+    confetti({ particleCount: 150, spread: 100, origin: { y: 0.6 }, colors: ['#22c55e', '#005b5b', '#f59e0b', '#3b82f6', '#ec4899'] })
+    setTimeout(() => confetti({ particleCount: 80, spread: 120, origin: { y: 0.5 }, colors: ['#8b5cf6', '#ef4444', '#14b8a6'] }), 300)
+  },
+  // Fireworks — multiple bursts at different positions
+  () => {
+    const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 9999 }
+    setTimeout(() => confetti({ ...defaults, particleCount: 50, origin: { x: 0.3, y: 0.3 } }), 0)
+    setTimeout(() => confetti({ ...defaults, particleCount: 50, origin: { x: 0.7, y: 0.4 } }), 250)
+    setTimeout(() => confetti({ ...defaults, particleCount: 50, origin: { x: 0.5, y: 0.2 } }), 500)
+    setTimeout(() => confetti({ ...defaults, particleCount: 30, origin: { x: 0.2, y: 0.5 } }), 750)
+    setTimeout(() => confetti({ ...defaults, particleCount: 30, origin: { x: 0.8, y: 0.3 } }), 1000)
+  },
+  // Money rain — green and gold falling from top
+  () => {
+    const end = Date.now() + 2000
+    const colors = ['#22c55e', '#16a34a', '#f59e0b', '#eab308']
+    const frame = () => {
+      confetti({ particleCount: 4, angle: 270, spread: 160, origin: { x: Math.random(), y: -0.1 }, colors, gravity: 0.6, scalar: 1.2 })
+      if (Date.now() < end) requestAnimationFrame(frame)
+    }
+    frame()
+  },
+  // Emoji cannon — snowflakes, stars, unicorns
+  () => {
+    const emojis = ['⭐', '🦄', '🔥', '💰', '🎉', '🏆']
+    const scalar = 2
+    const shapes = emojis.map(e => confetti.shapeFromText({ text: e, scalar }))
+    confetti({ particleCount: 30, spread: 100, origin: { y: 0.6 }, shapes, scalar, flat: true })
+    setTimeout(() => confetti({ particleCount: 20, spread: 120, origin: { y: 0.5 }, shapes, scalar, flat: true }), 400)
+  },
+  // Snow globe — gentle particles floating down
+  () => {
+    const end = Date.now() + 2500
+    const colors = ['#ffffff', '#dbeafe', '#bfdbfe', '#93c5fd', '#005b5b', '#14b8a6']
+    const frame = () => {
+      confetti({ particleCount: 2, angle: 270, spread: 180, origin: { x: Math.random(), y: -0.05 }, colors, gravity: 0.3, scalar: 0.8, drift: Math.random() - 0.5 })
+      if (Date.now() < end) requestAnimationFrame(frame)
+    }
+    frame()
+  },
+  // Rapid-fire cannons from bottom corners
+  () => {
+    for (let i = 0; i < 5; i++) {
+      setTimeout(() => {
+        confetti({ particleCount: 40, angle: 60, spread: 40, origin: { x: 0, y: 1 }, startVelocity: 45 })
+        confetti({ particleCount: 40, angle: 120, spread: 40, origin: { x: 1, y: 1 }, startVelocity: 45 })
+      }, i * 200)
+    }
+  },
+]
+
+function fireCelebration() {
+  const effect = CELEBRATIONS[Math.floor(Math.random() * CELEBRATIONS.length)]
+  effect()
+}
+
 // Pick a random category-matched opener + closer. Cheesy = 60% weight.
 function getRandomHype() {
   const roll = Math.random()
@@ -328,6 +399,10 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
   const [groupInvoiceClientId, setGroupInvoiceClientId] = useState(null)
   const [groupInvoiceList, setGroupInvoiceList] = useState([])
   const groupInvoiceDocRefs = useRef({})
+
+  // Upload + save loading state
+  const [uploadingRows, setUploadingRows] = useState(new Set())
+  const [saving, setSaving] = useState(false)
 
   // Celebration popup state
   const [celebrationOpen, setCelebrationOpen] = useState(false)
@@ -488,110 +563,121 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
 
   // Add or Edit Sale submit
   const handleSaleSubmit = async () => {
-    if (isEditMode) {
-      // Single-row edit
-      const row = saleRows[0]
-      if (!row.client_id || !centsToFloat(row.total)) return
+    setSaving(true)
+    try {
+      if (isEditMode) {
+        // Single-row edit
+        const row = saleRows[0]
+        if (!row.client_id || !centsToFloat(row.total)) { setSaving(false); return }
 
-      const total = centsToFloat(row.total)
-      const commOverride = row.commission_override.trim() !== '' ? parseFloat(row.commission_override) : null
+        const total = centsToFloat(row.total)
+        const commOverride = row.commission_override.trim() !== '' ? parseFloat(row.commission_override) : null
 
-      try {
-        await updateOrder(editingOrderId, {
+        try {
+          await updateOrder(editingOrderId, {
+            client_id: row.client_id,
+            company_id: companyId,
+            season_id: row.season_id || currentSeason?.id,
+            sale_type: row.sale_type,
+            order_type: row.order_type,
+            items: row.items,
+            order_number: row.order_number,
+            close_date: row.close_date,
+            stage: row.stage,
+            order_document: row.order_document,
+            total,
+            commission_override: commOverride,
+            notes: row.notes,
+          })
+        } catch (err) {
+          console.error('Failed to save order:', err)
+          if (err.message?.includes('timed out') || err.message?.includes('signal is aborted')) {
+            alert('Your session has expired. Please sign in again.')
+            window.location.href = '/login'
+          } else {
+            alert('Failed to save. Please try again.')
+          }
+          setSaving(false)
+          return
+        }
+
+        closeSaleDialog()
+        return
+      }
+
+      // Multi-row add
+      const validRows = saleRows.filter((r) => r.client_id && centsToFloat(r.total) > 0)
+      if (validRows.length === 0) { setSaving(false); return }
+
+      let totalCommission = 0
+
+      for (const row of validRows) {
+        const total = centsToFloat(row.total)
+        const commOverride = row.commission_override.trim() !== '' ? parseFloat(row.commission_override) : null
+
+        const orderData = {
           client_id: row.client_id,
           company_id: companyId,
           season_id: row.season_id || currentSeason?.id,
           sale_type: row.sale_type,
-          order_type: row.order_type,
+          order_type: row.order_type || companyOrderTypes[0] || '',
           items: row.items,
           order_number: row.order_number,
           close_date: row.close_date,
-          stage: row.stage,
+          stage: row.stage || 'Order Placed',
           order_document: row.order_document,
           total,
           commission_override: commOverride,
           notes: row.notes,
-        })
-      } catch (err) {
-        console.error('Failed to save order:', err)
-        if (err.message?.includes('timed out') || err.message?.includes('signal is aborted')) {
-          alert('Your session has expired. Please sign in again.')
-          window.location.href = '/login'
-        } else {
-          alert('Failed to save. Please try again.')
         }
-        return
+
+        try {
+          await addOrder(orderData)
+        } catch (err) {
+          console.error('Failed to add order:', err)
+          if (err.message?.includes('timed out') || err.message?.includes('signal is aborted')) {
+            alert('Your session has expired. Please sign in again.')
+            window.location.href = '/login'
+          } else {
+            alert('Failed to add a sale. Please try again.')
+          }
+          setSaving(false)
+          return
+        }
+
+        const expectedPct = getExpectedRate(orderData.order_type)
+        const pct = commOverride != null ? commOverride : expectedPct
+        totalCommission += total * pct / 100
       }
 
       closeSaleDialog()
-      return
-    }
 
-    // Multi-row add
-    const validRows = saleRows.filter((r) => r.client_id && centsToFloat(r.total) > 0)
-    if (validRows.length === 0) return
-
-    let totalCommission = 0
-
-    for (const row of validRows) {
-      const total = centsToFloat(row.total)
-      const commOverride = row.commission_override.trim() !== '' ? parseFloat(row.commission_override) : null
-
-      const orderData = {
-        client_id: row.client_id,
-        company_id: companyId,
-        season_id: row.season_id || currentSeason?.id,
-        sale_type: row.sale_type,
-        order_type: row.order_type || companyOrderTypes[0] || '',
-        items: row.items,
-        order_number: row.order_number,
-        close_date: row.close_date,
-        stage: row.stage || 'Order Placed',
-        order_document: row.order_document,
-        total,
-        commission_override: commOverride,
-        notes: row.notes,
+      // Show celebration popup
+      if (totalCommission > 0) {
+        const hype = getRandomHype()
+        setCelebrationData({
+          commission: totalCommission,
+          ...hype,
+        })
+        setCelebrationOpen(true)
       }
-
-      try {
-        await addOrder(orderData)
-      } catch (err) {
-        console.error('Failed to add order:', err)
-        if (err.message?.includes('timed out') || err.message?.includes('signal is aborted')) {
-          alert('Your session has expired. Please sign in again.')
-          window.location.href = '/login'
-        } else {
-          alert('Failed to add a sale. Please try again.')
-        }
-        return
-      }
-
-      const expectedPct = getExpectedRate(orderData.order_type)
-      const pct = commOverride != null ? commOverride : expectedPct
-      totalCommission += total * pct / 100
-    }
-
-    closeSaleDialog()
-
-    // Show celebration popup
-    if (totalCommission > 0) {
-      const hype = getRandomHype()
-      setCelebrationData({
-        commission: totalCommission,
-        ...hype,
-      })
-      setCelebrationOpen(true)
+    } finally {
+      setSaving(false)
     }
   }
 
   const handleOrderDocUpload = async (e, rowIndex) => {
     const file = e.target.files?.[0]
     if (file && user) {
+      setUploadingRows((prev) => new Set(prev).add(rowIndex))
       try {
         const doc = await uploadDocument(user.id, editingOrderId || 'new', 'order', file)
         updateSaleRow(rowIndex, 'order_document', { name: doc.name, path: doc.path })
       } catch (err) {
         console.error('Failed to upload order document:', err)
+        alert('File upload failed. Please try again.')
+      } finally {
+        setUploadingRows((prev) => { const next = new Set(prev); next.delete(rowIndex); return next })
       }
     }
     const ref = orderDocRefs.current[rowIndex]
@@ -1348,7 +1434,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                               onChange={(e) => handleOrderDocUpload(e, idx)}
                               className="hidden"
                             />
-                            {row.order_document ? (
+                            {uploadingRows.has(idx) ? (
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Loader2 className="size-3 animate-spin" /> Uploading...
+                              </span>
+                            ) : row.order_document ? (
                               <Badge variant="secondary" className="gap-1 text-xs">
                                 <FileText className="size-3" /> {row.order_document.name}
                                 <button type="button" onClick={() => updateSaleRow(idx, 'order_document', null)}>
@@ -1442,12 +1532,18 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
             <Button type="button" variant="outline" onClick={closeSaleDialog}>Cancel</Button>
             <Button
               onClick={handleSaleSubmit}
-              disabled={isEditMode
+              disabled={saving || uploadingRows.size > 0 || (isEditMode
                 ? !saleRows[0]?.client_id || !centsToFloat(saleRows[0]?.total)
-                : saleRows.every((r) => !r.client_id || !centsToFloat(r.total))
+                : saleRows.every((r) => !r.client_id || !centsToFloat(r.total)))
               }
             >
-              {isEditMode ? 'Save Changes' : saleRows.filter((r) => r.client_id && centsToFloat(r.total) > 0).length > 1 ? 'Add Sales' : 'Add Sale'}
+              {saving ? (
+                <><Loader2 className="size-4 animate-spin mr-1" />{isEditMode ? 'Saving...' : 'Adding Sale...'}</>
+              ) : uploadingRows.size > 0 ? (
+                <><Loader2 className="size-4 animate-spin mr-1" />Uploading...</>
+              ) : (
+                isEditMode ? 'Save Changes' : saleRows.filter((r) => r.client_id && centsToFloat(r.total) > 0).length > 1 ? 'Add Sales' : 'Add Sale'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1483,29 +1579,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
       <ImportSalesModal open={importSalesOpen} onOpenChange={setImportSalesOpen} companyId={companyId} />
 
       {/* Celebration popup after adding a sale */}
-      <Dialog open={celebrationOpen} onOpenChange={setCelebrationOpen}>
-        <DialogContent className="max-w-sm text-center overflow-hidden">
+      <Dialog open={celebrationOpen} onOpenChange={(open) => { setCelebrationOpen(open); if (open) fireCelebration() }}>
+        <DialogContent className="max-w-sm text-center overflow-hidden" onOpenAutoFocus={(e) => { e.preventDefault(); fireCelebration() }}>
           <DialogTitle className="sr-only">Sale Added</DialogTitle>
           <DialogDescription className="sr-only">Celebration popup showing commission earned</DialogDescription>
-          <div className="relative py-4">
-            {/* Animated background confetti dots */}
-            <div className="absolute inset-0 pointer-events-none overflow-hidden">
-              {[...Array(12)].map((_, i) => (
-                <div
-                  key={i}
-                  className="absolute w-2 h-2 rounded-full animate-bounce"
-                  style={{
-                    backgroundColor: ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'][i % 6],
-                    left: `${8 + (i * 8)}%`,
-                    top: `${10 + (i % 3) * 30}%`,
-                    animationDelay: `${i * 0.15}s`,
-                    animationDuration: `${0.8 + (i % 3) * 0.4}s`,
-                  }}
-                />
-              ))}
-            </div>
-
-            <div className="relative z-10 space-y-4">
+          <div className="py-4">
+            <div className="space-y-4">
               <div className="text-5xl animate-bounce" style={{ animationDuration: '1s' }}>
                 {company?.logo_path ? (
                   <img src={company.logo_path} alt="" className="w-16 h-16 object-contain mx-auto" />
@@ -1515,13 +1594,13 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
               </div>
 
               <div className="space-y-2">
-                <p className="text-lg font-bold text-zinc-900">
+                <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
                   {celebrationData.hypeMessage}
                 </p>
                 <p className="text-4xl font-black text-green-600 tracking-tight animate-pulse">
                   {fmt(celebrationData.commission)}
                 </p>
-                <p className="text-lg font-bold text-zinc-900">
+                <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100">
                   {celebrationData.hypeCloser}
                 </p>
               </div>
