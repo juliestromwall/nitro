@@ -197,6 +197,8 @@ export async function updateOrder(id, updates) {
 }
 
 export async function deleteOrder(id) {
+  // Delete associated commission first (FK has no CASCADE)
+  await supabase.from('commissions').delete().eq('order_id', id)
   const { error } = await supabase.from('orders').delete().eq('id', id)
   if (error) throw error
 }

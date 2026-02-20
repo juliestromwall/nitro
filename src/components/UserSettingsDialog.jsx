@@ -7,10 +7,11 @@ import {
 } from '@/components/ui/dialog'
 import { useAuth } from '@/context/AuthContext'
 import { uploadAvatar } from '@/lib/db'
+import { ROLE_LABELS } from '@/lib/constants'
 import { ExternalLink, Camera, Check, Loader2 } from 'lucide-react'
 
 function UserSettingsDialog({ open, onOpenChange }) {
-  const { user, subscription, updateEmail, updatePassword, updateAvatar, updateProfile } = useAuth()
+  const { user, userRole, subscription, updateEmail, updatePassword, updateAvatar, updateProfile } = useAuth()
   const [portalLoading, setPortalLoading] = useState(false)
   const [portalError, setPortalError] = useState('')
 
@@ -178,6 +179,13 @@ function UserSettingsDialog({ open, onOpenChange }) {
               >
                 {avatarUploading ? 'Uploading...' : 'Change photo'}
               </button>
+            </div>
+
+            {/* Role badge */}
+            <div className="flex justify-center">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 font-medium">
+                {ROLE_LABELS[userRole] || 'Rep'}
+              </span>
             </div>
 
             {/* Name */}

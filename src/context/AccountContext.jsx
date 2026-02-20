@@ -4,7 +4,17 @@ import * as db from '@/lib/db'
 
 const AccountContext = createContext()
 
-const CACHE_KEY = 'rc_cache_accounts'
+const CACHE_VERSION = '__v2__'
+const CACHE_KEY = `rc_cache_accounts${CACHE_VERSION}`
+
+// Clean up old account cache keys
+try {
+  Object.keys(localStorage).forEach((key) => {
+    if (key.startsWith('rc_cache_accounts') && !key.includes(CACHE_VERSION)) {
+      localStorage.removeItem(key)
+    }
+  })
+} catch {}
 
 export function AccountProvider({ children }) {
   const { user } = useAuth()

@@ -4,7 +4,17 @@ import * as db from '@/lib/db'
 
 const TodoContext = createContext()
 
-const CACHE_KEY = 'rc_cache_todos'
+const CACHE_VERSION = '__v2__'
+const CACHE_KEY = `rc_cache_todos${CACHE_VERSION}`
+
+// Clean up old todo cache keys
+try {
+  Object.keys(localStorage).forEach((key) => {
+    if (key.startsWith('rc_cache_todos') && !key.includes(CACHE_VERSION)) {
+      localStorage.removeItem(key)
+    }
+  })
+} catch {}
 
 export function TodoProvider({ children }) {
   const { user } = useAuth()

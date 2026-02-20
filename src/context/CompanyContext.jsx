@@ -4,7 +4,17 @@ import * as db from '@/lib/db'
 
 const CompanyContext = createContext()
 
-const CACHE_KEY = 'rc_cache_companies'
+const CACHE_VERSION = '__v2__'
+const CACHE_KEY = `rc_cache_companies${CACHE_VERSION}`
+
+// Clean up old company cache keys
+try {
+  Object.keys(localStorage).forEach((key) => {
+    if (key.startsWith('rc_cache_companies') && !key.includes(CACHE_VERSION)) {
+      localStorage.removeItem(key)
+    }
+  })
+} catch {}
 
 export function CompanyProvider({ children }) {
   const { user } = useAuth()

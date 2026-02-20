@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect } from 'react'
 import { supabase, nukeSession } from '@/lib/supabase'
 import { fetchSubscription } from '@/lib/db'
+import { DEFAULT_ROLE } from '@/lib/constants'
 
 // Timeout wrapper — prevents auth calls from hanging on stale sessions
 function withTimeout(promise, ms = 15000) {
@@ -93,18 +94,28 @@ export function AuthProvider({ children }) {
     )
 
     // Session health check — runs when tab becomes visible (after sleep/tab switch).
-    // Makes a real DB query to verify the session works. If it fails, auto sign out.
+    // Verifies the session is still valid. Only signs out on confirmed auth failures,
+    // NOT on network timeouts or transient errors.
     let checking = false
     const checkSession = async () => {
       if (!mounted || checking || document.hidden) return
+      // Only check if we think we have a user
+      const { data: { session: currentSession } } = await supabase.auth.getSession()
+      if (!currentSession) return // no session to check
       checking = true
       try {
-        await Promise.race([
+        const { error } = await Promise.race([
           supabase.from('companies').select('id').limit(1),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 8000)),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 10000)),
         ])
+        // Only sign out on actual auth errors (expired/invalid token),
+        // NOT on network timeouts or transient server errors
+        if (error && (error.message?.includes('JWT') || error.message?.includes('token') || error.code === 'PGRST301' || error.status === 401 || error.status === 403)) {
+          if (mounted) forceSignOut()
+        }
       } catch {
-        if (mounted) forceSignOut()
+        // Timeout or network error — do NOT sign out, just ignore.
+        // The user's token may still be valid, just a slow network.
       } finally {
         checking = false
       }
@@ -227,8 +238,10 @@ export function AuthProvider({ children }) {
     }
   }
 
+  const userRole = user?.app_metadata?.role || DEFAULT_ROLE
+
   return (
-    <AuthContext.Provider value={{ user, loading, subscription, signUp, signIn, signInWithProvider, resetPassword, verifyResetCode, signOut, updateEmail, updatePassword, updateAvatar, updateProfile, refreshSubscription }}>
+    <AuthContext.Provider value={{ user, userRole, loading, subscription, signUp, signIn, signInWithProvider, resetPassword, verifyResetCode, signOut, updateEmail, updatePassword, updateAvatar, updateProfile, refreshSubscription }}>
       {children}
     </AuthContext.Provider>
   )
