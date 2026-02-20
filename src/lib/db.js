@@ -4,15 +4,21 @@ import { supabase } from './supabase'
 // Browsers throttle timers in background tabs, so autoRefreshToken
 // often doesn't fire. This checks the stored session's expires_at
 // and refreshes if it's within 5 minutes of expiry.
+// Has its own 5s timeout so a stuck auth client can't block forever.
 async function ensureFreshSession() {
   try {
-    const { data: { session } } = await supabase.auth.getSession()
-    if (!session) return
-    const expiresAt = session.expires_at // unix seconds
-    const fiveMinFromNow = Math.floor(Date.now() / 1000) + 300
-    if (expiresAt && expiresAt < fiveMinFromNow) {
-      await supabase.auth.refreshSession()
-    }
+    await Promise.race([
+      (async () => {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session) return
+        const expiresAt = session.expires_at // unix seconds
+        const fiveMinFromNow = Math.floor(Date.now() / 1000) + 300
+        if (expiresAt && expiresAt < fiveMinFromNow) {
+          await supabase.auth.refreshSession()
+        }
+      })(),
+      new Promise((resolve) => setTimeout(resolve, 5000)), // bail after 5s
+    ])
   } catch {
     // If refresh fails, let the actual DB call handle the error
   }
@@ -330,12 +336,15 @@ export async function uploadLogo(userId, companyId, file) {
 }
 
 export async function uploadDocument(userId, orderId, type, file) {
-  await ensureFreshSession()
   const ext = file.name.split('.').pop()
   const path = `${userId}/${orderId}/${type}/${Date.now()}.${ext}`
+  // Single 30s timeout wraps everything: session refresh + upload
   const result = await Promise.race([
-    supabase.storage.from('documents').upload(path, file),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Please check your connection and try again.')), 30000)),
+    (async () => {
+      await ensureFreshSession()
+      return supabase.storage.from('documents').upload(path, file)
+    })(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Upload timed out. Please try again.')), 30000)),
   ])
   if (result.error) throw result.error
   return { name: file.name, path: result.data.path }
