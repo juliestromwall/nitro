@@ -10,7 +10,14 @@
 
 | Role | Access | Key Screens |
 |------|--------|-------------|
-| Sales Rep | Full access (own data only, enforced by RLS) | Login, Dashboard, Accounts, Companies, CompanyDetail |
+| Master Admin | Full access + Admin page (manage all user roles) | All pages + /app/admin |
+| Admin | Full access (own data only, enforced by RLS) | Login, Dashboard, Accounts, Companies, CompanyDetail |
+| Manager | Full access (own data only, enforced by RLS) | Login, Dashboard, Accounts, Companies, CompanyDetail |
+| Pro Rep | Full access (own data only, enforced by RLS) | Login, Dashboard, Accounts, Companies, CompanyDetail |
+| Rep | Full access (own data only, enforced by RLS) — default role | Login, Dashboard, Accounts, Companies, CompanyDetail |
+| Sub Rep | Full access (own data only, enforced by RLS) | Login, Dashboard, Accounts, Companies, CompanyDetail |
+
+*Note: Roles are labels only for now. Feature gating will be added later. Default role is `rep` (applied when app_metadata.role is absent).*
 
 ## Key Flows
 
@@ -59,6 +66,7 @@
 | Avatar | User profile photo uploaded to Supabase Storage `avatars` bucket (public); shown in TopBar and UserSettingsDialog |
 | Signed URL | Temporary authenticated URL for accessing private documents in Supabase Storage |
 | Subscription | Stripe-managed subscription (monthly or annual) required to access the app. Tracked in subscriptions table with status (active, incomplete, past_due, canceled). |
+| User Role | One of: master_admin, admin, manager, pro_rep, rep, sub_rep. Stored in app_metadata.role (secure, user can't modify). Default: rep. Labels only for now — no feature gating yet. |
 | Free Account | Users with user_metadata.plan='free' bypass subscription checks. Set in Supabase Dashboard > Authentication > Users. |
 | Onboarding Tour | 13-step guided walkthrough shown on first login. Navigates through app pages, explains features, offers CSV import templates. Stored in localStorage (repcommish_tour_done). Restartable from User Settings. |
 | Marketing Site | Public-facing pages (/, /features, /pricing, /about) with MarketingLayout. Password-gated (BringMore$now!) until Stripe is set up. |
@@ -80,7 +88,9 @@
 | Contact (/contact) | Contact page with email card, quick questions, and ask-a-question form |
 | Checkout Cancel (/checkout/cancel) | Payment cancellation with retry options |
 | Dashboard (/app) | Summary stats: total sales, rental/retail breakdown, commission due/paid |
-| Accounts (/app/accounts) | Account list with add/import CSV, filterable by region and type |
+| Accounts (/app/accounts) | Account list with add/import CSV, filterable by region and type. Clickable names link to detail page. |
+| AccountDetail (/app/accounts/:id) | Full account management: auto-detected logo, contact info, todos, auto-saving notes, order history reporting |
 | Companies (/app/companies) | Company management with commission %, logo upload, quick links in sidebar |
 | CompanyDetail (/app/companies/:id) | Tabbed view (Dashboard/Sales/Commission/Payments) scoped to a single company |
 | Reports (/app/reports) | Data export page with .xlsx and .pdf download for Accounts, Brands, Sales, Commissions, and Payments |
+| Admin (/app/admin) | Master admin page for managing user roles. Shows all users with role dropdowns. Only visible to master_admin. |

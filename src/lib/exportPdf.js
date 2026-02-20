@@ -38,12 +38,14 @@ export async function exportAccountsPdf(accounts) {
   const doc = await createPdfWithLogo('Accounts')
   autoTable(doc, {
     startY: 28,
-    head: [['Name', 'Account #', 'Region', 'Type', 'City', 'State']],
+    head: [['Name', 'Account #', 'Website', 'Phone', 'Primary Contact', 'Region', 'Type', 'City', 'State']],
     body: accounts.map((a) => [
-      a.name || '', a.account_number || '', a.region || '', a.type || '', a.city || '', a.state || '',
+      a.name || '', a.account_number || '', a.website || '', a.phone || '',
+      a.primary_contact?.name || '',
+      a.region || '', a.type || '', a.city || '', a.state || '',
     ]),
     headStyles: { fillColor: [0, 91, 91] },
-    styles: { fontSize: 8 },
+    styles: { fontSize: 7 },
   })
   doc.save('accounts.pdf')
 }

@@ -73,6 +73,11 @@ export function exportAccountsXlsx(accounts) {
   const columns = [
     { label: 'Name', value: (a) => a.name || '' },
     { label: 'Account #', value: (a) => a.account_number || '' },
+    { label: 'Website', value: (a) => a.website || '' },
+    { label: 'Phone', value: (a) => a.phone || '' },
+    { label: 'Primary Contact', value: (a) => a.primary_contact?.name || '' },
+    { label: 'Contact Email', value: (a) => a.primary_contact?.email || '' },
+    { label: 'Contact Phone', value: (a) => a.primary_contact?.phone || '' },
     { label: 'Region', value: (a) => a.region || '' },
     { label: 'Type', value: (a) => a.type || '' },
     { label: 'City', value: (a) => a.city || '' },

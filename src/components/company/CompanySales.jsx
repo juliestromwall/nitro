@@ -17,6 +17,8 @@ import { uploadDocument, getDocumentUrl } from '@/lib/db'
 import { useSales } from '@/context/SalesContext'
 import { EXCLUDED_STAGES } from '@/lib/constants'
 import ImportSalesModal from '@/components/company/ImportSalesModal'
+import AccountQuickView from '@/components/AccountQuickView'
+import { Link } from 'react-router-dom'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -236,7 +238,8 @@ const SALE_CYCLE_OPTIONS = (() => {
 function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, setActiveTracker }) {
   const { accounts, getAccountName } = useAccounts()
   const { companies } = useCompanies()
-  const { user } = useAuth()
+  const { user, userRole } = useAuth()
+  const canViewAccountDetail = userRole === 'master_admin' || userRole === 'pro_rep'
 
   const {
     orders, commissions,
@@ -1862,7 +1865,14 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                       >
                         <TableCell colSpan={isAllView ? 8 : 7} className="py-3">
                           <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-bold text-zinc-900 dark:text-white text-base">{group.accountName}</span>
+                            {canViewAccountDetail ? (
+                              <Link to={`/app/accounts/${group.clientId}`} onClick={(e) => e.stopPropagation()} className="font-bold text-zinc-900 dark:text-white text-base hover:text-[#005b5b] dark:hover:text-[#00b3b3] hover:underline">
+                                {group.accountName}
+                              </Link>
+                            ) : (
+                              <span className="font-bold text-zinc-900 dark:text-white text-base">{group.accountName}</span>
+                            )}
+                            <AccountQuickView accountId={group.clientId} />
                             {group.allInvoices.length > 0 && (
                               <>
                                 <span className="text-muted-foreground text-xs">|</span>

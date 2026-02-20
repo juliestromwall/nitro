@@ -58,8 +58,12 @@ export function AccountProvider({ children }) {
     return account ? account.name : 'Unknown'
   }
 
+  const getAccount = (accountId) => {
+    return accounts.find((a) => a.id === accountId) || null
+  }
+
   return (
-    <AccountContext.Provider value={{ accounts, loading, addAccount, addAccounts, updateAccount, removeAccount, getAccountName }}>
+    <AccountContext.Provider value={{ accounts, loading, addAccount, addAccounts, updateAccount, removeAccount, getAccountName, getAccount }}>
       {children}
     </AccountContext.Provider>
   )

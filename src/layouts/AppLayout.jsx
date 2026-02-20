@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
-import { Tag, Store, BarChart3, LogOut, Home, RotateCcw, ChevronUp, ChevronDown } from 'lucide-react'
+import { Tag, Store, BarChart3, LogOut, Home, RotateCcw, ChevronUp, ChevronDown, Shield } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -16,7 +16,9 @@ import Dashboard from '@/pages/Dashboard'
 import Companies from '@/pages/Companies'
 import CompanyDetail from '@/pages/CompanyDetail'
 import Accounts from '@/pages/Accounts'
+import AccountDetail from '@/pages/AccountDetail'
 import Reports from '@/pages/Reports'
+import Admin from '@/pages/Admin'
 
 function CompanyLinks() {
   const { activeCompanies } = useCompanies()
@@ -88,7 +90,7 @@ function CompanyLinks() {
 }
 
 function AppLayout() {
-  const { user, signOut } = useAuth()
+  const { user, userRole, signOut } = useAuth()
   const location = useLocation()
   const [showHomeMenu, setShowHomeMenu] = useState(false)
   const [homeConfirm, setHomeConfirm] = useState(null) // 'set' | 'reset'
@@ -286,6 +288,22 @@ function AppLayout() {
             >
               <BarChart3 className="size-5" />
             </NavLink>
+            {userRole === 'master_admin' && (
+              <NavLink
+                to="/app/admin"
+                end
+                title="Admin"
+                className={({ isActive }) =>
+                  `flex items-center justify-center p-2 rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-[#005b5b] text-white'
+                      : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
+                  }`
+                }
+              >
+                <Shield className="size-5" />
+              </NavLink>
+            )}
           </nav>
 
           {/* Sign Out — pushed to bottom */}
@@ -323,7 +341,9 @@ function AppLayout() {
               <Route path="companies" element={<Companies />} />
               <Route path="companies/:id" element={<CompanyDetail />} />
               <Route path="accounts" element={<Accounts />} />
+              <Route path="accounts/:id" element={<AccountDetail />} />
               <Route path="reports" element={<Reports />} />
+              <Route path="admin" element={<Admin />} />
             </Routes>
           </main>
           <OnboardingTour />

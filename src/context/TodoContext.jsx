@@ -39,6 +39,15 @@ export function TodoProvider({ children }) {
     })
   }
 
+  const getTodosByAccount = (clientId) => {
+    const accountTodos = todos.filter((t) => t.client_id === clientId)
+    return accountTodos.sort((a, b) => {
+      if (a.pinned && !b.pinned) return -1
+      if (!a.pinned && b.pinned) return 1
+      return (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    })
+  }
+
   const addTodo = async (data) => {
     const maxOrder = todos.reduce((max, t) => Math.max(max, t.sort_order ?? 0), 0)
     const row = await db.insertTodo({
@@ -107,7 +116,7 @@ export function TodoProvider({ children }) {
 
   return (
     <TodoContext.Provider value={{
-      todos, loading, getTodosByCompany, addTodo, updateTodo, toggleComplete, togglePin, reorderTodos, deleteTodo,
+      todos, loading, getTodosByCompany, getTodosByAccount, addTodo, updateTodo, toggleComplete, togglePin, reorderTodos, deleteTodo,
     }}>
       {children}
     </TodoContext.Provider>

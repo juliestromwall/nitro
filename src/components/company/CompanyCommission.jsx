@@ -10,11 +10,14 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { useAuth } from '@/context/AuthContext'
 import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
 import { getDocumentUrl } from '@/lib/db'
 import { EXCLUDED_STAGES } from '@/lib/constants'
+import AccountQuickView from '@/components/AccountQuickView'
+import { Link } from 'react-router-dom'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -83,6 +86,8 @@ const SortIcon = ({ column, sortConfig }) => {
 }
 
 function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
+  const { userRole } = useAuth()
+  const canViewAccountDetail = userRole === 'master_admin' || userRole === 'pro_rep'
   const { getAccountName } = useAccounts()
   const { companies } = useCompanies()
   const { orders, commissions, updateSeason, toggleArchiveSeason, upsertCommission, updateCommission, updateOrder, getSeasonsForCompany } = useSales()
@@ -843,7 +848,14 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                         <TableCell className="w-10"></TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
-                            <span className="font-bold text-zinc-900 dark:text-white">{group.accountName}</span>
+                            {canViewAccountDetail ? (
+                              <Link to={`/app/accounts/${group.clientId}`} onClick={(e) => e.stopPropagation()} className="font-bold text-zinc-900 dark:text-white hover:text-[#005b5b] dark:hover:text-[#00b3b3] hover:underline">
+                                {group.accountName}
+                              </Link>
+                            ) : (
+                              <span className="font-bold text-zinc-900 dark:text-white">{group.accountName}</span>
+                            )}
+                            <AccountQuickView accountId={group.clientId} />
                           </div>
                         </TableCell>
                         {isAllView && (
