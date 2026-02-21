@@ -428,7 +428,7 @@ function ImportSalesModal({ open, onOpenChange, companyId }) {
                   </p>
                 </div>
                 <Link
-                  to="/accounts"
+                  to="/app/accounts"
                   onClick={handleClose}
                   className="inline-flex items-center gap-1.5 text-sm font-medium text-[#005b5b] hover:underline"
                 >

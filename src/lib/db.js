@@ -57,42 +57,38 @@ async function withTimeout(buildQuery, ms = 20000) {
 // ── Companies ──────────────────────────────────────────────
 
 export async function fetchCompanies() {
-  const { data, error } = await supabase
-    .from('companies')
-    .select('*')
-    .order('sort_order', { ascending: true })
+  const { data, error } = await withTimeout(
+    () => supabase.from('companies').select('*').order('sort_order', { ascending: true })
+  )
   if (error) throw error
   return data
 }
 
 export async function insertCompany(company) {
-  const { data, error } = await supabase
-    .from('companies')
-    .insert(company)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('companies').insert(company).select().single()
+  )
   if (error) throw error
   return data
 }
 
 export async function updateCompany(id, updates) {
-  const { data, error } = await supabase
-    .from('companies')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('companies').update(updates).eq('id', id).select().single()
+  )
   if (error) throw error
   return data
 }
 
 export async function deleteCompany(id) {
-  const { error } = await supabase.from('companies').delete().eq('id', id)
+  const { error } = await withTimeout(
+    () => supabase.from('companies').delete().eq('id', id)
+  )
   if (error) throw error
 }
 
 export async function updateCompanySortOrders(updates) {
-  // updates is an array of { id, sort_order }
+  await ensureFreshSession()
   const promises = updates.map(({ id, sort_order }) =>
     supabase.from('companies').update({ sort_order }).eq('id', id)
   )
@@ -104,15 +100,14 @@ export async function updateCompanySortOrders(updates) {
 // ── Accounts ──────────────────────────────────────────────
 
 export async function fetchAccounts() {
+  await ensureFreshSession()
   const rows = []
   let from = 0
   const pageSize = 1000
   while (true) {
-    const { data, error } = await supabase
-      .from('clients')
-      .select('*')
-      .order('name', { ascending: true })
-      .range(from, from + pageSize - 1)
+    const { data, error } = await withTimeout(
+      () => supabase.from('clients').select('*').order('name', { ascending: true }).range(from, from + pageSize - 1)
+    )
     if (error) throw error
     rows.push(...data)
     if (data.length < pageSize) break
@@ -122,89 +117,80 @@ export async function fetchAccounts() {
 }
 
 export async function insertAccount(account) {
-  const { data, error } = await supabase
-    .from('clients')
-    .insert(account)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('clients').insert(account).select().single()
+  )
   if (error) throw error
   return data
 }
 
 export async function bulkInsertAccounts(accounts) {
-  const { data, error } = await supabase
-    .from('clients')
-    .insert(accounts)
-    .select()
+  const { data, error } = await withTimeout(
+    () => supabase.from('clients').insert(accounts).select()
+  )
   if (error) throw error
   return data
 }
 
 export async function updateAccount(id, updates) {
-  const { data, error } = await supabase
-    .from('clients')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('clients').update(updates).eq('id', id).select().single()
+  )
   if (error) throw error
   return data
 }
 
 export async function deleteAccount(id) {
-  const { error } = await supabase.from('clients').delete().eq('id', id)
+  const { error } = await withTimeout(
+    () => supabase.from('clients').delete().eq('id', id)
+  )
   if (error) throw error
 }
 
 // ── Seasons ────────────────────────────────────────────────
 
 export async function fetchSeasons() {
-  const { data, error } = await supabase
-    .from('seasons')
-    .select('*')
-    .order('created_at', { ascending: true })
+  const { data, error } = await withTimeout(
+    () => supabase.from('seasons').select('*').order('created_at', { ascending: true })
+  )
   if (error) throw error
   return data
 }
 
 export async function insertSeason(season) {
-  const { data, error } = await supabase
-    .from('seasons')
-    .insert(season)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('seasons').insert(season).select().single()
+  )
   if (error) throw error
   return data
 }
 
 export async function updateSeason(id, updates) {
-  const { data, error } = await supabase
-    .from('seasons')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('seasons').update(updates).eq('id', id).select().single()
+  )
   if (error) throw error
   return data
 }
 
 export async function deleteSeason(id) {
-  const { error } = await supabase.from('seasons').delete().eq('id', id)
+  const { error } = await withTimeout(
+    () => supabase.from('seasons').delete().eq('id', id)
+  )
   if (error) throw error
 }
 
 // ── Orders ─────────────────────────────────────────────────
 
 export async function fetchOrders() {
+  await ensureFreshSession()
   const rows = []
   let from = 0
   const pageSize = 1000
   while (true) {
-    const { data, error } = await supabase
-      .from('orders')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .range(from, from + pageSize - 1)
+    const { data, error } = await withTimeout(
+      () => supabase.from('orders').select('*').order('created_at', { ascending: false }).range(from, from + pageSize - 1)
+    )
     if (error) throw error
     rows.push(...data)
     if (data.length < pageSize) break
@@ -239,39 +225,37 @@ export async function updateOrder(id, updates) {
 
 export async function deleteOrder(id) {
   // Delete associated commission first (FK has no CASCADE)
-  await supabase.from('commissions').delete().eq('order_id', id)
-  const { error } = await supabase.from('orders').delete().eq('id', id)
+  await withTimeout(
+    () => supabase.from('commissions').delete().eq('order_id', id)
+  )
+  const { error } = await withTimeout(
+    () => supabase.from('orders').delete().eq('id', id)
+  )
   if (error) throw error
 }
 
 // ── Commissions ────────────────────────────────────────────
 
 export async function fetchCommissions() {
-  const { data, error } = await supabase
-    .from('commissions')
-    .select('*')
-    .order('created_at', { ascending: false })
+  const { data, error } = await withTimeout(
+    () => supabase.from('commissions').select('*').order('created_at', { ascending: false })
+  )
   if (error) throw error
   return data
 }
 
 export async function upsertCommission(commission) {
-  const { data, error } = await supabase
-    .from('commissions')
-    .upsert(commission, { onConflict: 'order_id' })
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('commissions').upsert(commission, { onConflict: 'order_id' }).select().single()
+  )
   if (error) throw error
   return data
 }
 
 export async function updateCommission(id, updates) {
-  const { data, error } = await supabase
-    .from('commissions')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('commissions').update(updates).eq('id', id).select().single()
+  )
   if (error) throw error
   return data
 }
@@ -279,41 +263,38 @@ export async function updateCommission(id, updates) {
 // ── Todos ──────────────────────────────────────────────────
 
 export async function fetchTodos() {
-  const { data, error } = await supabase
-    .from('todos')
-    .select('*')
-    .order('sort_order', { ascending: true })
+  const { data, error } = await withTimeout(
+    () => supabase.from('todos').select('*').order('sort_order', { ascending: true })
+  )
   if (error) throw error
   return data
 }
 
 export async function insertTodo(todo) {
-  const { data, error } = await supabase
-    .from('todos')
-    .insert(todo)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('todos').insert(todo).select().single()
+  )
   if (error) throw error
   return data
 }
 
 export async function updateTodo(id, updates) {
-  const { data, error } = await supabase
-    .from('todos')
-    .update(updates)
-    .eq('id', id)
-    .select()
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('todos').update(updates).eq('id', id).select().single()
+  )
   if (error) throw error
   return data
 }
 
 export async function deleteTodo(id) {
-  const { error } = await supabase.from('todos').delete().eq('id', id)
+  const { error } = await withTimeout(
+    () => supabase.from('todos').delete().eq('id', id)
+  )
   if (error) throw error
 }
 
 export async function updateTodoSortOrders(updates) {
+  await ensureFreshSession()
   const promises = updates.map(({ id, sort_order }) =>
     supabase.from('todos').update({ sort_order }).eq('id', id)
   )
@@ -325,11 +306,9 @@ export async function updateTodoSortOrders(updates) {
 // ── Subscriptions ─────────────────────────────────────────
 
 export async function fetchSubscription(userId) {
-  const { data, error } = await supabase
-    .from('subscriptions')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
+  const { data, error } = await withTimeout(
+    () => supabase.from('subscriptions').select('*').eq('user_id', userId).single()
+  )
   if (error && error.code !== 'PGRST116') throw error // PGRST116 = no rows
   return data || null
 }
@@ -339,19 +318,41 @@ export async function fetchSubscription(userId) {
 export async function uploadAvatar(userId, file) {
   const ext = file.name.split('.').pop()
   const path = `${userId}/${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('avatars').upload(path, file)
-  if (error) throw error
-  const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path)
-  return publicUrl
+  await ensureFreshSession()
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const result = await supabase.storage.from('avatars').upload(path, file)
+      if (result.error) throw result.error
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path)
+      return publicUrl
+    } catch (err) {
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        continue
+      }
+      throw err
+    }
+  }
 }
 
 export async function uploadLogo(userId, companyId, file) {
   const ext = file.name.split('.').pop()
   const path = `${userId}/${companyId}/${Date.now()}.${ext}`
-  const { error } = await supabase.storage.from('logos').upload(path, file)
-  if (error) throw error
-  const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(path)
-  return publicUrl
+  await ensureFreshSession()
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const result = await supabase.storage.from('logos').upload(path, file)
+      if (result.error) throw result.error
+      const { data: { publicUrl } } = supabase.storage.from('logos').getPublicUrl(path)
+      return publicUrl
+    } catch (err) {
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 500))
+        continue
+      }
+      throw err
+    }
+  }
 }
 
 export async function uploadDocument(userId, orderId, type, file) {
@@ -376,7 +377,9 @@ export async function uploadDocument(userId, orderId, type, file) {
 }
 
 export async function getDocumentUrl(path) {
-  const { data, error } = await supabase.storage.from('documents').createSignedUrl(path, 3600)
+  const { data, error } = await withTimeout(
+    () => supabase.storage.from('documents').createSignedUrl(path, 3600)
+  )
   if (error) throw error
   return data.signedUrl
 }
