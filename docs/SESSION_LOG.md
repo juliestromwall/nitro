@@ -1,5 +1,22 @@
 # Session Log
 
+## 2026-02-21 (Session 13)
+
+**Worked on:** Retroactive commission rate update feature
+
+**Changes made:**
+- **Retroactive rate updates** (`src/pages/Companies.jsx`): When editing a brand's commission rates (default % or per-category overrides), a confirmation dialog now appears asking whether to apply changes to all existing orders or only going forward. If "Apply to All Orders" is selected and some orders already have payments recorded, a second warning dialog confirms the action. Retroactive updates recalculate `commission_override` on orders, `commission_due` and `amount_remaining` on commissions. Fully-paid commissions (`pay_status === 'paid'`) are skipped.
+- Updated `docs/FEATURES.md` with retroactive rate update feature description.
+
+**Next steps:**
+- Deploy to production
+- Test: change rate + "Apply to all" -> existing orders updated
+- Test: change rate + "Going forward" -> existing orders unchanged
+- Test: no rate change -> no dialog, saves normally
+
+**Open questions:**
+- None
+
 ## 2026-02-19 (Session 12)
 
 **Worked on:** Account Management & Quick View feature, session/auth bug fixes, cache versioning, tour persistence.

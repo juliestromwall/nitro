@@ -22,7 +22,7 @@ const currentYear = new Date().getFullYear()
 function Companies() {
   const { user } = useAuth()
   const { companies, addCompany, updateCompany, toggleArchive, deleteCompany, reorderCompanies } = useCompanies()
-  const { orders } = useSales()
+  const { orders, commissions, updateOrder, updateCommission } = useSales()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
   const [form, setForm] = useState({ name: '', commission_percent: '', logo_path: null, website: '', order_types: [], items: [], stages: [], category_commissions: {} })
@@ -38,6 +38,13 @@ function Companies() {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
   const [deleting, setDeleting] = useState(false)
+
+  // Retroactive rate change state
+  const [originalRates, setOriginalRates] = useState(null)
+  const [rateChangeDialog, setRateChangeDialog] = useState(false)
+  const [pendingSaveData, setPendingSaveData] = useState(null)
+  const [paymentWarningDialog, setPaymentWarningDialog] = useState(false)
+  const [applyingRetroactive, setApplyingRetroactive] = useState(false)
 
   // Extract clean domain from a URL or domain string
   const extractDomain = useCallback((url) => {
@@ -114,6 +121,10 @@ function Companies() {
 
   const openEdit = (company) => {
     setEditingId(company.id)
+    setOriginalRates({
+      commission_percent: company.commission_percent,
+      category_commissions: company.category_commissions || {},
+    })
     setForm({
       name: company.name,
       commission_percent: String(company.commission_percent),
@@ -173,6 +184,20 @@ function Companies() {
         category_commissions: cleanedCategoryCommissions,
       }
 
+      // Detect rate changes when editing
+      if (editingId && originalRates) {
+        const ratesChanged =
+          data.commission_percent !== originalRates.commission_percent ||
+          JSON.stringify(data.category_commissions) !== JSON.stringify(originalRates.category_commissions)
+
+        if (ratesChanged) {
+          setPendingSaveData(data)
+          setRateChangeDialog(true)
+          setSaving(false)
+          return
+        }
+      }
+
       if (editingId) {
         await updateCompany(editingId, data)
       } else {
@@ -184,12 +209,87 @@ function Companies() {
       setLogoFile(null)
       setAutoLogo(null)
       setEditingId(null)
+      setOriginalRates(null)
       setDialogOpen(false)
     } catch (err) {
       console.error('Failed to save company:', err)
       setSaveError(err.message || 'Failed to save. Please try again.')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const resetDialogState = () => {
+    setForm({ name: '', commission_percent: '', logo_path: null, website: '', order_types: [], items: [], stages: [], category_commissions: {} })
+    setLogoPreview(null)
+    setLogoFile(null)
+    setAutoLogo(null)
+    setEditingId(null)
+    setOriginalRates(null)
+    setDialogOpen(false)
+    setRateChangeDialog(false)
+    setPaymentWarningDialog(false)
+    setPendingSaveData(null)
+  }
+
+  const handleGoingForwardOnly = async () => {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await updateCompany(editingId, pendingSaveData)
+      resetDialogState()
+    } catch (err) {
+      console.error('Failed to save company:', err)
+      setSaveError(err.message || 'Failed to save. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleApplyToAll = async (confirmedPaymentWarning = false) => {
+    const companyOrders = orders.filter((o) => o.company_id === editingId)
+    const companyCommissions = commissions.filter((c) =>
+      companyOrders.some((o) => o.id === c.order_id) && c.pay_status !== 'paid'
+    )
+    const hasPayments = companyCommissions.some((c) => c.amount_paid > 0)
+
+    if (hasPayments && !confirmedPaymentWarning) {
+      setPaymentWarningDialog(true)
+      return
+    }
+
+    setApplyingRetroactive(true)
+    setSaveError(null)
+    try {
+      // 1. Save company with new rates
+      await updateCompany(editingId, pendingSaveData)
+
+      // 2. Update commission_override on each order
+      const orderUpdates = companyOrders.map((order) => {
+        const newRate = pendingSaveData.category_commissions[order.order_type] ?? pendingSaveData.commission_percent
+        return updateOrder(order.id, { commission_override: newRate })
+      })
+      await Promise.all(orderUpdates)
+
+      // 3. Recalculate commissions (skip fully paid)
+      const commissionUpdates = companyCommissions.map((comm) => {
+        const order = companyOrders.find((o) => o.id === comm.order_id)
+        const newRate = pendingSaveData.category_commissions[order.order_type] ?? pendingSaveData.commission_percent
+        const newDue = parseFloat((order.total * newRate / 100).toFixed(2))
+        const newRemaining = parseFloat((newDue - comm.amount_paid).toFixed(2))
+        return updateCommission(comm.id, {
+          commission_due: newDue,
+          amount_remaining: newRemaining,
+        })
+      })
+      await Promise.all(commissionUpdates)
+
+      resetDialogState()
+    } catch (err) {
+      console.error('Failed to apply retroactive rates:', err)
+      setSaveError(err.message || 'Failed to update existing orders. Please try again.')
+    } finally {
+      setApplyingRetroactive(false)
     }
   }
 
@@ -615,6 +715,47 @@ function Companies() {
               </Button>
             </DialogFooter>
           </div>
+        </DialogContent>
+      </Dialog>
+      {/* Rate change confirmation dialog */}
+      <Dialog open={rateChangeDialog} onOpenChange={() => {}}>
+        <DialogContent className="max-w-sm" showCloseButton={false} onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Commission Rates Changed</DialogTitle>
+            <DialogDescription>
+              Would you like to update all existing orders to the new rates, or only apply to future orders?
+            </DialogDescription>
+          </DialogHeader>
+          {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={handleGoingForwardOnly} disabled={saving || applyingRetroactive}>
+              {saving ? 'Saving...' : 'Going Forward Only'}
+            </Button>
+            <Button onClick={() => handleApplyToAll()} disabled={saving || applyingRetroactive}>
+              {applyingRetroactive ? 'Updating...' : 'Apply to All Orders'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment warning dialog */}
+      <Dialog open={paymentWarningDialog} onOpenChange={() => {}}>
+        <DialogContent className="max-w-sm" showCloseButton={false} onPointerDownOutside={(e) => e.preventDefault()} onEscapeKeyDown={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle className="text-amber-600">Warning: Existing Payments</DialogTitle>
+            <DialogDescription>
+              Some orders already have payments recorded at the previous rate. Updating will change the commission owed on those orders.
+            </DialogDescription>
+          </DialogHeader>
+          {saveError && <p className="text-sm text-red-600">{saveError}</p>}
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setPaymentWarningDialog(false)} disabled={applyingRetroactive}>
+              Cancel
+            </Button>
+            <Button onClick={() => handleApplyToAll(true)} disabled={applyingRetroactive}>
+              {applyingRetroactive ? 'Updating...' : 'Yes, Update All'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
