@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef } from 'react'
-import { Upload, CheckCircle, AlertTriangle, XCircle, Info, Download, ChevronDown, Search } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Upload, CheckCircle, AlertTriangle, XCircle, Info, Download, ChevronDown, Search, Store } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,11 +26,10 @@ const TABLE_COLUMNS = [
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
 
-// Inline searchable account picker for unmatched rows
+// Inline searchable account picker — expands in-place to avoid overflow clipping
 function PaymentAccountPicker({ accounts, onSelect }) {
-  const [open, setOpen] = useState(false)
+  const [expanded, setExpanded] = useState(false)
   const [search, setSearch] = useState('')
-  const ref = useRef(null)
 
   const filtered = useMemo(() => {
     if (!search.trim()) return accounts.slice(0, 50)
@@ -37,26 +37,20 @@ function PaymentAccountPicker({ accounts, onSelect }) {
     return accounts.filter((a) => a.name.toLowerCase().includes(q)).slice(0, 50)
   }, [accounts, search])
 
-  const handleBlur = (e) => {
-    if (ref.current && !ref.current.contains(e.relatedTarget)) {
-      setTimeout(() => setOpen(false), 150)
-    }
-  }
-
   return (
-    <div className="relative" ref={ref} onBlur={handleBlur}>
+    <div className="space-y-1.5">
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 text-xs border border-amber-300 rounded-md px-2 py-1 bg-white dark:bg-zinc-800 hover:border-[#005b5b] transition-colors text-amber-600"
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1 text-xs text-amber-600 font-medium hover:underline"
       >
-        <span>Select account...</span>
-        <ChevronDown className="size-3 shrink-0" />
+        Select account...
+        <ChevronDown className={`size-3 transition-transform ${expanded ? 'rotate-180' : ''}`} />
       </button>
-      {open && (
-        <div className="absolute z-50 top-full mt-1 left-0 w-56 bg-white dark:bg-zinc-800 border rounded-lg shadow-lg overflow-hidden">
-          <div className="flex items-center gap-2 px-2 py-1.5 border-b">
-            <Search className="size-3.5 text-muted-foreground shrink-0" />
+      {expanded && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-1.5 border rounded px-2 py-1 bg-white dark:bg-zinc-800">
+            <Search className="size-3 text-muted-foreground shrink-0" />
             <input
               type="text"
               value={search}
@@ -66,23 +60,23 @@ function PaymentAccountPicker({ accounts, onSelect }) {
               autoFocus
             />
           </div>
-          <div className="max-h-48 overflow-y-auto">
+          <div className="max-h-32 overflow-y-auto border rounded bg-white dark:bg-zinc-800">
             {filtered.length === 0 && (
-              <div className="px-3 py-2 text-xs text-muted-foreground">No accounts found</div>
+              <div className="px-2 py-1.5 text-xs text-muted-foreground">No accounts found</div>
             )}
             {filtered.map((a) => (
               <button
                 key={a.id}
                 type="button"
-                className="w-full text-left px-3 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-700 transition-colors"
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  setOpen(false)
+                className="w-full text-left px-2 py-1.5 text-xs hover:bg-zinc-100 dark:hover:bg-zinc-700 border-b last:border-0"
+                onClick={() => {
                   onSelect(a)
+                  setExpanded(false)
+                  setSearch('')
                 }}
               >
                 {a.name}
-                {a.account_number && <span className="text-muted-foreground ml-2">#{a.account_number}</span>}
+                {a.account_number && <span className="text-muted-foreground ml-1.5">#{a.account_number}</span>}
               </button>
             ))}
           </div>
@@ -109,6 +103,7 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
 
   const company = companies.find((c) => c.id === companyId)
   const commPct = company?.commission_percent || 0
+  const hasAccounts = accounts.length > 0
 
   // Get trackers (seasons) for this brand
   const availableTrackers = useMemo(() => {
@@ -301,12 +296,27 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
         status,
         summary,
         shortShipped: false,
+        tableIdx: row.tableIdx,
       }
     }).filter((r) => r.accountNum || r.amount > 0)
   }
 
   // When user picks an account for a "not found" row, re-evaluate it
   const resolveNotFoundRow = (rowIndex, account) => {
+    // Update table data for back button
+    if (mode === 'table') {
+      const row = parsedRows[rowIndex]
+      if (row?.tableIdx != null) {
+        setTableRows((prev) => {
+          const updated = [...prev]
+          if (updated[row.tableIdx]) {
+            updated[row.tableIdx] = { ...updated[row.tableIdx], account_name: account.name }
+          }
+          return updated
+        })
+      }
+    }
+
     setParsedRows((prev) => {
       const updated = [...prev]
       const row = updated[rowIndex]
@@ -323,7 +333,6 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
         else if (dueCents <= 0) status = 'overpaid'
         else status = 'matched'
       } else {
-        // Account exists but has no orders for this tracker — still mark as not_found
         status = 'no_orders'
       }
 
@@ -333,6 +342,7 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
         accountName: account.name,
         status: status === 'no_orders' ? 'not_found' : status,
         summary,
+        wasResolved: true,
       }
       return updated
     })
@@ -398,19 +408,24 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
   }
 
   const handleTableImport = () => {
-    const filled = tableRows.filter((r) => r.account_number?.trim() || r.account_name?.trim() || parseAmount(r.amount_paid) > 0)
-    if (filled.length === 0) {
+    const hasData = tableRows.some((r) => r.account_number?.trim() || r.account_name?.trim() || parseAmount(r.amount_paid) > 0)
+    if (!hasData) {
       setError('Add at least one row with an account name or number.')
       return
     }
     setError('')
 
-    const rawRows = filled.map((row) => ({
-      accountNum: (row.account_number || '').trim(),
-      accountNameInput: (row.account_name || '').trim(),
-      amount: parseAmount(row.amount_paid),
-      date: parseDate(row.payment_date),
-    }))
+    const rawRows = []
+    tableRows.forEach((row, tableIdx) => {
+      if (!row.account_number?.trim() && !row.account_name?.trim() && parseAmount(row.amount_paid) <= 0) return
+      rawRows.push({
+        accountNum: (row.account_number || '').trim(),
+        accountNameInput: (row.account_name || '').trim(),
+        amount: parseAmount(row.amount_paid),
+        date: parseDate(row.payment_date),
+        tableIdx,
+      })
+    })
 
     const parsed = buildParsedRows(rawRows)
 
@@ -611,82 +626,104 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
               <DialogTitle>Import Payments</DialogTitle>
             </DialogHeader>
 
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>Commission Tracker</Label>
-                <Select value={selectedTracker} onValueChange={(v) => setSelectedTracker(v)}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a tracker" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableTrackers.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {selectedTracker && (
-                <>
-                  {/* Tab toggle */}
-                  <div className="flex bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1">
-                    <button
-                      className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${
-                        mode === 'csv' ? 'bg-white dark:bg-zinc-700 shadow-sm' : 'text-muted-foreground'
-                      }`}
-                      onClick={() => { setMode('csv'); setError('') }}
-                    >
-                      Upload CSV
-                    </button>
-                    <button
-                      className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${
-                        mode === 'table' ? 'bg-white dark:bg-zinc-700 shadow-sm' : 'text-muted-foreground'
-                      }`}
-                      onClick={() => { setMode('table'); setError('') }}
-                    >
-                      Fill in App
-                    </button>
-                  </div>
-
-                  {mode === 'csv' && (
-                    <div
-                      className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-[#005b5b] hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Upload className="size-10 mx-auto text-muted-foreground mb-3" />
-                      <p className="text-sm font-medium">Click to select a CSV file</p>
-                      <p className="text-xs text-muted-foreground mt-1">or drag and drop</p>
-                    </div>
-                  )}
-
-                  {mode === 'table' && (
-                    <TableBuilder
-                      columns={TABLE_COLUMNS}
-                      rows={tableRows}
-                      onChange={setTableRows}
-                      minRows={1}
-                    />
-                  )}
-                </>
-              )}
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv"
-                className="hidden"
-                onChange={handleFileSelect}
-              />
-
-              {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
-                  {error}
+            {!hasAccounts ? (
+              <div className="flex flex-col items-center gap-3 py-6 text-center">
+                <Store className="size-10 text-muted-foreground" />
+                <div>
+                  <p className="font-medium text-zinc-900 dark:text-white">No Accounts Added</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    You must first add accounts before importing payments.
+                  </p>
                 </div>
-              )}
-            </div>
+                <Link
+                  to="/accounts"
+                  onClick={handleClose}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium text-[#005b5b] hover:underline"
+                >
+                  <Store className="size-4" />
+                  Go to Accounts
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Commission Tracker</Label>
+                  <Select value={selectedTracker} onValueChange={(v) => setSelectedTracker(v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a tracker" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {availableTrackers.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {selectedTracker && (
+                  <>
+                    {/* Tab toggle */}
+                    <div className="flex bg-zinc-100 dark:bg-zinc-800 rounded-lg p-1">
+                      <button
+                        className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${
+                          mode === 'csv' ? 'bg-white dark:bg-zinc-700 shadow-sm' : 'text-muted-foreground'
+                        }`}
+                        onClick={() => { setMode('csv'); setError('') }}
+                      >
+                        Upload CSV
+                      </button>
+                      <button
+                        className={`flex-1 text-sm py-1.5 rounded-md font-medium transition-colors ${
+                          mode === 'table' ? 'bg-white dark:bg-zinc-700 shadow-sm' : 'text-muted-foreground'
+                        }`}
+                        onClick={() => { setMode('table'); setError('') }}
+                      >
+                        Fill in App
+                      </button>
+                    </div>
+
+                    {mode === 'csv' && (
+                      <div
+                        className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-[#005b5b] hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Upload className="size-10 mx-auto text-muted-foreground mb-3" />
+                        <p className="text-sm font-medium">Click to select a CSV file</p>
+                        <p className="text-xs text-muted-foreground mt-1">or drag and drop</p>
+                      </div>
+                    )}
+
+                    {mode === 'table' && (
+                      <TableBuilder
+                        columns={TABLE_COLUMNS}
+                        rows={tableRows}
+                        onChange={setTableRows}
+                        minRows={1}
+                      />
+                    )}
+                  </>
+                )}
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+
+                {error && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-sm text-red-700 dark:text-red-400">
+                    {error}
+                  </div>
+                )}
+              </div>
+            )}
 
             <DialogFooter className="flex items-center justify-between sm:justify-between">
-              {mode === 'csv' ? (
+              {!hasAccounts ? (
+                <div />
+              ) : mode === 'csv' ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <span>Need a template?</span>
                   <Button
@@ -776,7 +813,10 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
                             onSelect={(account) => resolveNotFoundRow(idx, account)}
                           />
                         ) : row.accountName ? (
-                          row.accountName
+                          <div className="flex items-center gap-1.5">
+                            {row.wasResolved && <CheckCircle className="size-3.5 text-emerald-500 shrink-0" />}
+                            <span>{row.accountName}</span>
+                          </div>
                         ) : (
                           <span className="text-red-500 italic">Unknown</span>
                         )}
