@@ -115,12 +115,14 @@ export function AuthProvider({ children }) {
       }
     )
 
-    // Tab wake-up handler — re-establishes the TCP connection to Supabase.
-    // After a tab switch, the connection is often dead. warmConnection() makes
-    // a lightweight HEAD request that forces the browser to detect and replace
-    // the dead connection BEFORE the user clicks anything.
+    // Tab wake-up handler — clears stuck auth state and re-establishes TCP.
+    // When autoRefreshToken fires in a background tab, the network call can
+    // get stuck. startAutoRefresh() cancels any pending refresh timer and
+    // starts fresh. warmConnection() forces the browser to replace dead
+    // TCP connections before the user interacts.
     const onTabVisible = () => {
       if (!mounted || document.hidden) return
+      supabase.auth.startAutoRefresh() // clears stuck background refresh
       warmConnection() // fire-and-forget — fast, non-blocking
     }
     document.addEventListener('visibilitychange', onTabVisible)

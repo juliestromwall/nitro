@@ -46,29 +46,6 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   },
 })
 
-// Bypass getSession() for REST / Storage / Realtime token retrieval.
-//
-// THE ROOT CAUSE OF TAB-SWITCH HANGS:
-// When autoRefreshToken fires in a background tab, the network call gets
-// throttled/stuck by the browser. The auth client records "refresh in progress."
-// When the tab returns, EVERY Supabase call (insert, update, upload) internally
-// calls getSession() to get the access token. getSession() waits for the stuck
-// refresh to complete. It never does. Everything hangs.
-//
-// THE FIX: Read the token directly from localStorage. This is instant (no async,
-// no internal auth state, no locks, no waiting). The token is always there because
-// persistSession: true writes it on every auth change.
-supabase.accessToken = async () => {
-  try {
-    const stored = localStorage.getItem(AUTH_STORAGE_KEY)
-    if (!stored) return null
-    const { access_token } = JSON.parse(stored)
-    return access_token ?? null
-  } catch {
-    return null
-  }
-}
-
 // Nuclear sign-out: clears localStorage directly, bypassing any stuck locks.
 // Use this when supabase.auth.signOut() hangs.
 export function nukeSession() {
