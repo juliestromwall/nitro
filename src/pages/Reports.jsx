@@ -1,7 +1,10 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { FileSpreadsheet, FileText } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
@@ -55,24 +58,50 @@ const reports = [
   },
 ]
 
+const FILTERABLE = new Set(['sales', 'commissions', 'payments'])
+
 export default function Reports() {
   const { accounts } = useAccounts()
   const { companies } = useCompanies()
   const { orders, commissions, seasons } = useSales()
   const { todos } = useTodos()
   const [busy, setBusy] = useState(null)
+  const [brandId, setBrandId] = useState('all')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
+
+  const hasFilters = brandId !== 'all' || startDate || endDate
+
+  const filtered = useMemo(() => {
+    const filteredOrders = orders
+      .filter(o => brandId === 'all' || o.company_id === brandId)
+      .filter(o => !startDate || (o.close_date && o.close_date >= startDate))
+      .filter(o => !endDate || (o.close_date && o.close_date <= endDate))
+
+    const filteredOrderIds = new Set(filteredOrders.map(o => o.id))
+
+    const filteredCommissions = commissions.filter(c => filteredOrderIds.has(c.order_id))
+
+    const filteredSeasons = brandId === 'all'
+      ? seasons
+      : seasons.filter(s => s.company_id === brandId)
+
+    return { orders: filteredOrders, commissions: filteredCommissions, seasons: filteredSeasons }
+  }, [orders, commissions, seasons, brandId, startDate, endDate])
 
   const ctx = { accounts, companies, orders, commissions, seasons, todos }
+  const filteredCtx = { ...ctx, ...filtered }
 
   const handleExport = async (key, format) => {
     const id = `${key}-${format}`
     setBusy(id)
     try {
       const report = reports.find((r) => r.key === key)
+      const exportCtx = FILTERABLE.has(key) ? filteredCtx : ctx
       if (format === 'xlsx') {
-        await report.xlsx(ctx)
+        await report.xlsx(exportCtx)
       } else {
-        await report.pdf(ctx)
+        await report.pdf(exportCtx)
       }
     } catch (err) {
       console.error('Export failed:', err)
@@ -86,6 +115,52 @@ export default function Reports() {
       <div>
         <h1 className="text-2xl font-bold">Reports</h1>
         <p className="text-muted-foreground mt-2">Download your data as spreadsheets or PDFs.</p>
+      </div>
+
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Brand</Label>
+          <Select value={brandId} onValueChange={setBrandId}>
+            <SelectTrigger className="w-[180px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Brands</SelectItem>
+              {companies.map(c => (
+                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">Start Date</Label>
+          <Input
+            type="date"
+            value={startDate}
+            onChange={e => setStartDate(e.target.value)}
+            className="w-[160px]"
+          />
+        </div>
+        <div className="space-y-1">
+          <Label className="text-xs text-muted-foreground">End Date</Label>
+          <Input
+            type="date"
+            value={endDate}
+            onChange={e => setEndDate(e.target.value)}
+            className="w-[160px]"
+          />
+        </div>
+        {hasFilters && (
+          <button
+            onClick={() => { setBrandId('all'); setStartDate(''); setEndDate('') }}
+            className="text-xs text-muted-foreground hover:text-foreground underline pb-2"
+          >
+            Clear filters
+          </button>
+        )}
+        <p className="text-xs text-muted-foreground pb-2 ml-auto">
+          Filters apply to Sales, Commissions &amp; Payments
+        </p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">

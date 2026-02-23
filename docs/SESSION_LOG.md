@@ -1,5 +1,23 @@
 # Session Log
 
+## 2026-02-23 (Session 14)
+
+**Worked on:** Report filters (brand + date range)
+
+**Changes made:**
+- Added Brand dropdown (All Brands + companies from CompanyContext) and Start/End Date inputs to Reports page filter bar
+- Sales, Commissions, and Payments exports now respect filters; Accounts, Brands, and To Dos export unfiltered
+- Filter logic: orders filtered by `company_id` and `close_date` range, commissions filtered by matching order IDs, seasons filtered by brand
+- "Clear filters" link appears when any filter is active
+- Helper text indicates which reports use filters
+
+**Next steps:**
+- Test filtered exports with real data (select a brand + date range, export Sales .xlsx, verify only matching rows)
+- Verify "All Brands / All Time" matches previous unfiltered behavior
+
+**Open questions:**
+- None
+
 ## 2026-02-21 (Session 13)
 
 **Worked on:** Retroactive commission rate update feature
