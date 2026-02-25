@@ -1,5 +1,27 @@
 # Session Log
 
+## 2026-02-24 (Session 15)
+
+**Worked on:** Report filter enhancements, invoice UX improvements, demo user creation, floating point fix, and multiple UI polish items.
+
+**Changes made:**
+- **Report filters expanded:** Added Account, Sales Tracker, and Sale Cycle dropdowns to Reports page (6 filters total). Smart cycle/tracker filtering based on selected brand. Filter labels appear in export filenames and document headers (xlsx + pdf).
+- **Demo user:** Created `scripts/seed-demo.js` — seeds demo@repcommish.com / Password1 with 3 brands, 18 accounts, 12 seasons, 40 orders, 40 commissions, 8 todos, pro subscription. Fixed double-encoded payments JSONB bug.
+- **Floating point fix:** Fixed $0.00 showing in red on commissions (CompanyCommission.jsx) — `Math.round()` to avoid floating point precision errors.
+- **AccountQuickView UX:** Info icon hidden by default, fades in on hover (`group/info` pattern). Small amber dot next to account name when there are incomplete todos.
+- **Homepage saves tracker:** "Set as homepage" now saves the active Sales Tracker tab in addition to the page path and tab.
+- **Invoice text:** Changed "+ Add Invoice" to "+ Invoice" in CompanySales.
+- **Pending invoice indicator:** Account header rows show pending invoice amount when invoices don't cover the full order total. Eye icon toggle to reveal/hide the dollar amount. "Pending" text clickable to open Manage Invoices modal.
+- **Fully invoiced accounts:** Green "Invoiced" label (clickable to open modal), no "+ Invoice" button, auto-collapsed on load (expandable by clicking).
+- **Invoice pill badges:** Document pills still open attachments; non-document pills remain static badges.
+
+**Next steps:**
+- Monitor all changes on production
+- Consider adding commission % override back to Add Sale modal UI
+
+**Open questions:**
+- None
+
 ## 2026-02-23 (Session 14)
 
 **Worked on:** Report filters (brand + date range)

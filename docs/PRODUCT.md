@@ -21,7 +21,7 @@
 
 ## Key Flows
 
-1. **Sign Up** - Choose plan (monthly/annual) on /signup, enter email + password, create account via Supabase Auth, redirect to Stripe Checkout for payment. On success, webhook updates subscription to active.
+1. **Sign Up** - Choose plan (monthly/annual) on /signup, enter email + password, agree to Terms & Conditions and Privacy Policy, redirect to Stripe Checkout for payment. On success, webhook updates subscription to active.
 1b. **Sign In** - Email/password auth via Supabase on /login; redirects to /app on success
 1c. **Onboarding Tour** - First-time users see a 13-step guided walkthrough covering brands, accounts, import templates, sales, commissions, payments, dashboard, brand pages, homepage, reports, and settings. Can be skipped or restarted from User Settings.
 2. **View Dashboard** - See total sales, commission due, and outstanding payments at a glance
@@ -82,10 +82,12 @@
 | Features (/features) | Detailed feature breakdown (8 features with icons) |
 | Pricing (/pricing) | Monthly ($15/mo) and Annual ($144/yr, save 20%) pricing cards with FAQ |
 | About (/about) | Product story and mission |
-| Sign Up (/signup) | Plan selection + account creation → Stripe Checkout redirect |
+| Sign Up (/signup) | Plan selection + account creation (requires Terms & Conditions agreement) → Stripe Checkout redirect |
 | Login (/login) | Email/password sign in within MarketingLayout; redirects to /app if authenticated |
 | Checkout Success (/checkout/success) | Post-payment success page with "Go to Dashboard" |
 | Contact (/contact) | Contact page with email card, quick questions, and ask-a-question form |
+| Terms & Conditions (/terms) | Standard SaaS terms covering account registration, trial, billing, cancellation, data ownership, liability |
+| Privacy Policy (/privacy) | Privacy policy covering data collection, third-party services (Supabase, Stripe), cookies, user rights |
 | Checkout Cancel (/checkout/cancel) | Payment cancellation with retry options |
 | Dashboard (/app) | Summary stats: total sales, rental/retail breakdown, commission due/paid |
 | Accounts (/app/accounts) | Account list with add/import CSV, filterable by region and type. Clickable names link to detail page. |
