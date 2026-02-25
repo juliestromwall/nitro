@@ -18,7 +18,7 @@ export const accountTypes = [
 
 export const EXCLUDED_STAGES = ['Cancelled', 'Short Shipped']
 
-export const USER_ROLES = ['master_admin', 'admin', 'manager', 'pro_rep', 'rep', 'sub_rep']
+export const USER_ROLES = ['master_admin', 'admin', 'manager', 'pro_rep', 'rep', 'sub_rep', 'brand_admin']
 
 export const ROLE_LABELS = {
   master_admin: 'Master Admin',
@@ -27,6 +27,7 @@ export const ROLE_LABELS = {
   pro_rep: 'Pro Rep',
   rep: 'Rep',
   sub_rep: 'Sub Rep',
+  brand_admin: 'Brand Admin',
 }
 
 export const DEFAULT_ROLE = 'rep'

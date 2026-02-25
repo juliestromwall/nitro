@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { ArrowLeft, Plus, Home, Upload } from 'lucide-react'
+import { ArrowLeft, Plus, Home, Upload, MoreVertical, UserPlus, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
 import CompanyDashboard from '@/components/company/CompanyDashboard'
@@ -12,6 +13,8 @@ import CompanyPayments from '@/components/company/CompanyPayments'
 import BulkPaymentModal from '@/components/company/BulkPaymentModal'
 import ImportPaymentsModal from '@/components/company/ImportPaymentsModal'
 import ImportSalesModal from '@/components/company/ImportSalesModal'
+import InviteBrandAdminModal from '@/components/company/InviteBrandAdminModal'
+import BrandAdminConnections from '@/components/company/BrandAdminConnections'
 
 const tabs = [
   { id: 'dashboard', label: 'Brand', icon: Home },
@@ -39,6 +42,7 @@ function CompanyDetail() {
   const [addPaymentOpen, setAddPaymentOpen] = useState(false)
   const [importCsvOpen, setImportCsvOpen] = useState(false)
   const [importSalesOpen, setImportSalesOpen] = useState(false)
+  const [inviteModalOpen, setInviteModalOpen] = useState(false)
 
   // Listen for tour-set-tab events to programmatically switch tabs
   useEffect(() => {
@@ -53,7 +57,19 @@ function CompanyDetail() {
   // Shared tracker state between Sales and Commission tabs
   const { getSeasonsForCompany } = useSales()
   const companySeasons = getSeasonsForCompany(parseInt(id))
-  const [activeTracker, setActiveTracker] = useState(companySeasons.active[0]?.id || '')
+  const [activeTracker, setActiveTracker] = useState(() => {
+    // Restore tracker from homepage setting if this is the saved homepage
+    if (user) {
+      try {
+        const saved = JSON.parse(localStorage.getItem(`homepage-${user.id}`))
+        if ((saved?.path === `/app/companies/${id}` || saved?.path === `/companies/${id}`) && saved?.tracker) {
+          const validIds = [...companySeasons.active.map(s => s.id), 'all']
+          if (validIds.includes(saved.tracker)) return saved.tracker
+        }
+      } catch { /* ignore */ }
+    }
+    return companySeasons.active[0]?.id || ''
+  })
 
   // Reset activeTracker when company changes or when current tracker isn't valid for this company
   useEffect(() => {
@@ -64,10 +80,14 @@ function CompanyDetail() {
     }
   }, [id, companySeasons.active.length])
 
-  // Persist active tab so App.jsx can read it when setting homepage
+  // Persist active tab + tracker so AppLayout can read them when setting homepage
   useEffect(() => {
     localStorage.setItem(`activeTab-${id}`, activeTab)
   }, [id, activeTab])
+
+  useEffect(() => {
+    if (activeTracker) localStorage.setItem(`activeTracker-${id}`, activeTracker)
+  }, [id, activeTracker])
 
   if (!company) {
     return (
@@ -122,15 +142,27 @@ function CompanyDetail() {
             <Button data-tour="btn-add-sale" className="bg-[#005b5b] hover:bg-[#007a7a] text-white" onClick={handleAddSaleClick}>
               <Plus className="size-4 mr-1" /> Add Sale
             </Button>
-            <Button data-tour="btn-import-sales" variant="outline" onClick={handleImportSalesClick}>
-              <Upload className="size-4 mr-1" /> Import Sales
-            </Button>
             <Button data-tour="btn-add-payment" className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={handleAddPaymentClick}>
               <Plus className="size-4 mr-1" /> Add Payment
             </Button>
-            <Button data-tour="btn-import-payments" variant="outline" onClick={handleImportCsvClick}>
-              <Upload className="size-4 mr-1" /> Import Payments
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button data-tour="btn-more-menu" variant="outline" size="icon" className="h-9 w-9">
+                  <MoreVertical className="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem data-tour="btn-import-sales" onClick={handleImportSalesClick}>
+                  <Upload className="size-4 mr-2" /> Import Sales
+                </DropdownMenuItem>
+                <DropdownMenuItem data-tour="btn-import-payments" onClick={handleImportCsvClick}>
+                  <Upload className="size-4 mr-2" /> Import Payments
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setInviteModalOpen(true)}>
+                  <UserPlus className="size-4 mr-2" /> Invite Brand Admin
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -156,7 +188,12 @@ function CompanyDetail() {
 
       {/* Tab content */}
       <div className="px-4 pb-8 pt-4 space-y-6">
-      {activeTab === 'dashboard' && <CompanyDashboard companyId={company.id} />}
+      {activeTab === 'dashboard' && (
+        <>
+          <CompanyDashboard companyId={company.id} />
+          <BrandAdminConnections companyId={company.id} />
+        </>
+      )}
       {activeTab === 'sales' && (
         <CompanySales
           companyId={company.id}
@@ -197,6 +234,12 @@ function CompanyDetail() {
       <ImportSalesModal
         open={importSalesOpen}
         onOpenChange={setImportSalesOpen}
+        companyId={company.id}
+      />
+
+      <InviteBrandAdminModal
+        open={inviteModalOpen}
+        onOpenChange={setInviteModalOpen}
         companyId={company.id}
       />
     </div>

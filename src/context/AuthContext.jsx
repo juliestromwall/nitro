@@ -244,9 +244,10 @@ export function AuthProvider({ children }) {
   }
 
   const userRole = user?.app_metadata?.role || DEFAULT_ROLE
+  const isBrandAdmin = userRole === 'brand_admin'
 
   return (
-    <AuthContext.Provider value={{ user, userRole, loading, subscription, signUp, signIn, signInWithProvider, resetPassword, verifyResetCode, signOut, updateEmail, updatePassword, updateAvatar, updateProfile, refreshSubscription }}>
+    <AuthContext.Provider value={{ user, userRole, isBrandAdmin, loading, subscription, signUp, signIn, signInWithProvider, resetPassword, verifyResetCode, signOut, updateEmail, updatePassword, updateAvatar, updateProfile, refreshSubscription }}>
       {children}
     </AuthContext.Provider>
   )

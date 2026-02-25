@@ -8,6 +8,7 @@ import {
 import TopBar from '@/components/TopBar'
 import OnboardingTour from '@/components/OnboardingTour'
 import { useAuth } from '@/context/AuthContext'
+import BrandAdminLayout from '@/layouts/BrandAdminLayout'
 import { CompanyProvider, useCompanies } from '@/context/CompanyContext'
 import { AccountProvider } from '@/context/AccountContext'
 import { SalesProvider } from '@/context/SalesContext'
@@ -90,7 +91,10 @@ function CompanyLinks() {
 }
 
 function AppLayout() {
-  const { user, userRole, signOut } = useAuth()
+  const { user, userRole, isBrandAdmin, signOut } = useAuth()
+
+  // Brand admins get a completely separate layout
+  if (isBrandAdmin) return <BrandAdminLayout />
   const location = useLocation()
   const [showHomeMenu, setShowHomeMenu] = useState(false)
   const [homeConfirm, setHomeConfirm] = useState(null) // 'set' | 'reset'
@@ -117,12 +121,14 @@ function AppLayout() {
 
   const handleSetHomepage = () => {
     const path = location.pathname
-    // Read current tab from CompanyDetail's localStorage if on a company page
+    // Read current tab + tracker from CompanyDetail's localStorage if on a company page
     const companyMatch = path.match(/^\/app\/companies\/(\d+)$/)
     const homepage = { path }
     if (companyMatch) {
       const tab = localStorage.getItem(`activeTab-${companyMatch[1]}`)
       if (tab) homepage.tab = tab
+      const tracker = localStorage.getItem(`activeTracker-${companyMatch[1]}`)
+      if (tracker) homepage.tracker = tracker
     }
     localStorage.setItem(homepageKey, JSON.stringify(homepage))
     setShowHomeMenu(false)

@@ -2,7 +2,7 @@ import { Navigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 
 function ProtectedRoute({ children }) {
-  const { user, loading, subscription } = useAuth()
+  const { user, loading, subscription, isBrandAdmin } = useAuth()
 
   if (loading) {
     return (
@@ -23,6 +23,9 @@ function ProtectedRoute({ children }) {
   if (user.invited_at && !user.user_metadata?.setup_complete) {
     return <Navigate to="/welcome" replace />
   }
+
+  // Brand admins bypass subscription checks (free access)
+  if (isBrandAdmin) return children
 
   // Only block users whose subscription exists and is in a bad state.
   // Users with no subscription row (e.g. free/comp accounts) are allowed through

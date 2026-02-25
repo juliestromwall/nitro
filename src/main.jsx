@@ -17,7 +17,10 @@ import SignUpPage from './pages/marketing/SignUpPage'
 import CheckoutSuccess from './pages/marketing/CheckoutSuccess'
 import CheckoutCancel from './pages/marketing/CheckoutCancel'
 import WelcomePage from './pages/marketing/WelcomePage'
+import TermsPage from './pages/marketing/TermsPage'
+import PrivacyPage from './pages/marketing/PrivacyPage'
 import Login from './pages/Login'
+import InvitePage from './pages/marketing/InvitePage'
 
 // Clean up OAuth error params before React mounts (prevents router crash from invalid hash selectors)
 if (window.location.search.includes('error=') || window.location.hash.includes('error=')) {
@@ -42,6 +45,9 @@ createRoot(document.getElementById('root')).render(
             <Route path="/checkout/success" element={<CheckoutSuccess />} />
             <Route path="/checkout/cancel" element={<CheckoutCancel />} />
             <Route path="/welcome" element={<WelcomePage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/privacy" element={<PrivacyPage />} />
+            <Route path="/invite/:code" element={<InvitePage />} />
           </Route>
 
           {/* Protected app routes */}

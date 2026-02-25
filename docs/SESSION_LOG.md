@@ -1,5 +1,29 @@
 # Session Log
 
+## 2026-02-25 (Session 16)
+
+**Worked on:** Brand Admin feature — full implementation
+
+**Changes made:**
+- **Database schema:** Added 3 new tables (`brand_invites`, `brand_connections`, `brand_uploads`) with RLS policies. Added cross-user SELECT policies on `companies`, `clients`, `seasons`, `orders`, and `storage.objects` for brand admin read-only access. Commissions intentionally excluded.
+- **Role setup:** Added `brand_admin` to `USER_ROLES`, `ROLE_LABELS` in constants.js, `VALID_ROLES` in set-user-role edge function. Added `isBrandAdmin` to AuthContext. ProtectedRoute bypasses subscription check for brand admins.
+- **4 Edge Functions:** `create-brand-invite` (rep generates 7-day invite code), `accept-brand-invite` (brand admin redeems code, creates connection, sets role), `get-connected-users` (fetches user details via admin API), `process-brand-upload` (uploads to rep's storage, matches/creates orders).
+- **Invite flow:** New `/invite/:code` route with InvitePage. Redirects to login if not authenticated. Login page detects `?invite=` param and redirects after auth. InviteBrandAdminModal on CompanyDetail dropdown menu generates shareable links.
+- **Brand Admin Layout:** Separate BrandAdminLayout with simplified sidebar (Dashboard, My Reps, Upload, Sign Out). AppLayout branches to it when `isBrandAdmin` is true. BrandAdminContext provides connections, rep data.
+- **Brand Admin Pages:** BrandAdminDashboard (connected reps as cards with stats), BrandAdminRepView (read-only orders grouped by account, season filter, no commissions), BrandAdminUpload (cascading selects → file drop → auto-match/create orders).
+- **Rep-side controls:** BrandAdminConnections component on CompanyDetail Brand tab shows connected brand admins with toggle sharing (Shield icon) and revoke (X) buttons.
+- **Read-only helpers:** brandAdminDb.js with query functions leveraging cross-user RLS policies.
+- **Docs:** Updated FEATURES.md (13 new component entries + changelog), PRODUCT.md (new role, flows, terminology, pages).
+
+**Next steps:**
+- Run schema SQL on staging Supabase
+- Deploy edge functions to staging (`supabase functions deploy`)
+- Build and deploy frontend to staging
+- Test full flow: generate invite → accept → view data → upload → toggle sharing → revoke
+
+**Open questions:**
+- None
+
 ## 2026-02-24 (Session 15)
 
 **Worked on:** Report filter enhancements, invoice UX improvements, demo user creation, floating point fix, and multiple UI polish items.

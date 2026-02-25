@@ -8,7 +8,14 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const VALID_ROLES = ['master_admin', 'admin', 'manager', 'pro_rep', 'rep', 'sub_rep', 'brand_admin']
+function generateInviteCode(): string {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  let code = ''
+  for (let i = 0; i < 12; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length))
+  }
+  return code
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -18,7 +25,7 @@ Deno.serve(async (req) => {
   try {
     const supabase = createClient(supabaseUrl, supabaseServiceKey)
 
-    // Verify caller is master_admin via their JWT
+    // Verify caller via JWT
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Missing authorization' }), {
@@ -28,54 +35,61 @@ Deno.serve(async (req) => {
     }
 
     const token = authHeader.replace('Bearer ', '')
-    const { data: { user: caller }, error: authError } = await supabase.auth.getUser(token)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
 
-    if (authError || !caller) {
+    if (authError || !user) {
       return new Response(JSON.stringify({ error: 'Invalid token' }), {
         status: 401,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Check caller's role via admin API (don't trust the JWT claim alone)
-    const { data: { user: callerFull }, error: callerError } = await supabase.auth.admin.getUserById(caller.id)
+    const { companyId } = await req.json()
 
-    if (callerError || callerFull?.app_metadata?.role !== 'master_admin') {
-      return new Response(JSON.stringify({ error: 'Forbidden — master_admin only' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
-
-    const { userId, role } = await req.json()
-
-    if (!userId || !role) {
-      return new Response(JSON.stringify({ error: 'Missing userId or role' }), {
+    if (!companyId) {
+      return new Response(JSON.stringify({ error: 'Missing companyId' }), {
         status: 400,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    if (!VALID_ROLES.includes(role)) {
-      return new Response(JSON.stringify({ error: `Invalid role: ${role}` }), {
-        status: 400,
+    // Verify the company belongs to this rep
+    const { data: company, error: companyError } = await supabase
+      .from('companies')
+      .select('id')
+      .eq('id', companyId)
+      .eq('user_id', user.id)
+      .single()
+
+    if (companyError || !company) {
+      return new Response(JSON.stringify({ error: 'Company not found' }), {
+        status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Set the target user's role
-    const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
-      app_metadata: { role },
-    })
+    const inviteCode = generateInviteCode()
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days
 
-    if (updateError) {
-      return new Response(JSON.stringify({ error: 'Failed to update role' }), {
+    const { data: invite, error: insertError } = await supabase
+      .from('brand_invites')
+      .insert({
+        rep_id: user.id,
+        company_id: companyId,
+        invite_code: inviteCode,
+        expires_at: expiresAt,
+      })
+      .select()
+      .single()
+
+    if (insertError) {
+      return new Response(JSON.stringify({ error: 'Failed to create invite' }), {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    return new Response(JSON.stringify({ success: true }), {
+    return new Response(JSON.stringify({ invite }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (err) {

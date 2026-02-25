@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Navigate, Link } from 'react-router-dom'
+import { Navigate, Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { Loader2, Eye, EyeOff } from 'lucide-react'
 
@@ -25,11 +25,19 @@ function Login() {
   const [showNewPassword, setShowNewPassword] = useState(false)
   const [resetLoading, setResetLoading] = useState(false)
 
+  // Check for invite code in URL params
+  const [searchParams] = useSearchParams()
+  const inviteCode = searchParams.get('invite')
+
   // Prevent redirect to /app while we're resetting the password
   // (verifyResetCode signs the user in, which would trigger the redirect)
   const [resetting, setResetting] = useState(false)
 
   if (user && !resetting) {
+    // If there's an invite code, redirect to the invite page to accept it
+    if (inviteCode) {
+      return <Navigate to={`/invite/${inviteCode}`} replace />
+    }
     return <Navigate to="/app" replace />
   }
 
@@ -214,8 +222,8 @@ function Login() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <img src="/repcommish-logo.png" alt="REPCOMMISH" className="h-20 mx-auto mb-4 dark:invert" />
-          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">Welcome back</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Sign in to your account</p>
+          <h1 className="text-2xl font-bold text-zinc-900 dark:text-white">{inviteCode ? 'Accept Invite' : 'Welcome back'}</h1>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">{inviteCode ? 'Sign in or create an account to connect' : 'Sign in to your account'}</p>
         </div>
 
         {/* Email/Password Form */}
@@ -260,7 +268,7 @@ function Login() {
 
         <p className="text-center text-sm text-zinc-500 dark:text-zinc-400 mt-6">
           Need an account?{' '}
-          <Link to="/signup" className="text-[#005b5b] dark:text-teal-400 hover:underline font-medium">Sign up</Link>
+          <Link to={inviteCode ? `/signup?invite=${inviteCode}` : '/signup'} className="text-[#005b5b] dark:text-teal-400 hover:underline font-medium">Sign up</Link>
           {' '}&middot;{' '}
           <button onClick={() => setShowForgot(true)} className="text-[#005b5b] dark:text-teal-400 hover:underline font-medium">
             Forgot Password?
