@@ -220,7 +220,7 @@ function AccountQuickView({ accountId, companyId: defaultCompanyId }) {
               <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                 {account.region && <span>{account.region}</span>}
                 {account.type && <span>{account.type}</span>}
-                {(account.address || account.city || account.state) && <span>{[account.address, account.city, account.state].filter(Boolean).join(', ')}</span>}
+                {(account.address || account.city || account.state || account.zip) && <span>{[account.address, account.city, account.state].filter(Boolean).join(', ')}{account.zip ? ` ${account.zip}` : ''}</span>}
               </div>
             </div>
           </div>

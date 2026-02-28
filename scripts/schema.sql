@@ -37,6 +37,7 @@ create table clients (
   address text,
   city text,
   state text,
+  zip text,
   created_at timestamptz not null default now()
 );
 

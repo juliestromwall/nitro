@@ -40,7 +40,7 @@ function Accounts() {
   const canViewDetail = userRole === 'master_admin' || userRole === 'pro_rep'
 
   const emptyForm = {
-    name: '', account_number: '', region: '', type: '', address: '', city: '', state: '',
+    name: '', account_number: '', region: '', type: '', address: '', city: '', state: '', zip: '',
     website: '', phone: '', logo_path: '',
   }
   const [form, setForm] = useState(emptyForm)
@@ -92,6 +92,7 @@ function Accounts() {
       address: account.address || '',
       city: account.city || '',
       state: account.state || '',
+      zip: account.zip || '',
       website: account.website || '',
       phone: account.phone || '',
       logo_path: account.logo_path || '',
@@ -221,7 +222,7 @@ function Accounts() {
                   <Label htmlFor="address">Address</Label>
                   <Input id="address" value={form.address} onChange={(e) => handleFormChange('address', e.target.value)} placeholder="123 Main St" />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-3 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="city">City</Label>
                     <Input id="city" value={form.city} onChange={(e) => handleFormChange('city', e.target.value)} />
@@ -229,6 +230,10 @@ function Accounts() {
                   <div className="space-y-2">
                     <Label htmlFor="state">State</Label>
                     <Input id="state" value={form.state} onChange={(e) => handleFormChange('state', e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="zip">Zip</Label>
+                    <Input id="zip" value={form.zip} onChange={(e) => handleFormChange('zip', e.target.value)} placeholder="12345" />
                   </div>
                 </div>
 
