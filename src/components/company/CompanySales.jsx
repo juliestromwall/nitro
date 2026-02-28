@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
-import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown, Loader2 } from 'lucide-react'
+import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown, Loader2, Eye, EyeOff } from 'lucide-react'
 import confetti from 'canvas-confetti'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useAuth } from '@/context/AuthContext'
@@ -337,7 +338,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
   const commissionPct = company?.commission_percent || 0
   const companyOrderTypes = company?.order_types || []
   const companyItems = company?.items || []
-  const DEFAULT_STAGES = ['Order Placed', 'Partially Shipped', 'Short Shipped', 'Cancelled']
+  const DEFAULT_STAGES = ['Order Placed', 'Partially Shipped', 'Short Shipped', 'Canceled']
   const customStages = (company?.stages || []).filter((s) => !DEFAULT_STAGES.includes(s))
   const companyStages = [...DEFAULT_STAGES, ...customStages]
 
@@ -356,6 +357,17 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
   const [collapsedGroups, setCollapsedGroups] = useState(new Set())
   const toggleGroup = (clientId) => {
     setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(clientId)) next.delete(clientId)
+      else next.add(clientId)
+      return next
+    })
+  }
+
+  // Track which groups have revealed their pending amount
+  const [revealedPending, setRevealedPending] = useState(new Set())
+  const toggleRevealPending = (clientId) => {
+    setRevealedPending(prev => {
       const next = new Set(prev)
       if (next.has(clientId)) next.delete(clientId)
       else next.add(clientId)
@@ -837,7 +849,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
         commissionTotal,
         allInvoices,
         invoicedTotal,
-        pending: total - invoicedTotal,
+        pending: Math.round((total - invoicedTotal) * 100) / 100,
+        fullyInvoiced: allInvoices.length > 0 && Math.round((total - invoicedTotal) * 100) / 100 <= 0,
         isShortShipped,
         unshippedSales,
         adjustedSale,
@@ -875,6 +888,22 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
 
     return groups
   }, [filteredOrders, sortConfig, commissions])
+
+  // Auto-collapse fully invoiced groups (once per group — user can still expand)
+  const autoCollapsedRef = useRef(new Set())
+  useEffect(() => {
+    const newIds = groupedOrders
+      .filter(g => g.fullyInvoiced && !autoCollapsedRef.current.has(g.clientId))
+      .map(g => g.clientId)
+    if (newIds.length > 0) {
+      newIds.forEach(id => autoCollapsedRef.current.add(id))
+      setCollapsedGroups(prev => {
+        const next = new Set(prev)
+        newIds.forEach(id => next.add(id))
+        return next
+      })
+    }
+  }, [groupedOrders])
 
   // Group invoice modal handlers
   const openGroupInvoiceModal = (group) => {
@@ -1733,7 +1762,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
               onClick={addGroupInvoice}
               className="px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed border-zinc-300 dark:border-zinc-600 rounded-md whitespace-nowrap flex items-center gap-1 transition-colors"
             >
-              <Plus className="size-3.5" /> Add Invoice
+              <Plus className="size-3.5" /> Invoice
             </button>
           </div>
           <DialogFooter>
@@ -1936,7 +1965,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                         onClick={() => toggleGroup(group.clientId)}
                       >
                         <TableCell colSpan={isAllView ? 8 : 7} className="py-3">
-                          <div className="flex items-center gap-2 flex-wrap">
+                          <div className="flex items-center gap-2 flex-wrap group/info">
                             {canViewAccountDetail ? (
                               <Link to={`/app/accounts/${group.clientId}`} onClick={(e) => e.stopPropagation()} className="font-bold text-zinc-900 dark:text-white text-base hover:text-[#005b5b] dark:hover:text-[#00b3b3] hover:underline">
                                 {group.accountName}
@@ -1944,12 +1973,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                             ) : (
                               <span className="font-bold text-zinc-900 dark:text-white text-base">{group.accountName}</span>
                             )}
-                            <AccountQuickView accountId={group.clientId} />
+                            <AccountQuickView accountId={group.clientId} companyId={companyId} />
                             {group.allInvoices.length > 0 && (
                               <>
                                 <span className="text-muted-foreground text-xs">|</span>
                                 {group.allInvoices.map((inv, i) => {
-                                  const amt = typeof inv.amount === 'number' ? inv.amount : (inv.amount ? parseInt(String(inv.amount).replace(/\D/g, ''), 10) / 100 : 0)
                                   const num = inv.number || '—'
                                   return inv.document ? (
                                     <button
@@ -1974,14 +2002,42 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                                     </span>
                                   )
                                 })}
+                                {group.pending > 0 && (
+                                  revealedPending.has(group.clientId) ? (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); toggleRevealPending(group.clientId) }}
+                                      className="inline-flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 font-medium whitespace-nowrap hover:underline cursor-pointer"
+                                    >
+                                      {fmt(group.pending)} Pending
+                                    </button>
+                                  ) : (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); toggleRevealPending(group.clientId) }}
+                                      className="text-amber-500 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 transition-colors cursor-pointer p-0.5"
+                                      title="Show pending amount"
+                                    >
+                                      <Eye className="size-3.5" />
+                                    </button>
+                                  )
+                                )}
+                                {group.fullyInvoiced && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); openGroupInvoiceModal(group) }}
+                                    className="text-xs text-emerald-600 dark:text-emerald-400 font-medium whitespace-nowrap hover:underline cursor-pointer"
+                                  >
+                                    Invoiced
+                                  </button>
+                                )}
                               </>
                             )}
-                            <button
-                              onClick={(e) => { e.stopPropagation(); openGroupInvoiceModal(group) }}
-                              className="px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed border-zinc-300 dark:border-zinc-600 rounded-md whitespace-nowrap flex items-center gap-0.5 transition-colors"
-                            >
-                              <Plus className="size-3" /> Add Invoice
-                            </button>
+                            {!group.fullyInvoiced && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openGroupInvoiceModal(group) }}
+                                className="px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed border-zinc-300 dark:border-zinc-600 rounded-md whitespace-nowrap flex items-center gap-0.5 transition-colors"
+                              >
+                                <Plus className="size-3" /> Invoice
+                              </button>
+                            )}
                           </div>
                         </TableCell>
                         <TableCell className="text-right py-3">
@@ -2008,12 +2064,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                       {/* Sub-rows for each order in the group — collapsible */}
                       {!collapsedGroups.has(group.clientId) && group.orders.map((order) => {
                         const isHovered = hoveredRow === order.id
-                        const isCancelled = order.stage === 'Cancelled'
+                        const isCanceled = order.stage === 'Canceled'
                         const isShortShipped = order.stage === 'Short Shipped'
                         const comm = getCommission(order)
                         const hasNote = order.notes && order.notes.trim().length > 0
 
-                        const rowClass = isCancelled
+                        const rowClass = isCanceled
                           ? 'bg-red-50 dark:bg-red-900/20 text-red-400 line-through'
                           : isShortShipped
                             ? 'bg-amber-50 dark:bg-amber-900/20'
@@ -2078,7 +2134,16 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                             <TableCell className="text-right whitespace-nowrap">
                               <div className="flex items-center justify-end gap-1">
                                 {comm.isOverridden && (
-                                  <AlertTriangle className="size-3.5 text-amber-500" title={`Overridden from ${comm.defaultPct}%`} />
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button type="button" className="shrink-0 cursor-pointer">
+                                        <AlertTriangle className="size-3.5 text-amber-500" />
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="w-56 p-3 text-sm">
+                                      <p>This order's commission rate ({comm.pct}%) differs from the current brand setting ({comm.defaultPct}%).</p>
+                                    </PopoverContent>
+                                  </Popover>
                                 )}
                                 <span className={comm.isOverridden ? 'text-amber-700 font-medium' : ''}>
                                   {fmt(comm.amount)}

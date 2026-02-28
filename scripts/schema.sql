@@ -34,6 +34,7 @@ create table clients (
   account_number text,
   region text,
   type text,
+  address text,
   city text,
   state text,
   created_at timestamptz not null default now()
@@ -225,7 +226,8 @@ create table brand_uploads (
   file_path text not null,
   file_type text not null default 'invoice' check (file_type in ('invoice', 'order')),
   matched_order_id bigint references orders(id),
-  status text not null default 'pending' check (status in ('pending', 'matched', 'created')),
+  season_id text references seasons(id),
+  status text not null default 'pending' check (status in ('pending', 'matched', 'created', 'unmatched', 'reviewed', 'dismissed')),
   metadata jsonb default '{}',
   created_at timestamptz not null default now()
 );
@@ -238,6 +240,8 @@ create policy "Brand admins can insert uploads"
   on brand_uploads for insert with check (auth.uid() = brand_admin_id);
 create policy "Reps can view uploads to them"
   on brand_uploads for select using (auth.uid() = rep_id);
+create policy "Reps can update uploads to them"
+  on brand_uploads for update using (auth.uid() = rep_id);
 
 -- ── Brand Admin: Cross-user SELECT policies ──────────────
 -- Allow brand admins to read connected reps' data (read-only)

@@ -153,10 +153,10 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
 
   // Get all non-cancelled orders for this company + season
   const closedWonOrders = isAllView
-    ? orders.filter((o) => o.company_id === companyId && o.stage !== 'Cancelled' && activeSeasons.some(s => s.id === o.season_id))
+    ? orders.filter((o) => o.company_id === companyId && o.stage !== 'Canceled' && activeSeasons.some(s => s.id === o.season_id))
     : currentSeason
       ? orders.filter(
-          (o) => o.company_id === companyId && o.season_id === currentSeason.id && o.stage !== 'Cancelled'
+          (o) => o.company_id === companyId && o.season_id === currentSeason.id && o.stage !== 'Canceled'
         )
       : []
 
@@ -269,7 +269,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
       const totalPaid = group.rows.reduce((sum, r) => sum + r.amount_paid, 0)
       const totalRemaining = group.rows.some(r => r.pay_status === 'short shipped')
         ? 0
-        : Math.max(totalCommDue - totalPaid, 0)
+        : Math.max(Math.round((totalCommDue - totalPaid) * 100) / 100, 0)
 
       const allInvoices = group.rows.flatMap((r) => r.invoices || [])
       const invoicedTotal = allInvoices.reduce((sum, inv) => {
@@ -805,22 +805,19 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                     </TableHead>
                   )}
                   <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('total')}>
-                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Total <SortIcon column="total" sortConfig={sortConfig} /></span>
+                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Sales Total <SortIcon column="total" sortConfig={sortConfig} /></span>
                   </TableHead>
                   <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('commission_due')}>
                     <span className="flex items-center justify-end gap-1 whitespace-nowrap">Commission Due <SortIcon column="commission_due" sortConfig={sortConfig} /></span>
                   </TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('pay_status')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Pay Status <SortIcon column="pay_status" sortConfig={sortConfig} /></span>
+                  <TableHead className="text-white text-center cursor-pointer select-none" onClick={() => toggleSort('pay_status')}>
+                    <span className="flex items-center justify-center gap-1 whitespace-nowrap">Commission Pay Status <SortIcon column="pay_status" sortConfig={sortConfig} /></span>
                   </TableHead>
                   <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('amount_paid')}>
-                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Amount Paid <SortIcon column="amount_paid" sortConfig={sortConfig} /></span>
-                  </TableHead>
-                  <TableHead className="text-white cursor-pointer select-none" onClick={() => toggleSort('paid_date')}>
-                    <span className="flex items-center gap-1 whitespace-nowrap">Paid Date <SortIcon column="paid_date" sortConfig={sortConfig} /></span>
+                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Commission Paid <SortIcon column="amount_paid" sortConfig={sortConfig} /></span>
                   </TableHead>
                   <TableHead className="text-white text-right cursor-pointer select-none" onClick={() => toggleSort('amount_remaining')}>
-                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Remaining <SortIcon column="amount_remaining" sortConfig={sortConfig} /></span>
+                    <span className="flex items-center justify-end gap-1 whitespace-nowrap">Commission Owed <SortIcon column="amount_remaining" sortConfig={sortConfig} /></span>
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -847,7 +844,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                       >
                         <TableCell className="w-10"></TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 group/info">
                             {canViewAccountDetail ? (
                               <Link to={`/app/accounts/${group.clientId}`} onClick={(e) => e.stopPropagation()} className="font-bold text-zinc-900 dark:text-white hover:text-[#005b5b] dark:hover:text-[#00b3b3] hover:underline">
                                 {group.accountName}
@@ -855,7 +852,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                             ) : (
                               <span className="font-bold text-zinc-900 dark:text-white">{group.accountName}</span>
                             )}
-                            <AccountQuickView accountId={group.clientId} />
+                            <AccountQuickView accountId={group.clientId} companyId={companyId} />
                           </div>
                         </TableCell>
                         {isAllView && (
@@ -882,7 +879,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                             <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Updated: {fmt(group.overpaidAdjustedCommission)}</div>
                           )}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="text-center">
                           <select
                             value={group.aggPayStatus}
                             onChange={(e) => handleInlinePayStatus(group, e.target.value)}
@@ -912,7 +909,6 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                             </button>
                           </div>
                         </TableCell>
-                        <TableCell>{group.latestPaidDate ? fmtDate(group.latestPaidDate) : '—'}</TableCell>
                         <TableCell className="text-right">
                           <span className={`font-bold ${group.totalRemaining > 0 ? 'text-red-600 dark:text-red-400' : 'dark:text-zinc-100'}`}>{fmt(group.totalRemaining)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
@@ -954,7 +950,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                               {fmt(row.commissionDue)}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-xs">{row.close_date ? fmtDate(row.close_date) : '—'}</TableCell>
-                            <TableCell colSpan={3}></TableCell>
+                            <TableCell colSpan={2}></TableCell>
                           </TableRow>
                         )
                       })}

@@ -40,7 +40,7 @@ function Accounts() {
   const canViewDetail = userRole === 'master_admin' || userRole === 'pro_rep'
 
   const emptyForm = {
-    name: '', account_number: '', region: '', type: '', city: '', state: '',
+    name: '', account_number: '', region: '', type: '', address: '', city: '', state: '',
     website: '', phone: '', logo_path: '',
   }
   const [form, setForm] = useState(emptyForm)
@@ -89,6 +89,7 @@ function Accounts() {
       account_number: account.account_number || '',
       region: account.region || '',
       type: account.type || '',
+      address: account.address || '',
       city: account.city || '',
       state: account.state || '',
       website: account.website || '',
@@ -215,6 +216,10 @@ function Accounts() {
                     <Label htmlFor="type">Type</Label>
                     <Input id="type" value={form.type} onChange={(e) => handleFormChange('type', e.target.value)} />
                   </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Input id="address" value={form.address} onChange={(e) => handleFormChange('address', e.target.value)} placeholder="123 Main St" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">

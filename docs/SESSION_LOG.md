@@ -1,5 +1,21 @@
 # Session Log
 
+## 2026-02-27 (Session 18)
+
+**Worked on:** "Cancelled" → "Canceled" spelling fix, account address field
+
+**Changes made:**
+- **Spelling fix:** Renamed "Cancelled" to "Canceled" (American English) across all 8 source files + 2 doc files. No DB migration needed — stage values are user-entered strings.
+- **Account address field:** Added optional `address` text column to clients table in schema.sql. Updated emptyForm + edit forms in Accounts.jsx and AccountDetail.jsx. Address displays in AccountDetail header and AccountQuickView alongside city/state.
+
+**Next steps:**
+- Run `UPDATE orders SET stage = 'Canceled' WHERE stage = 'Cancelled';` on production DB
+- Run `ALTER TABLE clients ADD COLUMN IF NOT EXISTS address text;` on production DB
+- Build and deploy to production
+
+**Open questions:**
+- None
+
 ## 2026-02-27 (Session 17)
 
 **Worked on:** Commission page header updates, Brand Imports review workflow (staging only), LinkedIn marketing graphic, production cleanup

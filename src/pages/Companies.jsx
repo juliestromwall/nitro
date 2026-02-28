@@ -512,8 +512,8 @@ function Companies() {
               <Label>Stages</Label>
               <div className="flex flex-wrap gap-1.5">
                 <Badge variant="outline" className="text-sm bg-zinc-100 dark:bg-zinc-700">Order Placed</Badge>
-                <Badge variant="outline" className="text-sm bg-zinc-100 dark:bg-zinc-700">Cancelled</Badge>
-                {form.stages.filter((s) => s !== 'Order Placed' && s !== 'Cancelled').map((t, i) => (
+                <Badge variant="outline" className="text-sm bg-zinc-100 dark:bg-zinc-700">Canceled</Badge>
+                {form.stages.filter((s) => s !== 'Order Placed' && s !== 'Canceled').map((t, i) => (
                   <Badge key={i} variant="secondary" className="gap-1 text-sm">
                     {t}
                     <button type="button" onClick={() => setForm((p) => ({ ...p, stages: p.stages.filter((s) => s !== t) }))} className="ml-0.5 hover:text-red-500">
@@ -527,10 +527,10 @@ function Companies() {
                   placeholder="Add custom stage..."
                   value={newStage}
                   onChange={(e) => setNewStage(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = newStage.trim(); if (v && !form.stages.includes(v) && v !== 'Order Placed' && v !== 'Cancelled') { setForm((p) => ({ ...p, stages: [...p.stages, v] })); setNewStage('') } } }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); const v = newStage.trim(); if (v && !form.stages.includes(v) && v !== 'Order Placed' && v !== 'Canceled') { setForm((p) => ({ ...p, stages: [...p.stages, v] })); setNewStage('') } } }}
                   className="flex-1"
                 />
-                <Button type="button" variant="outline" size="sm" onClick={() => { const v = newStage.trim(); if (v && !form.stages.includes(v) && v !== 'Order Placed' && v !== 'Cancelled') { setForm((p) => ({ ...p, stages: [...p.stages, v] })); setNewStage('') } }} disabled={!newStage.trim()}>
+                <Button type="button" variant="outline" size="sm" onClick={() => { const v = newStage.trim(); if (v && !form.stages.includes(v) && v !== 'Order Placed' && v !== 'Canceled') { setForm((p) => ({ ...p, stages: [...p.stages, v] })); setNewStage('') } }} disabled={!newStage.trim()}>
                   <Plus className="size-4" />
                 </Button>
               </div>
@@ -544,7 +544,7 @@ function Companies() {
                 Cancel
               </Button>
               <Button type="submit" disabled={saving}>
-                {saving ? 'Saving...' : editingId ? 'Save Changes' : 'Add Brand'}
+                {saving ? (editingId ? 'Saving...' : 'Adding Brand...') : editingId ? 'Save Changes' : 'Add Brand'}
               </Button>
             </DialogFooter>
           </form>

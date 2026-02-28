@@ -119,7 +119,7 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
 
   // Precompute per-account commission summaries scoped to selected tracker
   const accountSummaries = useMemo(() => {
-    const companyOrders = orders.filter((o) => o.company_id === companyId && o.stage !== 'Cancelled' && (!selectedTracker || o.season_id === selectedTracker))
+    const companyOrders = orders.filter((o) => o.company_id === companyId && o.stage !== 'Canceled' && (!selectedTracker || o.season_id === selectedTracker))
     const byClient = new Map()
 
     companyOrders.forEach((o) => {
@@ -283,7 +283,7 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
         else if (dueCents <= 0) status = 'overpaid'
         else status = 'matched'
       } else if (clientId) {
-        status = 'not_found'
+        status = 'no_orders'
       }
 
       return {
@@ -340,9 +340,26 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
         ...row,
         clientId,
         accountName: account.name,
-        status: status === 'no_orders' ? 'not_found' : status,
+        status,
         summary,
         wasResolved: true,
+      }
+      return updated
+    })
+  }
+
+  // Let user undo a resolved selection and pick again
+  const clearResolvedRow = (rowIndex) => {
+    setParsedRows((prev) => {
+      const updated = [...prev]
+      const row = updated[rowIndex]
+      updated[rowIndex] = {
+        ...row,
+        wasResolved: false,
+        clientId: null,
+        accountName: '',
+        summary: null,
+        status: 'not_found',
       }
       return updated
     })
@@ -461,11 +478,12 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
     })
   }
 
-  const validRows = parsedRows.filter((r) => r.status !== 'not_found' && r.amount > 0)
+  const validRows = parsedRows.filter((r) => r.status !== 'not_found' && r.status !== 'no_orders' && r.amount > 0)
   const matchedRows = parsedRows.filter((r) => r.status === 'matched')
   const underpaidRows = parsedRows.filter((r) => r.status === 'underpaid')
   const overpaidRows = parsedRows.filter((r) => r.status === 'overpaid')
   const notFoundRows = parsedRows.filter((r) => r.status === 'not_found')
+  const noOrdersRows = parsedRows.filter((r) => r.status === 'no_orders')
   const totalAmount = validRows.reduce((sum, r) => sum + r.amount, 0)
   const shortShippedCount = parsedRows.filter((r) => r.shortShipped).length
 
@@ -598,6 +616,7 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
       case 'underpaid': return <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 rounded-full px-2 py-0.5"><AlertTriangle className="size-3" />Underpaid</span>
       case 'overpaid': return <span className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 bg-blue-100 rounded-full px-2 py-0.5"><Info className="size-3" />Overpaid</span>
       case 'not_found': return <span className="inline-flex items-center gap-1 text-xs font-medium text-red-700 bg-red-100 rounded-full px-2 py-0.5"><XCircle className="size-3" />Not Found</span>
+      case 'no_orders': return <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 rounded-full px-2 py-0.5"><AlertTriangle className="size-3" />No Orders</span>
       default: return null
     }
   }
@@ -779,6 +798,11 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
                   <AlertTriangle className="size-3.5" />{underpaidRows.length} underpaid
                 </span>
               )}
+              {noOrdersRows.length > 0 && (
+                <span className="inline-flex items-center gap-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 rounded-full px-3 py-1 font-medium">
+                  <AlertTriangle className="size-3.5" />{noOrdersRows.length} no orders
+                </span>
+              )}
               {notFoundRows.length > 0 && (
                 <span className="inline-flex items-center gap-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-full px-3 py-1 font-medium">
                   <XCircle className="size-3.5" />{notFoundRows.length} not found
@@ -803,27 +827,41 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
                   {parsedRows.map((row, idx) => (
                     <tr
                       key={idx}
-                      className={`border-b last:border-0 ${row.status === 'not_found' ? 'opacity-50 bg-zinc-50 dark:bg-zinc-800/50' : ''}`}
+                      className={`border-b last:border-0 ${row.status === 'not_found' || row.status === 'no_orders' ? 'opacity-50 bg-zinc-50 dark:bg-zinc-800/50' : ''}`}
                     >
                       <td className="py-2 px-3 font-mono text-xs">{row.accountNum}</td>
                       <td className="py-2 px-3">
-                        {row.status === 'not_found' && !row.accountName ? (
-                          <PaymentAccountPicker
-                            accounts={accounts}
-                            onSelect={(account) => resolveNotFoundRow(idx, account)}
-                          />
-                        ) : row.accountName ? (
-                          <div className="flex items-center gap-1.5">
-                            {row.wasResolved && <CheckCircle className="size-3.5 text-emerald-500 shrink-0" />}
-                            <span>{row.accountName}</span>
+                        {(row.status === 'not_found' || row.status === 'no_orders') && !row.wasResolved ? (
+                          <div className="space-y-1">
+                            {row.accountName && (
+                              <span className="text-sm text-muted-foreground">{row.accountName}</span>
+                            )}
+                            <PaymentAccountPicker
+                              accounts={accounts}
+                              onSelect={(account) => resolveNotFoundRow(idx, account)}
+                            />
                           </div>
+                        ) : row.wasResolved ? (
+                          <div className="flex items-center gap-1.5">
+                            <CheckCircle className="size-3.5 text-emerald-500 shrink-0" />
+                            <span>{row.accountName}</span>
+                            <button
+                              type="button"
+                              onClick={() => clearResolvedRow(idx)}
+                              className="text-xs text-muted-foreground hover:text-foreground underline ml-1"
+                            >
+                              Change
+                            </button>
+                          </div>
+                        ) : row.accountName ? (
+                          <span>{row.accountName}</span>
                         ) : (
                           <span className="text-red-500 italic">Unknown</span>
                         )}
                       </td>
                       <td className="py-2 px-3 text-muted-foreground">{row.date || '—'}</td>
                       <td className="py-2 px-3 text-right">
-                        {row.status !== 'not_found' ? (
+                        {row.status !== 'not_found' && row.status !== 'no_orders' ? (
                           <div className="inline-flex items-center border rounded px-2 h-7 bg-white dark:bg-zinc-700 focus-within:ring-2 focus-within:ring-ring">
                             <span className="text-xs text-muted-foreground">$</span>
                             <input
@@ -847,9 +885,14 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
               </table>
             </div>
 
-            {notFoundRows.length > 0 && (
+            {(notFoundRows.length > 0 || noOrdersRows.length > 0) && (
               <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-sm text-amber-700 dark:text-amber-400">
-                {notFoundRows.length} row(s) could not be matched and will be excluded from the import.
+                {notFoundRows.length + noOrdersRows.length} row(s) could not be matched and will be excluded from the import.
+                {noOrdersRows.length > 0 && (
+                  <span className="block mt-1 text-xs">
+                    {noOrdersRows.length} account(s) have no orders for this tracker. Select a different account or add orders first.
+                  </span>
+                )}
               </div>
             )}
 
@@ -995,10 +1038,10 @@ function ImportPaymentsModal({ open, onOpenChange, companyId }) {
                       <span className="font-medium">{shortShippedCount}</span>
                     </div>
                   )}
-                  {notFoundRows.length > 0 && (
+                  {(notFoundRows.length + noOrdersRows.length) > 0 && (
                     <div className="flex justify-between text-red-500">
-                      <span>Excluded (Not Found):</span>
-                      <span className="font-medium">{notFoundRows.length}</span>
+                      <span>Excluded (Not Matched):</span>
+                      <span className="font-medium">{notFoundRows.length + noOrdersRows.length}</span>
                     </div>
                   )}
                 </div>

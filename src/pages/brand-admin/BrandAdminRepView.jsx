@@ -185,7 +185,7 @@ function BrandAdminRepView() {
                         <td className="py-2">
                           <span className={`px-2 py-0.5 rounded-full text-xs ${
                             order.stage === 'Closed Won' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                            order.stage === 'Cancelled' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                            order.stage === 'Canceled' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
                             'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400'
                           }`}>
                             {order.stage}

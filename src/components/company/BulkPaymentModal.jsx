@@ -78,7 +78,7 @@ function BulkPaymentModal({ open, onOpenChange, companyId }) {
 
   // Precompute per-account commission summaries scoped to selected tracker
   const accountSummaries = useMemo(() => {
-    const companyOrders = orders.filter((o) => o.company_id === companyId && o.stage !== 'Cancelled' && (!selectedTracker || o.season_id === selectedTracker))
+    const companyOrders = orders.filter((o) => o.company_id === companyId && o.stage !== 'Canceled' && (!selectedTracker || o.season_id === selectedTracker))
     const byClient = new Map()
 
     companyOrders.forEach((o) => {

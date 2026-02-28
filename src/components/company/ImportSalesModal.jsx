@@ -15,7 +15,7 @@ import { useSales } from '@/context/SalesContext'
 import { splitCSVRows, parseCSVLine } from '@/lib/csv'
 import TableBuilder from '@/components/ui/TableBuilder'
 
-const STAGE_OPTIONS = ['Order Placed', 'Invoiced', 'Shipped', 'Cancelled']
+const STAGE_OPTIONS = ['Order Placed', 'Invoiced', 'Shipped', 'Canceled']
 
 // Inline searchable account picker — expands in-place to avoid overflow clipping
 function AccountPicker({ label, accounts, resolvedAccount, onSelect, onClear }) {

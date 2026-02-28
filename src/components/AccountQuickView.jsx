@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { Info, Globe, Phone as PhoneIcon, Mail, MapPin, User, Plus, Pencil, Trash2, X, Check, CheckCircle2, Circle } from 'lucide-react'
+import { Info, Globe, Phone as PhoneIcon, Mail, MapPin, User, Plus, Pencil, Trash2, X, Check, CheckCircle2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -22,7 +22,7 @@ const extractDomain = (url) => {
   return domain
 }
 
-function AccountQuickView({ accountId }) {
+function AccountQuickView({ accountId, companyId: defaultCompanyId }) {
   const { userRole } = useAuth()
   const { getAccount, updateAccount } = useAccounts()
   const { companies } = useCompanies()
@@ -43,7 +43,11 @@ function AccountQuickView({ accountId }) {
   // Todo quick add
   const [showTodoForm, setShowTodoForm] = useState(false)
   const [todoTitle, setTodoTitle] = useState('')
-  const [todoCompanyId, setTodoCompanyId] = useState('')
+  const [todoCompanyId, setTodoCompanyId] = useState(defaultCompanyId ? String(defaultCompanyId) : '')
+  const [todoDueDate, setTodoDueDate] = useState('')
+  const [todoNote, setTodoNote] = useState('')
+  const [todoPhone, setTodoPhone] = useState('')
+  const [expandedTodoId, setExpandedTodoId] = useState(null)
 
   useEffect(() => {
     const src = account?.logo_path || null
@@ -159,24 +163,38 @@ function AccountQuickView({ accountId }) {
       title: todoTitle,
       client_id: accountId,
       company_id: todoCompanyId ? parseInt(todoCompanyId) : null,
-      note: '',
-      phone: '',
-      due_date: null,
+      note: todoNote,
+      phone: todoPhone,
+      due_date: todoDueDate || null,
     })
     setTodoTitle('')
     setTodoCompanyId('')
+    setTodoDueDate('')
+    setTodoNote('')
+    setTodoPhone('')
     setShowTodoForm(false)
   }
 
   return (
     <>
-      <button
-        onClick={(e) => { e.stopPropagation(); setOpen(true) }}
-        className="inline-flex items-center justify-center p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-colors"
-        title="Account info"
-      >
-        <Info className="size-3.5 text-muted-foreground" />
-      </button>
+      <span className="inline-flex items-center gap-1.5 shrink-0">
+        {incompleteTodos.length > 0 && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setOpen(true) }}
+            className="shrink-0 cursor-pointer"
+            title={`${incompleteTodos.length} to-do${incompleteTodos.length > 1 ? 's' : ''}`}
+          >
+            <span className="flex size-1.5 rounded-full bg-amber-400 dark:bg-amber-500" />
+          </button>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); setOpen(true) }}
+          className="inline-flex items-center justify-center p-0.5 rounded opacity-0 group-hover/info:opacity-60 hover:!opacity-100 hover:bg-zinc-200 dark:hover:bg-zinc-600 transition-all"
+          title="Account info"
+        >
+          <Info className="size-3 text-muted-foreground" />
+        </button>
+      </span>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -199,9 +217,10 @@ function AccountQuickView({ accountId }) {
               >
                 {account.name}
               </Link>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                 {account.region && <span>{account.region}</span>}
                 {account.type && <span>{account.type}</span>}
+                {(account.address || account.city || account.state) && <span>{[account.address, account.city, account.state].filter(Boolean).join(', ')}</span>}
               </div>
             </div>
           </div>
@@ -334,20 +353,36 @@ function AccountQuickView({ accountId }) {
                 <Label className="text-xs font-semibold text-muted-foreground">To Dos ({incompleteTodos.length})</Label>
                 <div className="space-y-1 mt-1">
                   {incompleteTodos.map((todo) => {
-                    const isOverdue = todo.due_date && new Date(todo.due_date) < new Date() && !todo.completed
+                    const dueLocal = todo.due_date ? new Date(todo.due_date + 'T00:00:00') : null
+                    const isOverdue = dueLocal && dueLocal < new Date() && !todo.completed
+                    const isExpanded = expandedTodoId === todo.id
+                    const brandName = todo.company_id ? companies.find(c => c.id === todo.company_id)?.name : null
                     return (
-                      <div key={todo.id} className="flex items-start gap-2 text-sm group">
-                        <button onClick={() => toggleComplete(todo.id)} className="mt-0.5 shrink-0">
-                          <Circle className="size-3.5 text-muted-foreground hover:text-[#005b5b]" />
-                        </button>
-                        <div className="flex-1 min-w-0">
-                          <span className={isOverdue ? 'text-red-600 dark:text-red-400' : ''}>{todo.title}</span>
-                          {todo.due_date && (
-                            <span className={`ml-1 text-xs ${isOverdue ? 'text-red-500' : 'text-muted-foreground'}`}>
-                              {new Date(todo.due_date).toLocaleDateString()}
-                            </span>
-                          )}
+                      <div key={todo.id} className="text-sm">
+                        <div className="flex items-start gap-2 group">
+                          <input
+                            type="checkbox"
+                            checked={false}
+                            onChange={() => toggleComplete(todo.id)}
+                            className="size-4 rounded border-zinc-300 mt-0.5 shrink-0"
+                          />
+                          <div className="flex-1 min-w-0 cursor-pointer" onClick={() => setExpandedTodoId(isExpanded ? null : todo.id)}>
+                            <span className={isOverdue ? 'text-red-600 dark:text-red-400' : ''}>{todo.title}</span>
+                            {dueLocal && (
+                              <span className={`ml-1 text-xs ${isOverdue ? 'text-red-500' : 'text-muted-foreground'}`}>
+                                {dueLocal.toLocaleDateString()}
+                              </span>
+                            )}
+                          </div>
                         </div>
+                        {isExpanded && (
+                          <div className="ml-6 mt-1 mb-1 space-y-0.5 text-xs text-muted-foreground">
+                            {brandName && <div>Brand: {brandName}</div>}
+                            {todo.phone && <div className="flex items-center gap-1"><PhoneIcon className="size-3" />{todo.phone}</div>}
+                            {todo.note && <div className="whitespace-pre-wrap">{todo.note}</div>}
+                            {!brandName && !todo.phone && !todo.note && <div className="italic">No additional details</div>}
+                          </div>
+                        )}
                       </div>
                     )
                   })}
@@ -382,8 +417,17 @@ function AccountQuickView({ accountId }) {
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
+                  <Input type="date" value={todoDueDate} onChange={(e) => setTodoDueDate(e.target.value)} className="text-sm h-8" />
+                  <Input type="tel" value={todoPhone} onChange={(e) => setTodoPhone(e.target.value)} placeholder="Phone number..." className="text-sm h-8" />
+                  <textarea
+                    value={todoNote}
+                    onChange={(e) => setTodoNote(e.target.value)}
+                    placeholder="Add a note..."
+                    rows={2}
+                    className="w-full rounded-md border bg-zinc-50 dark:bg-zinc-800/50 px-3 py-1.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#005b5b]/30 dark:border-zinc-700"
+                  />
                   <div className="flex justify-end gap-1">
-                    <Button variant="ghost" size="sm" onClick={() => { setShowTodoForm(false); setTodoTitle('') }} className="h-7 text-xs">Cancel</Button>
+                    <Button variant="ghost" size="sm" onClick={() => { setShowTodoForm(false); setTodoTitle(''); setTodoCompanyId(''); setTodoDueDate(''); setTodoNote(''); setTodoPhone('') }} className="h-7 text-xs">Cancel</Button>
                     <Button size="sm" onClick={handleAddTodo} disabled={!todoTitle.trim()} className="h-7 text-xs">Add</Button>
                   </div>
                 </div>

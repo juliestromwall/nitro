@@ -76,7 +76,7 @@ function AccountDetail() {
   const [editLogoPreview, setEditLogoPreview] = useState(null)
   const [editLogoFile, setEditLogoFile] = useState(null)
   const editFileRef = useRef(null)
-  const emptyForm = { name: '', account_number: '', region: '', type: '', city: '', state: '', website: '', phone: '', logo_path: '' }
+  const emptyForm = { name: '', account_number: '', region: '', type: '', address: '', city: '', state: '', website: '', phone: '', logo_path: '' }
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
 
@@ -96,7 +96,7 @@ function AccountDetail() {
     setForm({
       name: account.name || '', account_number: account.account_number || '',
       region: account.region || '', type: account.type || '',
-      city: account.city || '', state: account.state || '',
+      address: account.address || '', city: account.city || '', state: account.state || '',
       website: account.website || '', phone: account.phone || '',
       logo_path: account.logo_path || '',
     })
@@ -343,7 +343,7 @@ function AccountDetail() {
           <div className="flex items-center gap-3 text-sm text-muted-foreground mt-0.5 flex-wrap">
             {account.region && <span>{account.region}</span>}
             {account.type && <span>{account.type}</span>}
-            {(account.city || account.state) && <span>{[account.city, account.state].filter(Boolean).join(', ')}</span>}
+            {(account.address || account.city || account.state) && <span>{[account.address, account.city, account.state].filter(Boolean).join(', ')}</span>}
             {account.account_number && <span>#{account.account_number}</span>}
           </div>
           <div className="flex items-center gap-3 mt-1 text-sm">
@@ -619,6 +619,10 @@ function AccountDetail() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>Region</Label><Input value={form.region} onChange={(e) => handleFormChange('region', e.target.value)} /></div>
               <div className="space-y-2"><Label>Type</Label><Input value={form.type} onChange={(e) => handleFormChange('type', e.target.value)} /></div>
+            </div>
+            <div className="space-y-2">
+              <Label>Address</Label>
+              <Input value={form.address} onChange={(e) => handleFormChange('address', e.target.value)} placeholder="123 Main St" />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2"><Label>City</Label><Input value={form.city} onChange={(e) => handleFormChange('city', e.target.value)} /></div>

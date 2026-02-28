@@ -16,7 +16,7 @@ export const accountTypes = [
   'Chain',
 ]
 
-export const EXCLUDED_STAGES = ['Cancelled', 'Short Shipped']
+export const EXCLUDED_STAGES = ['Canceled', 'Short Shipped']
 
 export const USER_ROLES = ['master_admin', 'admin', 'manager', 'pro_rep', 'rep', 'sub_rep', 'brand_admin']
 
