@@ -1,5 +1,27 @@
 # Session Log
 
+## 2026-03-02 (Session 19)
+
+**Worked on:** Per-company currency conversion with live daily exchange rates
+
+**Changes made:**
+- **Database:** Added `currency` column to `clients` table (default 'USD') for per-account currency tracking
+- **Exchange rate hook:** Created `src/hooks/useExchangeRate.js` — fetches daily rates from frankfurter.app (ECB-backed, free, no API key), module-level cache with 1-hour TTL
+- **CompanySales.jsx:** Sales display in original currency ($, no CA$ prefix), commissions track both raw (original currency) and USD-converted values, USD toggle button for viewing commissions in USD
+- **CompanyCommission.jsx:** Full currency-aware commission calculation — always recalculates from `order.total * pct/100` (matching Sales tab), handles `commission_override`, tracks raw vs USD for both commissions and payments, payment modal uses raw values, DB saves always use original currency
+- **CompanyDashboard.jsx:** Summary cards support USD toggle, shows converted commissions when toggled
+- **Dashboard.jsx:** Brand cards track raw and USD commission values, USD toggle for cross-brand view, aggregate totals convert to USD
+- **USD toggle UX:** Small "$USD" button only appears when current view contains non-USD currency orders; styled teal when active; DB always stores original currency (toggle is view-only)
+- **Fixed commission mismatch:** Sales and Commissions tabs now use identical calculation logic (including `commission_override` support)
+- **Fixed payment currency:** Payments entered in original currency (e.g., CAD) are stored as-is, converted only for display when USD toggle is active
+
+**Next steps:**
+- Gmail API integration (discussed but not started — user expressed interest)
+- Run DB migration: `ALTER TABLE clients ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT 'USD';`
+
+**Open questions:**
+- Gmail API: Use Supabase Edge Functions as proxy? Only one Pro Rep (Adam) so consent screen domain issue is acceptable for now
+
 ## 2026-02-27 (Session 18)
 
 **Worked on:** "Cancelled" → "Canceled" spelling fix, account address field

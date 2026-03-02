@@ -72,6 +72,7 @@
 | Accept Brand Invite | supabase/functions/accept-brand-invite/index.ts | Edge function: brand admin redeems invite code, creates connection, sets role to brand_admin. |
 | Get Connected Users | supabase/functions/get-connected-users/index.ts | Edge function: fetches user details (name, email, avatar) for connection display. |
 | Process Brand Upload | supabase/functions/process-brand-upload/index.ts | Edge function: uploads PDF to rep's storage, sends to Claude API for data extraction (account name, invoice #, amount, date), fuzzy-matches to rep's accounts, auto-picks most recent season, attaches to existing orders or creates new ones. Unmatched files recorded with 'unmatched' status. |
+| useExchangeRate | src/hooks/useExchangeRate.js | Exchange rate hook: `useExchangeRate(from, to)` and `useExchangeRates(pairs)` for batch fetching. Uses frankfurter.app (ECB daily rates, free, no API key). Module-level Map cache with 1-hour TTL. Returns `{ rate, loading }`. |
 | OnboardingTour | src/components/OnboardingTour.jsx | 13-step guided walkthrough for first-time users. Navigates through brands, accounts, sales, commissions, payments, dashboard, brand pages, homepage, reports, and settings. Includes CSV import template downloads. Skip/restart support. Completion persisted to both localStorage AND Supabase user_metadata.tour_done (survives deploys/cache clears). Restart from Help menu. |
 
 ## Changelog
@@ -139,3 +140,4 @@
 | 2026-02-27 | Brand Imports review workflow (staging): CompanyBrandImports tab with review dialog, typeahead account search, season picker, order matching, confirmation step. Edge function stops auto-creating orders. Zip upload support via JSZip. Hidden from production pending launch. |
 | 2026-02-27 | Tour logo updated to transparent mountain "A" icon. LinkedIn marketing graphic created (1200x628 PNG with commission dashboard mock-up). |
 | 2026-02-27 | Renamed "Cancelled" to "Canceled" (American English) across all source files, constants, and docs. Added optional `address` text field to accounts (schema, Accounts.jsx, AccountDetail.jsx, AccountQuickView.jsx). |
+| 2026-03-02 | Per-account currency conversion: `useExchangeRate` hook (frankfurter.app, 1-hour cache), USD toggle on Sales/Commission/Dashboard pages, commission calculation parity between Sales and Commissions tabs, raw vs converted value tracking, payment currency handling. |
