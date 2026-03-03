@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect, Fragment } from 'react'
-import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown, Loader2, Eye, EyeOff } from 'lucide-react'
+import { Plus, FolderArchive, Pencil, Trash2, Check, X, ChevronDown, ChevronRight, Search, Filter, FileText, Upload, AlertTriangle, StickyNote, PartyPopper, ArrowUpDown, ArrowUp, ArrowDown, Loader2, Eye, EyeOff, DollarSign } from 'lucide-react'
 import confetti from 'canvas-confetti'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -18,6 +18,7 @@ import { useAuth } from '@/context/AuthContext'
 import { uploadDocument, getDocumentUrl } from '@/lib/db'
 import { useSales } from '@/context/SalesContext'
 import { EXCLUDED_STAGES } from '@/lib/constants'
+import { useExchangeRates } from '@/hooks/useExchangeRate'
 import ImportSalesModal from '@/components/company/ImportSalesModal'
 import AccountQuickView from '@/components/AccountQuickView'
 import { Link } from 'react-router-dom'
@@ -307,10 +308,25 @@ const SALE_CYCLE_OPTIONS = (() => {
   return options
 })()
 
+const fmtCur = (value, currency = 'USD') =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value)
+
 function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, setActiveTracker }) {
-  const { accounts, getAccountName } = useAccounts()
+  const { accounts, getAccountName, getAccount } = useAccounts()
   const { companies } = useCompanies()
   const { user, userRole } = useAuth()
+
+  // Exchange rates for account-level currency conversion
+  const fxPairs = useMemo(() => {
+    const seen = new Set()
+    return accounts
+      .map((a) => a.currency || 'USD')
+      .filter((c) => c !== 'USD' && !seen.has(c) && seen.add(c))
+      .map((c) => ({ from: c, to: 'USD' }))
+  }, [accounts])
+  const { getRate } = useExchangeRates(fxPairs)
+  const getAccountCurrency = (clientId) => getAccount(clientId)?.currency || 'USD'
+  const toUSD = (total, clientId) => (total || 0) * getRate(getAccountCurrency(clientId), 'USD')
   const canViewAccountDetail = userRole === 'master_admin' || userRole === 'pro_rep'
 
   const {
@@ -731,6 +747,11 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
       ? orders.filter((o) => o.season_id === currentSeason.id && o.company_id === companyId)
       : []
 
+  // Check if any orders in current view use non-USD currencies
+  const hasConversion = useMemo(() => {
+    return seasonOrders.some((o) => getAccountCurrency(o.client_id) !== 'USD')
+  }, [seasonOrders, accounts])
+
   const toggleSort = (key) => {
     setSortConfig((prev) =>
       prev.key === key
@@ -799,12 +820,18 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
       groupMap.get(key).orders.push(order)
     })
 
-    // Calculate totals for each group
+    // Calculate totals for each group (sales raw, commissions in USD)
     let groups = Array.from(groupMap.values()).map((group) => {
       const total = group.orders.reduce((sum, o) => sum + o.total, 0)
-      const commissionTotal = group.orders.reduce((sum, o) => {
+      const rawCommissionTotal = group.orders.reduce((sum, o) => {
         if (EXCLUDED_STAGES.includes(o.stage)) return sum
         return sum + getCommission(o).amount
+      }, 0)
+      const commissionTotal = group.orders.reduce((sum, o) => {
+        if (EXCLUDED_STAGES.includes(o.stage)) return sum
+        const commAmt = getCommission(o).amount
+        const cur = getAccountCurrency(o.client_id)
+        return sum + commAmt * getRate(cur, 'USD')
       }, 0)
       const allInvoices = group.orders.flatMap((o) => getInvoices(o))
       const invoicedTotal = allInvoices.reduce((sum, inv) => {
@@ -820,7 +847,8 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
       let adjustedCommission = commissionTotal
       if (isShortShipped) {
         const firstOrderComm = commissions.find(c => c.order_id === group.orders[0]?.id)
-        const totalPaid = firstOrderComm?.amount_paid || 0
+        const acctCur = getAccountCurrency(group.orders[0]?.client_id)
+        const totalPaid = (firstOrderComm?.amount_paid || 0) * getRate(acctCur, 'USD')
         if (totalPaid < commissionTotal) {
           const commissionGap = commissionTotal - totalPaid
           // Use weighted average commission rate to back-calculate unshipped sales
@@ -833,7 +861,9 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
 
       // Check if overpaid — paid more than commission due
       const groupComms = commissions.filter(c => group.orders.some(o => o.id === c.order_id))
-      const totalPaid = groupComms.reduce((sum, c) => sum + (c.amount_paid || 0), 0)
+      const acctCurrency = getAccountCurrency(group.orders[0]?.client_id)
+      const paidRate = getRate(acctCurrency, 'USD')
+      const totalPaid = groupComms.reduce((sum, c) => sum + (c.amount_paid || 0) * paidRate, 0)
       const isOverpaid = totalPaid > commissionTotal && commissionTotal > 0 && !isShortShipped
       let overpaidAdjustedSale = total
       let overpaidAdjustedCommission = commissionTotal
@@ -846,6 +876,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
       return {
         ...group,
         total,
+        rawCommissionTotal,
         commissionTotal,
         allInvoices,
         invoicedTotal,
@@ -1011,9 +1042,16 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
   // Exclude cancelled and short shipped orders from totals
   const activeOrders = seasonOrders.filter((o) => !EXCLUDED_STAGES.includes(o.stage))
   const totalSales = activeOrders.reduce((sum, o) => sum + o.total, 0)
-  const totalCommission = activeOrders.reduce((sum, o) => sum + getCommission(o).amount, 0)
+  const rawTotalCommission = activeOrders.reduce((sum, o) => sum + getCommission(o).amount, 0)
+  const totalCommissionUSD = activeOrders.reduce((sum, o) => {
+    const commAmt = getCommission(o).amount
+    const cur = getAccountCurrency(o.client_id)
+    return sum + commAmt * getRate(cur, 'USD')
+  }, 0)
+  const [showUSD, setShowUSD] = useState(false)
+  const totalCommission = showUSD ? totalCommissionUSD : rawTotalCommission
 
-  // Per-order-type totals for summary cards (excluding cancelled)
+  // Per-order-type totals for summary cards (excluding cancelled, raw amounts)
   const orderTypeTotals = useMemo(() => {
     const map = {}
     activeOrders.forEach((o) => {
@@ -1797,7 +1835,19 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
               </div>
             ))}
             <div className="bg-white dark:bg-zinc-800 border-2 border-[#005b5b]/30 dark:border-zinc-700 rounded-xl px-4 py-3">
-              <p className="text-xs text-[#005b5b] uppercase tracking-wide">Total Commish</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-[#005b5b] uppercase tracking-wide">Total Commish</p>
+                {hasConversion && (
+                  <button
+                    onClick={() => setShowUSD(!showUSD)}
+                    className={`flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border transition-colors ${showUSD ? 'bg-[#005b5b] text-white border-[#005b5b]' : 'text-muted-foreground border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+                    title={showUSD ? 'Viewing in USD' : 'Convert to USD'}
+                  >
+                    <DollarSign className="size-2.5" />
+                    USD
+                  </button>
+                )}
+              </div>
               <p className="text-lg font-bold text-zinc-900 dark:text-white">{fmt(totalCommission)}</p>
             </div>
           </div>
@@ -2050,12 +2100,12 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                           )}
                         </TableCell>
                         <TableCell className="text-right py-3">
-                          <span className="font-bold text-zinc-900 dark:text-white">{fmt(group.commissionTotal)}</span>
+                          <span className="font-bold text-zinc-900 dark:text-white">{fmt(showUSD ? group.commissionTotal : group.rawCommissionTotal)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
-                            <div className="text-xs text-purple-600 font-medium">Updated: {fmt(group.adjustedCommission)}</div>
+                            <div className="text-xs text-purple-600 font-medium">Updated: {fmt(showUSD ? group.adjustedCommission : group.adjustedCommission)}</div>
                           )}
                           {group.isOverpaid && (
-                            <div className="text-xs text-emerald-600 font-medium">Updated: {fmt(group.overpaidAdjustedCommission)}</div>
+                            <div className="text-xs text-emerald-600 font-medium">Updated: {fmt(showUSD ? group.overpaidAdjustedCommission : group.overpaidAdjustedCommission)}</div>
                           )}
                         </TableCell>
                         <TableCell></TableCell>
@@ -2146,7 +2196,7 @@ function CompanySales({ companyId, addSaleOpen, setAddSaleOpen, activeTracker, s
                                   </Popover>
                                 )}
                                 <span className={comm.isOverridden ? 'text-amber-700 font-medium' : ''}>
-                                  {fmt(comm.amount)}
+                                  {showUSD ? fmt(comm.amount * getRate(getAccountCurrency(order.client_id), 'USD')) : fmt(comm.amount)}
                                 </span>
                                 <span className="text-xs text-muted-foreground ml-0.5">
                                   ({comm.pct}%)
