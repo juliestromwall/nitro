@@ -80,6 +80,9 @@
 | Account Currency | Per-account currency setting (e.g., USD, CAD). Sales stored in original currency. Commissions can be viewed in USD via toggle. Payments entered and stored in original currency. Exchange rates from frankfurter.dev/v1 (ECB daily rates). |
 | AI Commission Summary | Claude Haiku-powered natural language analysis of commission data per brand. Shows problem accounts, outstanding amounts, partial payment progress, expected collections, and action items. Generated on-demand via Supabase Edge Function. |
 | App Subdomain | The app is served at app.repcommish.com. The marketing site remains at repcommish.com. Both serve the same build from /var/www/nitro on the VPS. Login/Sign Up links on the marketing site point to app.repcommish.com. |
+| Shareable Commission Report | A unique public URL (e.g. app.repcommish.com/share/abc123) showing a read-only commission view. No login required. Data fetched live via edge function. Generated from CompanyDetail dropdown. Gated to pro_rep + master_admin roles. |
+| Commission Share | A record in commission_shares table linking a share_token to a user_id + company_id + optional season_id. Can be revoked. Optional expiry. |
+| Google Sheets Sync | One-click push of commission data to a Google Sheet via service account. Styled output with row grouping. Hardcoded sheet ID for now. |
 | USD Toggle | View-only "$USD" button on Sales, Commission, and Dashboard pages. Converts commission/payment values from original currency to USD using daily exchange rate. Only appears when current view contains non-USD accounts. DB always stores original currency. |
 | Marketing Site | Public-facing pages (/, /features, /pricing, /about) with MarketingLayout. Password-gated (BringMore$now!) until Stripe is set up. |
 | Stripe Checkout | Hosted Stripe payment page for subscription signup. Redirects to /checkout/success or /checkout/cancel. |

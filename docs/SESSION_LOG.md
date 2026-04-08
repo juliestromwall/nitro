@@ -2,25 +2,28 @@
 
 ## 2026-04-08 (Session 20)
 
-**Worked on:** app.repcommish.com subdomain setup, commission report exports (grouped by account), AI commission summary, XLSX styling, exchange rate API fix
+**Worked on:** app.repcommish.com subdomain, commission report exports (grouped by account), AI commission summary, XLSX styling, Google Sheets sync, shareable commission report links, exchange rate API fix
 
 **Changes made:**
 - **app.repcommish.com subdomain:** Created DNS A record, nginx config, SSL cert via Certbot. App now served at app.repcommish.com alongside repcommish.com (same build, same /var/www/nitro)
 - **Marketing site links:** Updated Login/Sign Up buttons across MarketingHeader, MarketingFooter, HomePage, FeaturesPage, AboutPage to link to app.repcommish.com instead of relative /login and /signup routes
-- **Commission report exports (PDF + XLSX):** Restructured from flat rows to account-grouped layout — bold account header rows with aggregated Sales Total, Commission Due/Paid/Owed, Status; order sub-rows underneath with Order #, Order Total, Commission %, Commission Due
-- **PDF improvements:** Removed alternating row stripes, only account header rows highlighted (light teal background). Emoji stripped from filter subtitle (jsPDF can't render them)
-- **XLSX styling:** Switched from `xlsx` to `xlsx-js-style` for cell styling support. Teal header row with white text, light teal account header rows with bold text, vertical column dividers only (no horizontal gridlines), proper column widths, right-aligned dollar columns. All values formatted with $ and cents
-- **AI Commission Summary:** New Supabase Edge Function (`commission-summary`) that sends commission data to Claude Haiku and returns a natural language analysis. Collapsible card on CompanyCommission page with loading state, error handling, refresh button, and markdown rendering
-- **Exchange rate API fix:** Updated frankfurter.app URL to frankfurter.dev/v1 (old URL returns 301 causing CORS failures from app.repcommish.com)
+- **Commission report exports (PDF + XLSX):** Restructured from flat rows to account-grouped layout — bold account header rows with aggregated totals; order sub-rows with Order #, Order Total, Commission %, Commission Due. Status shown on every row.
+- **PDF improvements:** Removed alternating row stripes, only account header rows highlighted (light teal). Emoji stripped from subtitle (jsPDF can't render them).
+- **XLSX styling:** Switched from `xlsx` to `xlsx-js-style`. Teal header, bold teal account rows, vertical-only column dividers (no horizontal gridlines), $ formatting with cents, white-on-white hidden text (Brand, Account, Commission Paid, Commission Owed, Status) on sub-rows for sort safety. Proper column widths.
+- **AI Commission Summary:** Supabase Edge Function (`commission-summary`) sends commission data to Claude Haiku, returns natural language analysis. Collapsible card on CompanyCommission page. Fixed: was reading from wrong data source (`allGroupedRows` → `groupedRows`).
+- **Google Sheets sync:** Edge function (`sync-google-sheets`) using Google service account (repcommish-sheets@repcommish.iam.gserviceaccount.com). Pushes commission data to Google Sheet with teal headers, bold account rows, collapsible row groups, currency formatting, white-on-white hidden sort columns. "Sync to Google Sheets" button on Commissions tab.
+- **Shareable Commission Report:** New feature — rep generates a unique URL (e.g. `app.repcommish.com/share/abc123`) that shows a read-only commission view. No login required. Full UI: season tabs, summary cards, sortable columns, collapsible account groups, search. DB table `commission_shares`, two edge functions (`create-commission-share`, `get-shared-commission`), new `SharePage.jsx` component, public route in main.jsx. Share button in CompanyDetail dropdown (gated to pro_rep + master_admin).
+- **Exchange rate API fix:** Updated frankfurter.app → frankfurter.dev/v1 (301 redirect was breaking CORS).
 
 **Next steps:**
-- Verify AI summary is working correctly after the groupedRows fix
-- Test XLSX horizontal gridline removal in Excel
-- Gmail API integration (still pending from previous session)
-- Brand Imports feature production launch (still hidden)
+- Add share link management (list active links, revoke)
+- Add expiry options to share dialog
+- Push share feature to Adam (pro_rep) specifically
+- Gmail API integration (still pending)
+- Brand Imports production launch (still hidden)
 
 **Open questions:**
-- None
+- What role is Adam's account set to? Need to verify pro_rep in Supabase.
 
 ## 2026-03-02 (Session 19)
 
