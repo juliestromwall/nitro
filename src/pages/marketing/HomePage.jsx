@@ -29,21 +29,29 @@ function HomePage() {
               <span className="bg-gradient-to-r from-[#005b5b] to-teal-500 bg-clip-text text-transparent">Know your commish.</span>
             </h1>
             <p className="mt-6 text-lg md:text-xl text-zinc-600 dark:text-zinc-400 max-w-2xl">
-              REPCOMMISH helps independent sales reps track orders, calculate commissions, and manage payments across all their brands — in one simple dashboard.
+              Because you became a sales rep to sell — not to spend your weekends fighting spreadsheets. Track orders, calculate commissions, and know exactly who owes you what, all in one place.
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
-              <Link
-                to="/signup"
+              <a
+                href="https://app.repcommish.com/signup"
                 className="inline-flex items-center px-6 py-3 bg-[#005b5b] hover:bg-[#007a7a] text-white font-medium rounded-lg transition-colors text-lg shadow-lg shadow-[#005b5b]/25"
               >
                 Get Started
-              </Link>
+              </a>
               <Link
                 to="/features"
                 className="inline-flex items-center px-6 py-3 border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-800 font-medium rounded-lg transition-colors text-lg"
               >
                 See Features
               </Link>
+              <a
+                href="https://calendly.com/repcommish"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center px-6 py-3 border-2 border-[#005b5b] dark:border-teal-400 text-[#005b5b] dark:text-teal-400 hover:bg-[#005b5b] hover:text-white dark:hover:bg-teal-400 dark:hover:text-zinc-900 font-medium rounded-lg transition-colors text-lg"
+              >
+                Request a Demo
+              </a>
             </div>
           </div>
         </div>
@@ -58,17 +66,17 @@ function HomePage() {
             <div className="w-16 h-1 rounded-full bg-[#005b5b]" />
           </div>
           <h2 className="text-3xl font-bold text-center text-zinc-900 dark:text-white mb-4">
-            Everything you need to manage your commissions
+            Your spreadsheet's worst nightmare
           </h2>
           <p className="text-center text-zinc-600 dark:text-zinc-400 mb-12 max-w-2xl mx-auto">
-            Built for independent sales reps — whether you carry one brand or many.
+            One brand or twenty — REPCOMMISH keeps up so you don't have to slow down.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
               {
                 title: 'Multi-Brand Dashboard',
-                desc: 'See total sales, commissions earned, and commissions owed across all your brands at a glance.',
+                desc: 'All your brands, one screen. Total sales, commissions earned, and what\'s still sitting in someone else\'s bank account.',
                 color: 'bg-[#005b5b]',
                 iconColor: 'text-white',
                 icon: (
@@ -77,7 +85,7 @@ function HomePage() {
               },
               {
                 title: 'Order Tracking',
-                desc: 'Track every order from placement through close with custom categories, stages, and items.',
+                desc: 'Every order, every stage, every detail — from "just placed" to "show me the money." No more sticky notes.',
                 color: 'bg-amber-500',
                 iconColor: 'text-white',
                 icon: (
@@ -86,7 +94,7 @@ function HomePage() {
               },
               {
                 title: 'Commission Calculator',
-                desc: 'Automatic commission calculation with per-brand and per-category rates. Know exactly what you\'re owed.',
+                desc: 'Auto-calculates what you\'re owed down to the penny. Finally, math that works in your favor.',
                 color: 'bg-emerald-500',
                 iconColor: 'text-white',
                 icon: (
@@ -95,7 +103,7 @@ function HomePage() {
               },
               {
                 title: 'Payment Management',
-                desc: 'Record payments, track what\'s been paid vs. outstanding, and manage bulk payments easily.',
+                desc: 'Track what\'s been paid, what\'s outstanding, and who\'s conveniently "still processing." Receipts don\'t lie.',
                 color: 'bg-violet-500',
                 iconColor: 'text-white',
                 icon: (
@@ -126,7 +134,7 @@ function HomePage() {
               <div className="w-16 h-1 rounded-full bg-amber-500" />
             </div>
             <h2 className="text-3xl font-bold text-zinc-900 dark:text-white mb-3">See it in action</h2>
-            <p className="text-zinc-600 dark:text-zinc-400">A quick look at what's waiting inside.</p>
+            <p className="text-zinc-600 dark:text-zinc-400">Cleaner than your current spreadsheet. We promise.</p>
           </div>
 
           {/* Stacked screenshots */}
@@ -263,15 +271,15 @@ function HomePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
             <div>
               <div className="text-4xl font-bold text-[#005b5b] mb-2">5 min</div>
-              <div className="text-zinc-400">Setup time</div>
+              <div className="text-zinc-400">To set up (seriously)</div>
             </div>
             <div>
               <div className="text-4xl font-bold text-amber-400 mb-2">Unlimited</div>
               <div className="text-zinc-400">Brands & orders</div>
             </div>
             <div>
-              <div className="text-4xl font-bold text-emerald-400 mb-2">100%</div>
-              <div className="text-zinc-400">Commission visibility</div>
+              <div className="text-4xl font-bold text-emerald-400 mb-2">$0</div>
+              <div className="text-zinc-400">Left on the table</div>
             </div>
           </div>
         </div>
@@ -281,24 +289,32 @@ function HomePage() {
       <section className="py-20 bg-gradient-to-br from-[#005b5b] to-[#003d3d]">
         <div className="max-w-3xl mx-auto px-6 text-center">
           <h2 className="text-3xl font-bold text-white mb-4">
-            Ready to take control of your commissions?
+            Stop guessing. Start getting paid.
           </h2>
           <p className="text-teal-100/80 mb-8 text-lg">
-            Join REPCOMMISH and never wonder what you're owed again.
+            Your commissions aren't going to track themselves. (Trust us, we tried.)
           </p>
           <div className="flex flex-wrap justify-center gap-4">
-            <Link
-              to="/signup"
+            <a
+              href="https://app.repcommish.com/signup"
               className="inline-flex items-center px-8 py-3 bg-white text-[#005b5b] font-semibold rounded-lg hover:bg-teal-50 transition-colors text-lg shadow-lg"
             >
               Get Started Today
-            </Link>
+            </a>
             <Link
               to="/pricing"
               className="inline-flex items-center px-8 py-3 border-2 border-white/30 text-white font-semibold rounded-lg hover:bg-white/10 transition-colors text-lg"
             >
               View Pricing
             </Link>
+            <a
+              href="https://calendly.com/repcommish"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center px-8 py-3 border-2 border-white/30 text-white font-semibold rounded-lg hover:bg-white/10 transition-colors text-lg"
+            >
+              Schedule a Demo
+            </a>
           </div>
         </div>
       </section>

@@ -38,6 +38,7 @@ create table clients (
   city text,
   state text,
   zip text,
+  currency text not null default 'USD',
   created_at timestamptz not null default now()
 );
 

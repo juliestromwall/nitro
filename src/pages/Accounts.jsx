@@ -41,7 +41,7 @@ function Accounts() {
 
   const emptyForm = {
     name: '', account_number: '', region: '', type: '', address: '', city: '', state: '', zip: '',
-    website: '', phone: '', logo_path: '',
+    website: '', phone: '', logo_path: '', currency: 'USD',
   }
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
@@ -96,6 +96,7 @@ function Accounts() {
       website: account.website || '',
       phone: account.phone || '',
       logo_path: account.logo_path || '',
+      currency: account.currency || 'USD',
     })
     setLogoPreview(null)
     setLogoFile(null)
@@ -168,9 +169,24 @@ function Accounts() {
                   <Label htmlFor="name">Account Name</Label>
                   <Input id="name" value={form.name} onChange={(e) => handleFormChange('name', e.target.value)} />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="accountNumber">Account #</Label>
-                  <Input id="accountNumber" value={form.account_number} onChange={(e) => handleFormChange('account_number', e.target.value)} />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="accountNumber">Account #</Label>
+                    <Input id="accountNumber" value={form.account_number} onChange={(e) => handleFormChange('account_number', e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="currency">Currency</Label>
+                    <select
+                      id="currency"
+                      value={form.currency}
+                      onChange={(e) => handleFormChange('currency', e.target.value)}
+                      className="w-full border rounded-md px-3 py-2 text-sm bg-white dark:bg-zinc-800 dark:border-zinc-700"
+                    >
+                      {['USD', 'CAD', 'EUR', 'GBP', 'AUD', 'MXN', 'JPY', 'CHF'].map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
 
                 <div className="space-y-2">

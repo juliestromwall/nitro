@@ -1,5 +1,5 @@
 import { useState, useMemo, Fragment } from 'react'
-import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle } from 'lucide-react'
+import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, DollarSign, Sparkles, Loader2 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,12 +15,17 @@ import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
 import { getDocumentUrl } from '@/lib/db'
+import { supabase } from '@/lib/supabase'
 import { EXCLUDED_STAGES } from '@/lib/constants'
+import { useExchangeRates } from '@/hooks/useExchangeRate'
 import AccountQuickView from '@/components/AccountQuickView'
 import { Link } from 'react-router-dom'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+
+const fmtCur = (value, currency = 'USD') =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value)
 
 const payStatusOptions = [
   { value: 'paid', label: 'Paid' },
@@ -88,7 +93,17 @@ const SortIcon = ({ column, sortConfig }) => {
 function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
   const { userRole } = useAuth()
   const canViewAccountDetail = userRole === 'master_admin' || userRole === 'pro_rep'
-  const { getAccountName } = useAccounts()
+  const { accounts, getAccountName, getAccount } = useAccounts()
+  // Exchange rates for account-level currency conversion (from all accounts for rate fetching)
+  const fxPairs = useMemo(() => {
+    const seen = new Set()
+    return accounts
+      .map((a) => a.currency || 'USD')
+      .filter((c) => c !== 'USD' && !seen.has(c) && seen.add(c))
+      .map((c) => ({ from: c, to: 'USD' }))
+  }, [accounts])
+  const { getRate } = useExchangeRates(fxPairs)
+  const getAccountCurrency = (clientId) => getAccount(clientId)?.currency || 'USD'
   const { companies } = useCompanies()
   const { orders, commissions, updateSeason, toggleArchiveSeason, upsertCommission, updateCommission, updateOrder, getSeasonsForCompany } = useSales()
 
@@ -99,6 +114,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
   const [cardFilter, setCardFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showArchived, setShowArchived] = useState(false)
+  const [showUSD, setShowUSD] = useState(false)
   const [sortConfig, setSortConfig] = useState({ key: null, dir: 'asc' })
 
   // Edit tab dialog state
@@ -151,6 +167,11 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
     return categoryPct != null ? categoryPct : commissionPct
   }
 
+  const getOrderCommissionPct = (order) => {
+    const expectedPct = getExpectedRate(order.order_type)
+    return order.commission_override != null ? order.commission_override : expectedPct
+  }
+
   // Get all non-cancelled orders for this company + season
   const closedWonOrders = isAllView
     ? orders.filter((o) => o.company_id === companyId && o.stage !== 'Canceled' && activeSeasons.some(s => s.id === o.season_id))
@@ -160,11 +181,26 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
         )
       : []
 
+  // Check if any orders in current view use non-USD currencies
+  const hasConversion = useMemo(() => {
+    return closedWonOrders.some((o) => getAccountCurrency(o.client_id) !== 'USD')
+  }, [closedWonOrders, accounts])
+
   // Build commission rows from orders
   const commissionRows = closedWonOrders.map((order) => {
     const commEntry = commissions.find((c) => c.order_id === order.id)
 
+    const acctCur = getAccountCurrency(order.client_id)
+    const fxRate = getRate(acctCur, 'USD')
+
+    // Always calculate commission from order total + rate (matching Sales tab)
+    const pct = getOrderCommissionPct(order)
+    const commissionDueRaw = order.total * (pct / 100)
+    const commissionDue = commissionDueRaw * fxRate
+
     if (commEntry) {
+      const rawPaid = commEntry.amount_paid || 0
+      const paidUSD = rawPaid * fxRate
       return {
         id: order.id,
         orderId: order.id,
@@ -177,16 +213,17 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
         order_type: order.order_type,
         invoices: getInvoices(order),
         orderTotal: order.total,
-        commissionDue: commEntry.commission_due,
+        commissionDue,
+        rawCommissionDue: commissionDueRaw,
         pay_status: commEntry.pay_status,
-        amount_paid: commEntry.amount_paid,
+        amount_paid: paidUSD,
+        rawAmountPaid: rawPaid,
         paid_date: commEntry.paid_date,
-        amount_remaining: commEntry.amount_remaining,
+        amount_remaining: Math.max(commissionDue - paidUSD, 0),
+        rawAmountRemaining: commEntry.amount_remaining,
       }
     }
 
-    const orderPct = getExpectedRate(order.order_type)
-    const commissionDue = order.total * (orderPct / 100)
     return {
       id: order.id,
       orderId: order.id,
@@ -200,10 +237,13 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
       invoices: getInvoices(order),
       orderTotal: order.total,
       commissionDue,
+      rawCommissionDue: commissionDueRaw,
       pay_status: 'pending invoice',
       amount_paid: 0,
+      rawAmountPaid: 0,
       paid_date: null,
       amount_remaining: commissionDue,
+      rawAmountRemaining: commissionDueRaw,
     }
   })
 
@@ -265,7 +305,9 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
     let groups = Array.from(groupMap.values()).map((group) => {
       // Full totals from ALL orders (not excluding Short Shipped stages)
       const totalOrder = group.rows.reduce((sum, r) => sum + r.orderTotal, 0)
+      const rawTotalCommDue = group.rows.reduce((sum, r) => sum + (r.rawCommissionDue || 0), 0)
       const totalCommDue = group.rows.reduce((sum, r) => sum + r.commissionDue, 0)
+      const rawTotalPaid = group.rows.reduce((sum, r) => sum + (r.rawAmountPaid || 0), 0)
       const totalPaid = group.rows.reduce((sum, r) => sum + r.amount_paid, 0)
       const totalRemaining = group.rows.some(r => r.pay_status === 'short shipped')
         ? 0
@@ -323,7 +365,9 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
       return {
         ...group,
         totalOrder,
+        rawTotalCommDue,
         totalCommDue,
+        rawTotalPaid,
         totalPaid,
         totalRemaining,
         aggPayStatus,
@@ -388,26 +432,93 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
     })
     return Array.from(groupMap.values()).map((group) => {
       const totalOrder = group.rows.reduce((sum, r) => sum + r.orderTotal, 0)
+      const rawTotalCommDue = group.rows.reduce((sum, r) => sum + (r.rawCommissionDue || 0), 0)
       const totalCommDue = group.rows.reduce((sum, r) => sum + r.commissionDue, 0)
+      const rawTotalPaid = group.rows.reduce((sum, r) => sum + (r.rawAmountPaid || 0), 0)
       const totalPaid = group.rows.reduce((sum, r) => sum + r.amount_paid, 0)
       const anyShortShipped = group.rows.some(r => r.pay_status === 'short shipped')
       const isShortShipped = anyShortShipped
       let adjustedCommission = totalCommDue
+      let rawAdjustedCommission = rawTotalCommDue
       if (isShortShipped && totalPaid < totalCommDue) {
         adjustedCommission = totalPaid
+        rawAdjustedCommission = rawTotalPaid
       }
       const isOverpaid = totalPaid > totalCommDue && totalCommDue > 0 && !isShortShipped
-      return { totalCommDue, totalPaid, isShortShipped, adjustedCommission, isOverpaid, overpaidAdjustedCommission: isOverpaid ? totalPaid : totalCommDue }
+      return {
+        rawTotalCommDue, totalCommDue, rawTotalPaid, totalPaid,
+        isShortShipped, adjustedCommission, rawAdjustedCommission,
+        isOverpaid,
+        overpaidAdjustedCommission: isOverpaid ? totalPaid : totalCommDue,
+        rawOverpaidAdjustedCommission: isOverpaid ? rawTotalPaid : rawTotalCommDue,
+      }
     })
   }, [commissionRows])
 
-  const totalEarned = useMemo(() => {
+  const totalEarnedUSD = useMemo(() => {
     return allGroupedRows.reduce((sum, g) => sum + (g.isShortShipped ? g.adjustedCommission : g.isOverpaid ? g.overpaidAdjustedCommission : g.totalCommDue), 0)
   }, [allGroupedRows])
-  const totalPaid = useMemo(() => {
+  const rawTotalEarned = useMemo(() => {
+    return allGroupedRows.reduce((sum, g) => sum + (g.isShortShipped ? g.rawAdjustedCommission : g.isOverpaid ? g.rawOverpaidAdjustedCommission : g.rawTotalCommDue), 0)
+  }, [allGroupedRows])
+  const totalPaidUSD = useMemo(() => {
     return allGroupedRows.reduce((sum, g) => sum + g.totalPaid, 0)
   }, [allGroupedRows])
+  const rawTotalPaid = useMemo(() => {
+    return allGroupedRows.reduce((sum, g) => sum + g.rawTotalPaid, 0)
+  }, [allGroupedRows])
+  const totalEarned = showUSD ? totalEarnedUSD : rawTotalEarned
+  const totalPaid = showUSD ? totalPaidUSD : rawTotalPaid
   const totalOutstanding = Math.max(totalEarned - totalPaid, 0)
+
+  const [showSummary, setShowSummary] = useState(false)
+  const [aiSummary, setAiSummary] = useState('')
+  const [aiLoading, setAiLoading] = useState(false)
+  const [aiError, setAiError] = useState(null)
+  const [lastSummaryKey, setLastSummaryKey] = useState(null)
+
+  const generateAiSummary = async () => {
+    const groups = groupedRows
+    if (!groups.length) return
+
+    // Build a key to avoid re-fetching for the same data
+    const summaryKey = `${companyId}_${activeTab}_${groups.length}_${Math.round(totalEarned)}_${Math.round(totalPaid)}`
+    if (summaryKey === lastSummaryKey && aiSummary) {
+      setShowSummary(true)
+      return
+    }
+
+    setAiLoading(true)
+    setAiError(null)
+    setShowSummary(true)
+
+    const commissionData = groups.filter(g => g && g.rows).map(g => ({
+      accountName: g.accountName || 'Unknown',
+      orderCount: g.rows.length,
+      salesTotal: Math.round(g.totalOrder * 100) / 100,
+      commissionDue: Math.round(g.totalCommDue * 100) / 100,
+      commissionPaid: Math.round(g.totalPaid * 100) / 100,
+      commissionOwed: Math.round(g.totalRemaining * 100) / 100,
+      payStatus: g.aggPayStatus,
+    }))
+
+    try {
+      const { data, error } = await supabase.functions.invoke('commission-summary', {
+        body: { brandName: company?.name || 'Unknown', commissionData },
+      })
+      if (error) throw new Error(error.message || JSON.stringify(error))
+      if (!data) throw new Error('No response from AI')
+      const summary = typeof data === 'string' ? JSON.parse(data).summary : data.summary
+      if (!summary) throw new Error('No summary in response')
+      setAiSummary(summary)
+      setLastSummaryKey(summaryKey)
+    } catch (err) {
+      console.error('AI Summary error:', err)
+      setAiError(err.message || 'Failed to generate summary')
+    } finally {
+      setAiLoading(false)
+    }
+  }
 
   const handleTabChange = (seasonId) => {
     setActiveTab(seasonId)
@@ -470,9 +581,9 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
       })))
     } else {
       const existing = group.rows
-        .filter(r => r.amount_paid > 0)
+        .filter(r => r.rawAmountPaid > 0)
         .map(r => ({
-          amount: floatToCents(r.amount_paid),
+          amount: floatToCents(r.rawAmountPaid),
           date: r.paid_date || '',
         }))
       setPaymentList(existing.length > 0 ? existing : [{ amount: '', date: '' }])
@@ -515,10 +626,10 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
       .pop() || null
 
     // Use the manually selected status — only auto-calculate if not explicitly set
-    // Round to cents to avoid floating point comparison issues
+    // Compare in original currency (payments are entered in account currency)
     let status = paymentStatus
     const paidCents = Math.round(totalPaidAmt * 100)
-    const dueCents = Math.round(group.totalCommDue * 100)
+    const dueCents = Math.round(group.rawTotalCommDue * 100)
     if (status !== 'short shipped') {
       if (paidCents >= dueCents && dueCents > 0) {
         status = 'paid'
@@ -527,14 +638,14 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
       }
     }
 
-    const groupRemaining = Math.max(group.totalCommDue - totalPaidAmt, 0)
+    const groupRemaining = Math.max(group.rawTotalCommDue - totalPaidAmt, 0)
 
     // Save all payment data on first order's commission
     const firstRow = group.rows[0]
     try {
       await upsertCommission({
         order_id: firstRow.orderId,
-        commission_due: firstRow.commissionDue,
+        commission_due: firstRow.rawCommissionDue,
         pay_status: status,
         amount_paid: totalPaidAmt,
         paid_date: latestDate,
@@ -545,7 +656,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
       console.error('Saving with payments failed, retrying without:', err)
       await upsertCommission({
         order_id: firstRow.orderId,
-        commission_due: firstRow.commissionDue,
+        commission_due: firstRow.rawCommissionDue,
         pay_status: status,
         amount_paid: totalPaidAmt,
         paid_date: latestDate,
@@ -558,7 +669,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
       const row = group.rows[i]
       await upsertCommission({
         order_id: row.orderId,
-        commission_due: row.commissionDue,
+        commission_due: row.rawCommissionDue,
         pay_status: status,
         amount_paid: 0,
         paid_date: null,
@@ -590,11 +701,11 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
     for (const row of group.rows) {
       await upsertCommission({
         order_id: row.orderId,
-        commission_due: row.commissionDue,
+        commission_due: row.rawCommissionDue,
         pay_status: newStatus,
-        amount_paid: row.amount_paid,
+        amount_paid: row.rawAmountPaid,
         paid_date: row.paid_date,
-        amount_remaining: Math.max(row.commissionDue - row.amount_paid, 0),
+        amount_remaining: Math.max(row.rawCommissionDue - row.rawAmountPaid, 0),
       })
     }
   }
@@ -606,11 +717,11 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
     for (const row of group.rows) {
       await upsertCommission({
         order_id: row.orderId,
-        commission_due: row.commissionDue,
+        commission_due: row.rawCommissionDue,
         pay_status: 'short shipped',
-        amount_paid: row.amount_paid,
+        amount_paid: row.rawAmountPaid,
         paid_date: row.paid_date,
-        amount_remaining: Math.max(row.commissionDue - row.amount_paid, 0),
+        amount_remaining: Math.max(row.rawCommissionDue - row.rawAmountPaid, 0),
       })
     }
     setShortShipAccountConfirmOpen(false)
@@ -759,7 +870,19 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
               className={`bg-white dark:bg-zinc-800 border-2 rounded-xl px-4 py-3 cursor-pointer transition-all ${cardFilter === 'all' ? 'border-[#005b5b]' : 'border-[#005b5b]/30 dark:border-zinc-700'}`}
               onClick={() => setCardFilter('all')}
             >
-              <p className="text-xs text-[#005b5b] uppercase tracking-wide">Commish Earned</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-[#005b5b] uppercase tracking-wide">Commish Earned</p>
+                {hasConversion && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowUSD(!showUSD) }}
+                    className={`flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border transition-colors ${showUSD ? 'bg-[#005b5b] text-white border-[#005b5b]' : 'text-muted-foreground border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+                    title={showUSD ? 'Viewing in USD' : 'Convert to USD'}
+                  >
+                    <DollarSign className="size-2.5" />
+                    USD
+                  </button>
+                )}
+              </div>
               <p className="text-lg font-bold text-zinc-900 dark:text-white">{fmt(totalEarned)}</p>
             </div>
             <div
@@ -777,6 +900,54 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
               <p className="text-lg font-bold text-red-600">{fmt(totalOutstanding)}</p>
             </div>
           </div>
+
+          {/* AI Commission Summary */}
+          {groupedRows.length > 0 && (
+            <div className="border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden">
+              <button
+                onClick={() => showSummary ? setShowSummary(false) : generateAiSummary()}
+                className="w-full flex items-center justify-between px-4 py-3 bg-gradient-to-r from-[#005b5b]/5 to-transparent dark:from-[#005b5b]/10 hover:from-[#005b5b]/10 dark:hover:from-[#005b5b]/20 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-4 text-[#005b5b] dark:text-teal-400" />
+                  <span className="text-sm font-semibold text-zinc-900 dark:text-white">AI Commission Summary</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {aiSummary && !aiLoading && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setLastSummaryKey(null); generateAiSummary() }}
+                      className="text-[10px] text-muted-foreground hover:text-zinc-900 dark:hover:text-white px-1.5 py-0.5 rounded border border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                    >
+                      Refresh
+                    </button>
+                  )}
+                  <ChevronDown className={`size-4 text-muted-foreground transition-transform duration-200 ${showSummary ? 'rotate-180' : ''}`} />
+                </div>
+              </button>
+              {showSummary && (
+                <div className="px-4 pb-4 pt-2">
+                  {aiLoading && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                      <Loader2 className="size-4 animate-spin" />
+                      <span>Analyzing your commissions...</span>
+                    </div>
+                  )}
+                  {aiError && (
+                    <p className="text-sm text-red-500 py-2">{aiError}</p>
+                  )}
+                  {aiSummary && !aiLoading && (
+                    <div className="text-sm text-zinc-700 dark:text-zinc-300 leading-relaxed whitespace-pre-wrap prose prose-sm dark:prose-invert max-w-none prose-strong:text-zinc-900 dark:prose-strong:text-white prose-headings:text-zinc-900 dark:prose-headings:text-white prose-headings:text-sm prose-headings:mt-3 prose-headings:mb-1 prose-p:my-1.5 prose-ul:my-1 prose-li:my-0.5"
+                      dangerouslySetInnerHTML={{
+                        __html: aiSummary
+                          .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                          .replace(/\n/g, '<br />')
+                      }}
+                    />
+                  )}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Sticky search bar */}
           <div className="sticky top-[107px] z-20 bg-background pb-2 pt-1 border-b border-zinc-100 dark:border-zinc-700">
@@ -871,12 +1042,12 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                           )}
                         </TableCell>
                         <TableCell className="text-right">
-                          <span className="font-bold dark:text-zinc-100">{fmt(group.totalCommDue)}</span>
+                          <span className="font-bold dark:text-zinc-100">{fmt(showUSD ? group.totalCommDue : group.rawTotalCommDue)}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
-                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">Updated: {fmt(group.adjustedCommission)}</div>
+                            <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">Updated: {fmt(showUSD ? group.adjustedCommission : group.adjustedCommission)}</div>
                           )}
                           {group.isOverpaid && (
-                            <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Updated: {fmt(group.overpaidAdjustedCommission)}</div>
+                            <div className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">Updated: {fmt(showUSD ? group.overpaidAdjustedCommission : group.overpaidAdjustedCommission)}</div>
                           )}
                         </TableCell>
                         <TableCell className="text-center">
@@ -900,7 +1071,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex items-center justify-end gap-2">
-                            <span className="font-bold dark:text-zinc-100">{fmt(group.totalPaid)}</span>
+                            <span className="font-bold dark:text-zinc-100">{fmt(showUSD ? group.totalPaid : group.rawTotalPaid)}</span>
                             <button
                               onClick={(e) => { e.stopPropagation(); openPaymentModal(group) }}
                               className="px-2 py-0.5 text-xs font-medium text-muted-foreground hover:text-foreground border border-dashed border-zinc-300 dark:border-zinc-600 rounded-md whitespace-nowrap flex items-center gap-0.5 transition-colors"
@@ -910,7 +1081,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                           </div>
                         </TableCell>
                         <TableCell className="text-right">
-                          <span className={`font-bold ${group.totalRemaining > 0 ? 'text-red-600 dark:text-red-400' : 'dark:text-zinc-100'}`}>{fmt(group.totalRemaining)}</span>
+                          <span className={`font-bold ${group.totalRemaining > 0 ? 'text-red-600 dark:text-red-400' : 'dark:text-zinc-100'}`}>{fmt(showUSD ? group.totalRemaining : Math.max(group.rawTotalCommDue - group.rawTotalPaid, 0))}</span>
                           {group.isShortShipped && group.unshippedSales > 0 && (
                             <div className="text-xs text-purple-600 dark:text-purple-400 font-medium">{fmt(group.unshippedSales)} did not ship</div>
                           )}
@@ -947,7 +1118,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                               {fmt(row.orderTotal)}
                             </TableCell>
                             <TableCell className={`text-right ${isExcluded ? 'text-purple-600 dark:text-purple-400' : 'text-muted-foreground'}`}>
-                              {fmt(row.commissionDue)}
+                              {fmt(showUSD ? row.commissionDue : row.rawCommissionDue)}
                             </TableCell>
                             <TableCell className="text-muted-foreground text-xs">{row.close_date ? fmtDate(row.close_date) : '—'}</TableCell>
                             <TableCell colSpan={2}></TableCell>
@@ -1059,13 +1230,15 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                 {paymentGroupId && (() => {
                   const group = groupedRows.find(g => g.clientId === paymentGroupId)
                   if (!group) return null
+                  const acctCur = getAccountCurrency(group.clientId)
                   const totalPaidNow = paymentList.reduce((sum, p) => {
                     const digits = String(p.amount).replace(/\D/g, '')
                     return sum + (digits ? parseInt(digits, 10) / 100 : 0)
                   }, 0)
-                  const remaining = group.totalCommDue - totalPaidNow
+                  // Compare in original currency (payments entered in account currency)
+                  const remaining = group.rawTotalCommDue - totalPaidNow
                   const isShortShipStatus = paymentStatus === 'short shipped'
-                  const avgPct = group.totalOrder > 0 ? (group.totalCommDue / group.totalOrder) * 100 : 0
+                  const avgPct = group.totalOrder > 0 ? (group.rawTotalCommDue / group.totalOrder) * 100 : 0
                   const unshippedCalc = isShortShipStatus && remaining > 0 && avgPct > 0
                     ? remaining / (avgPct / 100)
                     : 0
@@ -1073,47 +1246,47 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                     <div className="bg-zinc-50 dark:bg-zinc-800 rounded-lg p-3 space-y-1 text-sm">
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Commission Due:</span>
-                        <span className="font-bold">{fmt(group.totalCommDue)}</span>
+                        <span className="font-bold">{fmtCur(group.rawTotalCommDue, acctCur)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Total Paid:</span>
-                        <span className="font-bold text-green-700">{fmt(totalPaidNow)}</span>
+                        <span className="font-bold text-green-700">{fmtCur(totalPaidNow, acctCur)}</span>
                       </div>
                       <div className="flex justify-between border-t pt-1">
                         <span className="text-muted-foreground">Remaining:</span>
-                        <span className={`font-bold ${remaining > 0 ? 'text-red-600' : ''}`}>{fmt(remaining)}</span>
+                        <span className={`font-bold ${remaining > 0 ? 'text-red-600' : ''}`}>{fmtCur(remaining, acctCur)}</span>
                       </div>
                       {isShortShipStatus && unshippedCalc > 0 && (
                         <div className="border-t pt-2 mt-2 space-y-1">
                           <div className="flex justify-between text-purple-600">
                             <span className="font-medium">Sales that did not ship:</span>
-                            <span className="font-bold">{fmt(unshippedCalc)}</span>
+                            <span className="font-bold">{fmtCur(unshippedCalc, acctCur)}</span>
                           </div>
                           <div className="flex justify-between text-purple-600">
                             <span className="font-medium">Updated Sale:</span>
-                            <span className="font-bold">{fmt(group.totalOrder - unshippedCalc)}</span>
+                            <span className="font-bold">{fmtCur(group.totalOrder - unshippedCalc, acctCur)}</span>
                           </div>
                           <div className="flex justify-between text-purple-600">
                             <span className="font-medium">Updated Commission:</span>
-                            <span className="font-bold">{fmt(totalPaidNow)}</span>
+                            <span className="font-bold">{fmtCur(totalPaidNow, acctCur)}</span>
                           </div>
                         </div>
                       )}
-                      {!isShortShipStatus && totalPaidNow > group.totalCommDue && group.totalCommDue > 0 && (() => {
+                      {!isShortShipStatus && totalPaidNow > group.rawTotalCommDue && group.rawTotalCommDue > 0 && (() => {
                         const overpaidSale = avgPct > 0 ? totalPaidNow / (avgPct / 100) : group.totalOrder
                         return (
                           <div className="border-t pt-2 mt-2 space-y-1">
                             <div className="flex justify-between text-emerald-600">
                               <span className="font-medium">Overpaid by:</span>
-                              <span className="font-bold">{fmt(totalPaidNow - group.totalCommDue)}</span>
+                              <span className="font-bold">{fmtCur(totalPaidNow - group.rawTotalCommDue, acctCur)}</span>
                             </div>
                             <div className="flex justify-between text-emerald-600">
                               <span className="font-medium">Updated Sale:</span>
-                              <span className="font-bold">{fmt(overpaidSale)}</span>
+                              <span className="font-bold">{fmtCur(overpaidSale, acctCur)}</span>
                             </div>
                             <div className="flex justify-between text-emerald-600">
                               <span className="font-medium">Updated Commission:</span>
-                              <span className="font-bold">{fmt(totalPaidNow)}</span>
+                              <span className="font-bold">{fmtCur(totalPaidNow, acctCur)}</span>
                             </div>
                           </div>
                         )
@@ -1161,7 +1334,7 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
                 {/* Payment list */}
                 {paymentList.length > 0 && (
                   <div className="space-y-2">
-                    <Label>Payments</Label>
+                    <Label>Payments{paymentGroupId && getAccountCurrency(paymentGroupId) !== 'USD' ? ` (${getAccountCurrency(paymentGroupId)})` : ''}</Label>
                     {paymentList.map((payment, idx) => (
                       <div key={idx} className="flex items-center gap-2 border rounded-md p-2 bg-white dark:bg-zinc-700">
                         <div className="flex-1 space-y-1">

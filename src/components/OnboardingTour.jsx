@@ -115,16 +115,7 @@ const steps = [
     title: 'Add Sales',
     body: 'Add individual sales manually — enter the account, order details, invoice info, and totals. You can keep it simple or expand each sale with detailed invoice and item info. You can add multiple line items in one go.',
   },
-  // 12 — Import Sales
-  {
-    page: 'brand-detail',
-    target: '[data-tour="btn-import-sales"]',
-    placement: 'bottom',
-    title: 'Import Sales',
-    body: 'Have a batch of sales? Import them from a CSV. Download the template to get the right format.',
-    templates: 'sales',
-  },
-  // 13 — Add Payment
+  // 12 — Add Payment
   {
     page: 'brand-detail',
     target: '[data-tour="btn-add-payment"]',
@@ -132,14 +123,14 @@ const steps = [
     title: 'Add Payment',
     body: 'Record commission payments as they come in. You can add multiple payments at the same time — select the accounts being paid and enter the amounts. We\'ll track what\'s owed vs. paid.',
   },
-  // 14 — Import Payments
+  // 13 — Import Sales & Payments (via ... menu)
   {
     page: 'brand-detail',
-    target: '[data-tour="btn-import-payments"]',
+    target: '[data-tour="btn-more-menu"]',
     placement: 'bottom',
-    title: 'Import Payments',
-    body: 'Import commission payments from a CSV to track what\'s been paid vs. what\'s still owed. Download the template to get started.',
-    templates: 'payments',
+    title: 'Import Sales & Payments',
+    body: 'Have a batch of sales or payments? Click the three dots menu to import them from a CSV. Download the templates to get the right format.',
+    templates: 'both',
   },
   // 15 — Commissions Tab
   {
@@ -353,23 +344,27 @@ export default function OnboardingTour() {
   const isForced = s?.requireAction === 'brand' || s?.requireAction === 'account'
   let forceSatisfied = false
   if (s?.requireAction === 'brand' && initialBrandCount !== null) {
-    forceSatisfied = companies.length > initialBrandCount
+    // Already had brands before tour started (e.g. restarted tour) — let them skip
+    forceSatisfied = initialBrandCount > 0 || companies.length > initialBrandCount
   }
   if (s?.requireAction === 'account' && initialAccountCount !== null) {
-    forceSatisfied = accounts.length > initialAccountCount
+    forceSatisfied = initialAccountCount > 0 || accounts.length > initialAccountCount
   }
 
   // Auto-advance when force condition is met
   useEffect(() => {
     if (!active || !isForced || !forceSatisfied) return
     // Capture brand ID for brand-detail steps
-    if (s?.requireAction === 'brand' && companies.length > 0) {
+    if (s?.requireAction === 'brand' && companies.length > 0 && !tourBrandId) {
       const newest = companies[companies.length - 1]
       if (newest) setTourBrandId(newest.id)
     }
+    // If they already had brands, don't auto-advance — let them click Next
+    if (initialBrandCount > 0 && s?.requireAction === 'brand') return
+    if (initialAccountCount > 0 && s?.requireAction === 'account') return
     const t = setTimeout(() => goTo(step + 1), 400)
     return () => clearTimeout(t)
-  }, [active, isForced, forceSatisfied, step, goTo, companies, s?.requireAction])
+  }, [active, isForced, forceSatisfied, step, goTo, companies, s?.requireAction, tourBrandId, initialBrandCount, initialAccountCount])
 
   // Brand link click handler for step 6 (navigateToBrand)
   useEffect(() => {
@@ -442,6 +437,8 @@ export default function OnboardingTour() {
   const skip = () => {
     markTourDone()
     setActive(false)
+    navigate('/app')
+    window.location.reload()
   }
 
   const finish = () => {
@@ -512,6 +509,9 @@ export default function OnboardingTour() {
       templates.push({ href: '/templates/sales-import.xlsx', label: 'Sales Import Template' })
     } else if (s.templates === 'payments') {
       templates.push({ href: '/templates/payment-import.xlsx', label: 'Payment Import Template' })
+    } else if (s.templates === 'both') {
+      templates.push({ href: '/templates/sales-import.xlsx', label: 'Sales Import Template' })
+      templates.push({ href: '/templates/payment-import.xlsx', label: 'Payment Import Template' })
     }
     if (templates.length === 0) return null
     return (
@@ -574,7 +574,7 @@ export default function OnboardingTour() {
             ) : (
               <div className="relative bg-gradient-to-br from-[#005b5b] to-[#008080] px-6 pt-8 pb-10 text-center">
                 <button
-                  onClick={skip}
+                  onClick={() => setSkipConfirm(true)}
                   className="absolute top-3 right-3 text-white/60 hover:text-white transition-colors p-1"
                 >
                   <X className="w-4 h-4" />
@@ -727,10 +727,16 @@ export default function OnboardingTour() {
           )}
 
           <div className="p-4">
-            <div className="mb-1.5">
+            <div className="flex items-start justify-between mb-1.5">
               <h3 className="font-bold text-sm text-white">
                 {s.title}
               </h3>
+              <button
+                onClick={() => setSkipConfirm(true)}
+                className="text-white/40 hover:text-white transition-colors p-0.5 -mr-1 -mt-0.5 shrink-0"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
             </div>
 
             {!skipConfirm && (

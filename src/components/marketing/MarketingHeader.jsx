@@ -70,18 +70,26 @@ function MarketingHeader() {
 
         {/* Auth buttons */}
         <div className="hidden md:flex items-center gap-3">
-          <Link
-            to="/login"
+          <a
+            href="https://calendly.com/repcommish"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium border border-[#005b5b] dark:border-teal-400 text-[#005b5b] dark:text-teal-400 px-4 py-2 rounded-lg hover:bg-[#005b5b] hover:text-white dark:hover:bg-teal-400 dark:hover:text-zinc-900 transition-colors"
+          >
+            Request a Demo
+          </a>
+          <a
+            href="https://app.repcommish.com/login"
             className="text-sm font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
           >
             Log In
-          </Link>
-          <Link
-            to="/signup"
+          </a>
+          <a
+            href="https://app.repcommish.com/signup"
             className="text-sm font-medium bg-[#005b5b] hover:bg-[#007a7a] text-white px-4 py-2 rounded-lg transition-colors"
           >
             Sign Up
-          </Link>
+          </a>
         </div>
 
         {/* Mobile menu button */}
@@ -121,20 +129,29 @@ function MarketingHeader() {
             FAQs
           </a>
           <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 flex flex-col gap-2">
-            <Link
-              to="/login"
+            <a
+              href="https://calendly.com/repcommish"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setMobileOpen(false)}
+              className="text-sm font-medium border border-[#005b5b] dark:border-teal-400 text-[#005b5b] dark:text-teal-400 px-4 py-2 rounded-lg text-center"
+            >
+              Request a Demo
+            </a>
+            <a
+              href="https://app.repcommish.com/login"
               onClick={() => setMobileOpen(false)}
               className="text-sm font-medium text-zinc-600 dark:text-zinc-400 py-2"
             >
               Log In
-            </Link>
-            <Link
-              to="/signup"
+            </a>
+            <a
+              href="https://app.repcommish.com/signup"
               onClick={() => setMobileOpen(false)}
               className="text-sm font-medium bg-[#005b5b] text-white px-4 py-2 rounded-lg text-center"
             >
               Sign Up
-            </Link>
+            </a>
           </div>
         </div>
       )}

@@ -281,7 +281,7 @@ function UserSettingsDialog({ open, onOpenChange }) {
           <div className="flex items-center justify-end">
             <div className="text-right">
               <p className="text-xs text-muted-foreground capitalize mb-1">
-                {subscription?.plan || 'Free'} — {subscription?.status || 'none'}
+                {subscription?.plan || 'Free'} — {subscription?.status === 'trialing' ? 'Trialing' : subscription?.status || 'None'}
               </p>
               <Button
                 variant="outline"

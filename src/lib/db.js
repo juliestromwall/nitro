@@ -36,17 +36,17 @@ async function ensureFreshSession() {
 // Wrap a Supabase call with session refresh, timeout, and auto-retry.
 // The custom fetch in supabase.js uses AbortController to properly cancel
 // hung requests (clearing dead TCP connections), so retries get fresh connections.
-async function withTimeout(buildQuery, ms = 20000) {
+async function withTimeout(buildQuery, ms = 12000) {
   await ensureFreshSession()
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       return await Promise.race([
         buildQuery(),
         new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out — please try again.')), ms)),
       ])
     } catch (err) {
-      if (attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 500))
+      if (attempt < 1) {
+        await new Promise((resolve) => setTimeout(resolve, 300))
         continue
       }
       throw err
@@ -311,6 +311,24 @@ export async function fetchSubscription(userId) {
   )
   if (error && error.code !== 'PGRST116') throw error // PGRST116 = no rows
   return data || null
+}
+
+// ── Brand Uploads ─────────────────────────────────────────
+
+export async function fetchBrandUploads(companyId) {
+  const { data, error } = await withTimeout(
+    () => supabase.from('brand_uploads').select('*').eq('company_id', companyId).order('created_at', { ascending: false })
+  )
+  if (error) throw error
+  return data
+}
+
+export async function updateBrandUpload(id, updates) {
+  const { data, error } = await withTimeout(
+    () => supabase.from('brand_uploads').update(updates).eq('id', id).select().single()
+  )
+  if (error) throw error
+  return data
 }
 
 // ── Storage ────────────────────────────────────────────────

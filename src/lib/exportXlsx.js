@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx'
+import * as XLSX from 'xlsx-js-style'
 
 async function loadLogoAsBase64() {
   try {
@@ -14,20 +14,22 @@ async function loadLogoAsBase64() {
   }
 }
 
-async function downloadXlsx(data, columns, filename, title) {
+async function downloadXlsx(data, columns, filename, title, subtitle) {
   const logo = await loadLogoAsBase64()
 
-  // Build rows: logo header + title + date + blank row + data
+  // Build rows: logo header + title + subtitle + date + blank row + data
   const rows = []
 
   // Row 0: Title
   rows.push(['REPCOMMISH — ' + title])
-  // Row 1: Date
+  // Row 1: Filter subtitle (if any)
+  if (subtitle) rows.push(['Filtered by: ' + subtitle])
+  // Row N: Date
   rows.push([new Date().toLocaleDateString()])
-  // Row 2: blank separator
+  // Blank separator
   rows.push([])
 
-  // Row 3: column headers
+  // Column headers
   const header = columns.map((c) => c.label)
   rows.push(header)
 
@@ -38,13 +40,13 @@ async function downloadXlsx(data, columns, filename, title) {
 
   const ws = XLSX.utils.aoa_to_sheet(rows)
 
-  // Merge title row across all columns
+  // Merge header rows across all columns
   const colCount = columns.length
+  const headerRowCount = subtitle ? 3 : 2  // title + subtitle? + date
   if (colCount > 1) {
-    ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: colCount - 1 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: colCount - 1 } },
-    ]
+    ws['!merges'] = Array.from({ length: headerRowCount }, (_, i) => ({
+      s: { r: i, c: 0 }, e: { r: i, c: colCount - 1 },
+    }))
   }
 
   // Auto-size columns
@@ -97,7 +99,7 @@ export function exportBrandsXlsx(companies) {
   return downloadXlsx(companies, columns, 'brands.xlsx', 'Brands')
 }
 
-export function exportSalesXlsx(orders, companies, accounts, seasons) {
+export function exportSalesXlsx(orders, companies, accounts, seasons, filters) {
   const companyMap = Object.fromEntries(companies.map((c) => [c.id, c]))
   const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a]))
   const seasonMap = Object.fromEntries(seasons.map((s) => [s.id, s]))
@@ -116,36 +118,152 @@ export function exportSalesXlsx(orders, companies, accounts, seasons) {
     { label: 'Close Date', value: (o) => o.close_date || '' },
     { label: 'Notes', value: (o) => o.notes || '' },
   ]
-  return downloadXlsx(orders, columns, 'sales.xlsx', 'Sales')
+  return downloadXlsx(orders, columns, `sales${filters?.suffix || ''}.xlsx`, 'Sales', filters?.label)
 }
 
-export function exportCommissionsXlsx(commissions, orders, companies, accounts) {
+const fmtUsd = (v) => v != null && v !== '' ? `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''
+
+export async function exportCommissionsXlsx(commissions, orders, companies, accounts, filters) {
   const companyMap = Object.fromEntries(companies.map((c) => [c.id, c]))
   const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a]))
   const orderMap = Object.fromEntries(orders.map((o) => [o.id, o]))
 
-  const rows = commissions.map((c) => {
+  // Enrich and group by brand+account
+  const enriched = commissions.map((c) => {
     const order = orderMap[c.order_id] || {}
     const company = companyMap[order.company_id] || {}
     const rate = order.commission_override ?? company.commission_percent ?? 0
     return { ...c, order, company, account: accountMap[order.client_id] || {}, rate }
   })
 
-  const columns = [
-    { label: 'Brand', value: (r) => r.company.name || '' },
-    { label: 'Account', value: (r) => r.account.name || '' },
-    { label: 'Order #', value: (r) => r.order.order_number || '' },
-    { label: 'Order Total', value: (r) => r.order.total ?? '' },
-    { label: 'Commission %', value: (r) => r.rate },
-    { label: 'Due', value: (r) => r.commission_due ?? '' },
-    { label: 'Paid', value: (r) => r.amount_paid ?? '' },
-    { label: 'Remaining', value: (r) => r.amount_remaining ?? '' },
-    { label: 'Status', value: (r) => r.pay_status || '' },
+  const grouped = {}
+  for (const r of enriched) {
+    const key = `${r.company.id || ''}_${r.account.id || ''}`
+    if (!grouped[key]) grouped[key] = { brand: r.company.name || '', account: r.account.name || '', items: [] }
+    grouped[key].items.push(r)
+  }
+
+  const columns = ['Brand', 'Account', 'Order #', 'Order Total', 'Commission %', 'Commission Due', 'Commission Paid', 'Commission Owed', 'Status']
+
+  // Build header rows
+  const title = 'Commissions'
+  const subtitle = filters?.label
+  const headerRows = [['REPCOMMISH — ' + title]]
+  if (subtitle) headerRows.push(['Filtered by: ' + subtitle])
+  headerRows.push([new Date().toLocaleDateString()])
+  headerRows.push([])
+  headerRows.push(columns)
+
+  const dataRows = []
+  const accountRowIndices = [] // track which data rows are account headers (for bold styling)
+
+  for (const group of Object.values(grouped).sort((a, b) => a.account.localeCompare(b.account))) {
+    const totalSales = group.items.reduce((s, r) => s + (r.order.total || 0), 0)
+    const totalDue = group.items.reduce((s, r) => s + (r.commission_due || 0), 0)
+    const totalPaid = group.items.reduce((s, r) => s + (r.amount_paid || 0), 0)
+    const totalRemaining = group.items.reduce((s, r) => s + (r.amount_remaining || 0), 0)
+    const status = group.items[0]?.pay_status || ''
+
+    // Account header row
+    accountRowIndices.push(dataRows.length)
+    dataRows.push([group.brand, group.account, '', fmtUsd(totalSales), '', fmtUsd(totalDue), fmtUsd(totalPaid), fmtUsd(totalRemaining), status])
+
+    // Order sub-rows
+    for (const r of group.items) {
+      dataRows.push(['', '', r.order.order_number || '', fmtUsd(r.order.total), `${r.rate}%`, fmtUsd(r.commission_due), '', '', ''])
+    }
+  }
+
+  const allRows = [...headerRows, ...dataRows]
+  const ws = XLSX.utils.aoa_to_sheet(allRows)
+
+  const colCount = columns.length
+  const headerRowCount = subtitle ? 3 : 2
+
+  // Merge title/date header rows
+  if (colCount > 1) {
+    ws['!merges'] = Array.from({ length: headerRowCount }, (_, i) => ({
+      s: { r: i, c: 0 }, e: { r: i, c: colCount - 1 },
+    }))
+  }
+
+  // Style title row
+  const titleRef = XLSX.utils.encode_cell({ r: 0, c: 0 })
+  if (ws[titleRef]) ws[titleRef].s = { font: { bold: true, sz: 14 } }
+
+  // Border style — vertical lines only, hide horizontal gridlines with white borders
+  const vertBorder = {
+    left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+    right: { style: 'thin', color: { rgb: 'CCCCCC' } },
+    top: { style: 'thin', color: { rgb: 'FFFFFF' } },
+    bottom: { style: 'thin', color: { rgb: 'FFFFFF' } },
+  }
+  const vertBorderTeal = {
+    left: { style: 'thin', color: { rgb: 'CCCCCC' } },
+    right: { style: 'thin', color: { rgb: 'CCCCCC' } },
+    top: { style: 'thin', color: { rgb: 'E6F0F0' } },
+    bottom: { style: 'thin', color: { rgb: 'E6F0F0' } },
+  }
+
+  // Style column header row (teal background, white bold text)
+  const colHeaderRow = headerRows.length - 1
+  for (let c = 0; c < colCount; c++) {
+    const cellRef = XLSX.utils.encode_cell({ r: colHeaderRow, c })
+    if (ws[cellRef]) {
+      ws[cellRef].s = {
+        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 10 },
+        fill: { fgColor: { rgb: '005B5B' } },
+        alignment: { horizontal: 'left' },
+        border: vertBorder,
+      }
+    }
+  }
+
+  // Style data rows
+  const dataStartRow = headerRows.length
+  const accountRowSet = new Set(accountRowIndices)
+  for (let i = 0; i < dataRows.length; i++) {
+    const rowNum = dataStartRow + i
+    const isAccountRow = accountRowSet.has(i)
+    for (let c = 0; c < colCount; c++) {
+      const cellRef = XLSX.utils.encode_cell({ r: rowNum, c })
+      if (!ws[cellRef]) ws[cellRef] = { t: 's', v: '' }
+      if (isAccountRow) {
+        ws[cellRef].s = {
+          font: { bold: true, sz: 10 },
+          fill: { fgColor: { rgb: 'E6F0F0' } },
+          alignment: { horizontal: c >= 3 && c <= 7 ? 'right' : 'left' },
+          border: vertBorderTeal,
+        }
+      } else {
+        ws[cellRef].s = {
+          font: { sz: 9, color: { rgb: '444444' } },
+          alignment: { horizontal: c >= 3 && c <= 7 ? 'right' : 'left' },
+          border: vertBorder,
+        }
+      }
+    }
+  }
+
+  // Column widths
+  ws['!cols'] = [
+    { wch: 18 }, // Brand
+    { wch: 30 }, // Account
+    { wch: 16 }, // Order #
+    { wch: 14 }, // Order Total
+    { wch: 14 }, // Commission %
+    { wch: 16 }, // Commission Due
+    { wch: 16 }, // Commission Paid
+    { wch: 16 }, // Commission Owed
+    { wch: 14 }, // Status
   ]
-  return downloadXlsx(rows, columns, 'commissions.xlsx', 'Commissions')
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+  XLSX.writeFile(wb, `commissions${filters?.suffix || ''}.xlsx`)
 }
 
-export function exportPaymentsXlsx(commissions, orders, companies, accounts) {
+export function exportPaymentsXlsx(commissions, orders, companies, accounts, filters) {
   const companyMap = Object.fromEntries(companies.map((c) => [c.id, c]))
   const accountMap = Object.fromEntries(accounts.map((a) => [a.id, a]))
   const orderMap = Object.fromEntries(orders.map((o) => [o.id, o]))
@@ -175,7 +293,7 @@ export function exportPaymentsXlsx(commissions, orders, companies, accounts) {
     { label: 'Payment Date', value: (r) => r.date },
     { label: 'Amount', value: (r) => r.amount },
   ]
-  return downloadXlsx(rows, columns, 'payments.xlsx', 'Payments')
+  return downloadXlsx(rows, columns, `payments${filters?.suffix || ''}.xlsx`, 'Payments', filters?.label)
 }
 
 export function exportTodosXlsx(todos, companies, accounts) {

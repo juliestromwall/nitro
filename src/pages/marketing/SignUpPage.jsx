@@ -55,6 +55,7 @@ function SignUpPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [agreedToTerms, setAgreedToTerms] = useState(false)
   const [clientSecret, setClientSecret] = useState(null)
   const [checkoutLoading, setCheckoutLoading] = useState(false)
   const checkoutStarted = useRef(false)
@@ -284,13 +285,34 @@ function SignUpPage() {
               </>
             )}
 
+            {!user && (
+              <label className="flex items-start gap-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={agreedToTerms}
+                  onChange={(e) => setAgreedToTerms(e.target.checked)}
+                  className="mt-0.5 size-4 rounded border-zinc-300 dark:border-zinc-600 text-[#005b5b] focus:ring-[#005b5b]/20 accent-[#005b5b]"
+                />
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                  I agree to the{' '}
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#005b5b] dark:text-teal-400 hover:underline font-medium">
+                    Terms &amp; Conditions
+                  </a>{' '}
+                  and{' '}
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#005b5b] dark:text-teal-400 hover:underline font-medium">
+                    Privacy Policy
+                  </a>
+                </span>
+              </label>
+            )}
+
             {error && (
               <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
             )}
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (!user && !agreedToTerms)}
               className="w-full px-6 py-3 bg-[#005b5b] hover:bg-[#007a7a] text-white font-medium rounded-lg transition-colors text-sm shadow-lg shadow-[#005b5b]/25 disabled:opacity-50 flex items-center justify-center gap-2"
             >
               {loading ? (

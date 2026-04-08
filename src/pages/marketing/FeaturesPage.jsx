@@ -5,49 +5,49 @@ const features = [
   {
     icon: BarChart3,
     title: 'Multi-Brand Dashboard',
-    desc: 'See sales, commissions earned, and commissions owed across all your brands in one view. Filter by year or quarter and track progress with visual progress bars.',
+    desc: 'All your brands, one screen — total sales, commissions earned, and what\'s owed. No more flipping between 12 tabs like a maniac.',
     color: 'bg-[#005b5b]',
   },
   {
     icon: Package,
     title: 'Order Tracking',
-    desc: 'Track every order with custom categories, items, stages, and close dates. Import orders in bulk via CSV or add them one by one.',
+    desc: 'Every order from "just placed" to "closed and celebrating." Import in bulk or add one at a time — whatever matches your chaos style.',
     color: 'bg-amber-500',
   },
   {
     icon: DollarSign,
     title: 'Automatic Commission Calculation',
-    desc: 'Set commission rates per brand and per custom category. REPCOMMISH automatically calculates what you\'re owed on every order.',
+    desc: 'Set your rates, and we\'ll do the math. Per brand, per category, down to the penny. Your calculator app can finally retire.',
     color: 'bg-emerald-500',
   },
   {
     icon: CreditCard,
     title: 'Payment Management',
-    desc: 'Record individual or bulk payments, track partial vs. full payment status, and see complete payment history grouped by date.',
+    desc: 'Track who paid, who partially paid, and who\'s pretending your invoice got lost in spam. Full payment history, zero guesswork.',
     color: 'bg-violet-500',
   },
   {
     icon: Users,
     title: 'Account Management',
-    desc: 'Manage all your accounts in one place. Add individually or import from CSV.',
+    desc: 'All your accounts in one place with contacts, notes, and quick views. Import from CSV or build your book one account at a time.',
     color: 'bg-rose-500',
   },
   {
     icon: ListTodo,
     title: 'To-Do Lists',
-    desc: 'Stay on top of every follow-up, deadline, and action item with pinnable, reorderable to-do lists. Never let anything slip through the cracks.',
+    desc: 'Follow-ups, deadlines, "call that guy back" — pin it, drag it, check it off. Your brain has enough to remember.',
     color: 'bg-sky-500',
   },
   {
     icon: Upload,
     title: 'Document Attachments',
-    desc: 'Attach invoices, purchase orders, and other documents directly to orders. Your files stay private and securely stored.',
+    desc: 'Attach invoices, POs, and anything else you\'d normally lose in your email. Securely stored and always where you left them.',
     color: 'bg-orange-500',
   },
   {
     icon: FileDown,
     title: 'Reporting & Exports',
-    desc: 'Export your sales, commissions, payments, and brand data anytime. Download clean reports ready for your records or your brands.',
+    desc: 'Clean exports for your records, your accountant, or that brand that keeps asking "can you send that again?" Yes. Yes you can.',
     color: 'bg-zinc-700',
   },
 ]
@@ -59,10 +59,10 @@ function FeaturesPage() {
       <section className="py-20 bg-gradient-to-b from-teal-50/50 to-white dark:from-teal-950/20 dark:to-zinc-950">
         <div className="max-w-6xl mx-auto px-6 text-center">
           <h1 className="text-4xl md:text-5xl font-bold text-zinc-900 dark:text-white mb-4">
-            Features built for sales reps
+            Built for reps, not IT departments
           </h1>
           <p className="text-lg text-zinc-600 dark:text-zinc-400 max-w-2xl mx-auto">
-            REPCOMMISH gives you everything you need to track sales, calculate commissions, and manage payments — without the complexity of enterprise software.
+            Everything you need to track what you sell and collect what you're owed — nothing you don't. No training manual required.
           </p>
         </div>
       </section>
@@ -93,17 +93,17 @@ function FeaturesPage() {
       <section className="py-16 bg-gradient-to-br from-[#005b5b] to-[#003d3d]">
         <div className="max-w-3xl mx-auto px-6 text-center">
           <h2 className="text-2xl font-bold text-white mb-4">
-            Ready to get started?
+            Seen enough?
           </h2>
           <p className="text-teal-100/80 mb-6">
-            Start tracking your commissions today.
+            Ditch the spreadsheet. You've got sales to make.
           </p>
-          <Link
-            to="/signup"
+          <a
+            href="https://app.repcommish.com/signup"
             className="inline-flex items-center px-6 py-3 bg-white text-[#005b5b] font-semibold rounded-lg hover:bg-teal-50 transition-colors shadow-lg"
           >
             Sign Up Now
-          </Link>
+          </a>
         </div>
       </section>
     </div>

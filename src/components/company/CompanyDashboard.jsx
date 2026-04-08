@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
-import { Plus, Pencil, Trash2, Pin, PinOff, GripVertical, ChevronLeft, ChevronRight, DollarSign, TrendingUp, AlertCircle, Check, FileText, Calculator } from 'lucide-react'
+import { useState, useRef, useEffect, useMemo } from 'react'
+import { Plus, Trash2, Pin, PinOff, GripVertical, ChevronLeft, ChevronRight, DollarSign, TrendingUp, AlertCircle, Check, FileText, Calculator } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -8,54 +8,91 @@ import {
 } from '@/components/ui/dialog'
 import { useAccounts } from '@/context/AccountContext'
 import { useCompanies } from '@/context/CompanyContext'
-import { useSales } from '@/context/SalesContext'
+import { useSales, deriveCycle, cycleSortKey } from '@/context/SalesContext'
 import { useTodos } from '@/context/TodoContext'
 import { EXCLUDED_STAGES } from '@/lib/constants'
+import { useExchangeRates } from '@/hooks/useExchangeRate'
 
-const fmt = (value) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
+const fmt = (value, currency = 'USD') =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value)
 
 function CompanyDashboard({ companyId }) {
-  const { orders, commissions, getSeasonsForCompany } = useSales()
+  const { orders, commissions, seasons, getSeasonsForCompany } = useSales()
   const { active: activeSeasons } = getSeasonsForCompany(companyId)
   const { getTodosByCompany, addTodo, updateTodo, toggleComplete, togglePin, reorderTodos, deleteTodo } = useTodos()
   const { companies } = useCompanies()
-  const { accounts, getAccountName } = useAccounts()
+  const { accounts, getAccountName, getAccount } = useAccounts()
   const company = companies.find((c) => c.id === companyId)
 
-  // Tracker selector — flip through company trackers
-  const storageKey = `dashboard-tracker-${companyId}`
-  const [selectedTrackerId, setSelectedTrackerId] = useState(() => {
+  // Build account currency lookup
+  const getAccountCurrency = (clientId) => getAccount(clientId)?.currency || 'USD'
+
+  // Build sorted list of cycles for this company's active seasons
+  const companyCycles = [...new Set(activeSeasons.map((s) => deriveCycle(s)).filter(Boolean))]
+    .sort((a, b) => cycleSortKey(a) - cycleSortKey(b))
+
+  const currentYear = new Date().getFullYear()
+  const defaultCycle = `${currentYear}-${currentYear + 1}`
+
+  const storageKey = `dashboard-cycle-${companyId}`
+  const [selectedCycle, setSelectedCycle] = useState(() => {
     const saved = localStorage.getItem(storageKey)
-    if (saved && activeSeasons.some((s) => s.id === saved)) return saved
-    return activeSeasons[0]?.id || ''
+    if (saved && companyCycles.includes(saved)) return saved
+    return companyCycles.includes(defaultCycle) ? defaultCycle : companyCycles[companyCycles.length - 1] || ''
   })
 
-  // Keep selectedTrackerId valid when seasons change
-  const trackerIdx = activeSeasons.findIndex((s) => s.id === selectedTrackerId)
-  const currentIdx = trackerIdx >= 0 ? trackerIdx : 0
-  const currentTracker = activeSeasons[currentIdx]
+  useEffect(() => {
+    if (companyCycles.length > 0 && !companyCycles.includes(selectedCycle)) {
+      setSelectedCycle(companyCycles[companyCycles.length - 1])
+    }
+  }, [companyCycles.join(',')])
 
-  const handleTrackerChange = (idx) => {
-    const id = activeSeasons[idx]?.id || ''
-    setSelectedTrackerId(id)
-    localStorage.setItem(storageKey, id)
+  const cycleIndex = companyCycles.indexOf(selectedCycle)
+  const canGoLeft = companyCycles.length > 0 && cycleIndex > 0
+  const canGoRight = companyCycles.length > 0 && cycleIndex < companyCycles.length - 1
+
+  const handleCycleChange = (idx) => {
+    const cycle = companyCycles[idx] || ''
+    setSelectedCycle(cycle)
+    localStorage.setItem(storageKey, cycle)
   }
 
-  // Use the selected tracker's ID for filtering
-  const matchingSeasonIds = new Set(currentTracker ? [currentTracker.id] : [])
+  // Get all season IDs matching the selected cycle for this company
+  const matchingSeasonIds = new Set(
+    activeSeasons.filter((s) => deriveCycle(s) === selectedCycle).map((s) => s.id)
+  )
 
   // Summary data — filter by all matching seasons
   const seasonOrders = orders.filter((o) => o.company_id === companyId && matchingSeasonIds.has(o.season_id) && !EXCLUDED_STAGES.includes(o.stage))
+
+  // Collect unique foreign currencies for exchange rate fetching
+  const fxPairs = useMemo(() => {
+    const seen = new Set()
+    return seasonOrders
+      .map((o) => getAccountCurrency(o.client_id))
+      .filter((c) => c !== 'USD' && !seen.has(c) && seen.add(c))
+      .map((c) => ({ from: c, to: 'USD' }))
+  }, [seasonOrders.map((o) => o.client_id).join(','), accounts])
+  const { getRate } = useExchangeRates(fxPairs)
+
+  // Sales totals — raw amounts, no conversion
   const totalSales = seasonOrders.reduce((sum, o) => sum + (o.total || 0), 0)
   const commissionPct = company?.commission_percent || 0
 
-  // Commission calculations from commissions table
+  // Commission calculations — convert each order's commission to USD
   const seasonOrderIds = new Set(seasonOrders.map((o) => o.id))
   const seasonCommissions = commissions.filter((c) => seasonOrderIds.has(c.order_id))
-  const commissionDue = totalSales * (commissionPct / 100)
+  const commissionDue = seasonOrders.reduce((sum, o) => {
+    const cur = getAccountCurrency(o.client_id)
+    return sum + (o.total || 0) * (commissionPct / 100) * getRate(cur, 'USD')
+  }, 0)
+  // Raw commission (original currencies, no conversion)
+  const rawCommissionDue = seasonOrders.reduce((sum, o) => sum + (o.total || 0) * (commissionPct / 100), 0)
   const commissionPaid = seasonCommissions.reduce((sum, c) => sum + (c.amount_paid || 0), 0)
   const outstanding = Math.max(commissionDue - commissionPaid, 0)
+  const rawOutstanding = Math.max(rawCommissionDue - commissionPaid, 0)
+  const hasConversion = fxPairs.length > 0
+  const [showUSD, setShowUSD] = useState(false)
 
   // To Dos
   const todos = getTodosByCompany(companyId)
@@ -257,26 +294,29 @@ function CompanyDashboard({ companyId }) {
 
   return (
     <div className="space-y-6">
-      {/* Tracker selector */}
-      {activeSeasons.length > 0 && (
-        <div className="flex items-center">
-          <button
-            onClick={() => handleTrackerChange(currentIdx - 1)}
-            disabled={currentIdx === 0}
-            className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-l-md border border-[#005b5b]/30 border-r-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronLeft className="size-4" />
-          </button>
-          <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold select-none min-w-[120px] text-center">
-            {currentTracker?.label || '—'}
+      {/* Sales Cycle selector */}
+      {companyCycles.length > 0 && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Sales Cycle:</span>
+          <div className="flex items-center">
+            <button
+              onClick={() => handleCycleChange(cycleIndex - 1)}
+              disabled={!canGoLeft}
+              className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-l-md border border-[#005b5b]/30 border-r-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <div className="px-4 py-1.5 bg-[#005b5b] text-white text-sm font-semibold tabular-nums select-none min-w-[120px] text-center">
+              {selectedCycle || '—'}
+            </div>
+            <button
+              onClick={() => handleCycleChange(cycleIndex + 1)}
+              disabled={!canGoRight}
+              className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-r-md border border-[#005b5b]/30 border-l-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRight className="size-4" />
+            </button>
           </div>
-          <button
-            onClick={() => handleTrackerChange(currentIdx + 1)}
-            disabled={currentIdx >= activeSeasons.length - 1}
-            className="px-2 py-1.5 text-[#005b5b] hover:bg-[#005b5b]/10 rounded-r-md border border-[#005b5b]/30 border-l-0 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-          >
-            <ChevronRight className="size-4" />
-          </button>
         </div>
       )}
 
@@ -297,7 +337,7 @@ function CompanyDashboard({ companyId }) {
           </div>
           <div>
             <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Earned</p>
-            <p className="text-lg font-bold text-zinc-900 dark:text-white">{fmt(commissionDue)}</p>
+            <p className="text-lg font-bold text-zinc-900 dark:text-white">{fmt(showUSD ? commissionDue : rawCommissionDue)}</p>
           </div>
         </div>
         <div className="flex items-center gap-3 bg-white dark:bg-zinc-800 border-2 border-[#005b5b]/30 dark:border-zinc-700 rounded-xl px-4 py-3">
@@ -315,10 +355,41 @@ function CompanyDashboard({ companyId }) {
           </div>
           <div>
             <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Due</p>
-            <p className="text-lg font-bold text-red-600">{fmt(outstanding)}</p>
+            <p className="text-lg font-bold text-red-600">{fmt(showUSD ? outstanding : rawOutstanding)}</p>
           </div>
         </div>
       </div>
+      {hasConversion && (
+        <div className="flex justify-end -mt-4">
+          <button
+            onClick={() => setShowUSD(!showUSD)}
+            className={`flex items-center gap-1 text-xs px-2 py-1 rounded-md border transition-colors ${showUSD ? 'bg-[#005b5b] text-white border-[#005b5b]' : 'text-muted-foreground border-zinc-300 dark:border-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800'}`}
+          >
+            <DollarSign className="size-3" />
+            {showUSD ? 'Viewing USD' : 'View in USD'}
+          </button>
+        </div>
+      )}
+
+      {/* Category breakdown pills */}
+      {(() => {
+        const cats = {}
+        seasonOrders.forEach((o) => {
+          const t = o.order_type || 'Other'
+          cats[t] = (cats[t] || 0) + (o.total || 0)
+        })
+        const entries = Object.entries(cats)
+        if (entries.length < 2) return null
+        return (
+          <div className="flex flex-wrap gap-2">
+            {entries.map(([cat, total]) => (
+              <span key={cat} className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-zinc-100 dark:bg-zinc-700 text-sm font-medium text-zinc-700 dark:text-zinc-200">
+                {cat} <span className="font-semibold text-zinc-900 dark:text-white">{fmt(total)}</span>
+              </span>
+            ))}
+          </div>
+        )
+      })()}
 
       {/* Two-column layout: To Dos (left) | Notepad + Calculator (right) */}
       <div className="grid grid-cols-5 gap-6">
@@ -361,7 +432,7 @@ function CompanyDashboard({ companyId }) {
                       onChange={() => toggleComplete(todo.id)}
                       className="size-4 rounded border-zinc-300 mt-1 shrink-0"
                     />
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 cursor-pointer" onClick={() => openEditTodo(todo)}>
                       <div className={`text-sm font-medium ${todo.completed ? 'line-through text-muted-foreground' : ''}`}>
                         {todo.title}
                       </div>
@@ -392,9 +463,6 @@ function CompanyDashboard({ companyId }) {
                         ) : (
                           <Pin className="size-3" />
                         )}
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditTodo(todo)} title="Edit">
-                        <Pencil className="size-3" />
                       </Button>
                       <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => deleteTodo(todo.id)} title="Delete">
                         <Trash2 className="size-3 text-red-500" />

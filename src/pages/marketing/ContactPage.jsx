@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Mail, MessageCircle, Send, CheckCircle } from 'lucide-react'
+import { Mail, CircleHelp, Send, CheckCircle } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 
 function ContactPage() {
@@ -45,10 +45,10 @@ function ContactPage() {
               <div className="w-16 h-1 rounded-full bg-[#005b5b]" />
             </div>
             <h1 className="text-4xl md:text-5xl font-bold tracking-tight text-zinc-900 dark:text-white mb-4">
-              Get in Touch
+              Let's talk
             </h1>
             <p className="text-lg text-zinc-600 dark:text-zinc-400">
-              Have a question, need help getting set up, or just want to say hi? We'd love to hear from you.
+              Questions, feedback, or just need a hand getting set up — we're here and happy to help.
             </p>
           </div>
         </div>
@@ -62,7 +62,8 @@ function ContactPage() {
             {/* Email Card */}
             <a
               href="mailto:hello@repcommish.com"
-              className="group bg-white dark:bg-zinc-800/50 rounded-xl p-8 border border-zinc-200 dark:border-zinc-700/50 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200"
+              onClick={(e) => { e.preventDefault(); window.location.href = 'mailto:hello@repcommish.com' }}
+              className="group bg-white dark:bg-zinc-800/50 rounded-xl p-8 border border-zinc-200 dark:border-zinc-700/50 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
             >
               <div className="w-12 h-12 rounded-lg bg-[#005b5b] flex items-center justify-center mb-5">
                 <Mail className="size-6 text-white" />
@@ -71,7 +72,7 @@ function ContactPage() {
                 Email Us
               </h3>
               <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-4">
-                Drop us a line anytime. We typically respond within 24 hours.
+                Drop us a line anytime. We typically get back to you within a few hours — not a few pay cycles.
               </p>
               <span className="text-[#005b5b] dark:text-teal-400 font-medium text-sm group-hover:underline">
                 hello@repcommish.com
@@ -81,13 +82,13 @@ function ContactPage() {
             {/* Quick Chat Card */}
             <div className="bg-white dark:bg-zinc-800/50 rounded-xl p-8 border border-zinc-200 dark:border-zinc-700/50">
               <div className="w-12 h-12 rounded-lg bg-amber-500 flex items-center justify-center mb-5">
-                <MessageCircle className="size-6 text-white" />
+                <CircleHelp className="size-6 text-white" />
               </div>
               <h3 className="text-lg font-semibold text-zinc-900 dark:text-white mb-2">
                 Quick Questions
               </h3>
               <p className="text-sm text-zinc-600 dark:text-zinc-400 mb-4">
-                Wondering if REPCOMMISH is right for you? Check out our features and pricing, or ask us below.
+                Not sure if REPCOMMISH is right for you? Take a look around, or ask us anything below.
               </p>
               <div className="flex gap-3">
                 <a href="/features" className="text-[#005b5b] dark:text-teal-400 font-medium text-sm hover:underline">Features</a>
@@ -107,10 +108,10 @@ function ContactPage() {
               <div className="w-16 h-1 rounded-full bg-amber-500" />
             </div>
             <h2 className="text-3xl font-bold text-zinc-900 dark:text-white mb-3">
-              Ask a Question
+              Send us a message
             </h2>
             <p className="text-zinc-600 dark:text-zinc-400">
-              Fill out the form below and we'll get back to you as soon as possible.
+              No bots, no ticket numbers — just a real reply from a real person.
             </p>
           </div>
 
@@ -120,10 +121,10 @@ function ContactPage() {
                 <CheckCircle className="size-8 text-emerald-600 dark:text-emerald-400" />
               </div>
               <h3 className="text-xl font-semibold text-zinc-900 dark:text-white mb-2">
-                Message received!
+                Got it!
               </h3>
               <p className="text-zinc-600 dark:text-zinc-400 mb-6">
-                We've received your message and will get back to you shortly.
+                We'll get back to you soon — probably before your next commission check arrives.
               </p>
               <button
                 onClick={() => setStatus('idle')}
@@ -200,10 +201,10 @@ function ContactPage() {
       <section className="py-16 bg-gradient-to-br from-[#005b5b] to-[#003d3d]">
         <div className="max-w-3xl mx-auto px-6 text-center">
           <h2 className="text-2xl font-bold text-white mb-3">
-            Ready to track your commissions?
+            Done asking questions?
           </h2>
           <p className="text-teal-100/80 mb-6">
-            Get started with REPCOMMISH today.
+            Good. Now go get what you're owed.
           </p>
           <a
             href="/signup"

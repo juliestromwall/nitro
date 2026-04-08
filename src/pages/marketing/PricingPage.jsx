@@ -22,10 +22,10 @@ function PricingPage() {
       <section className="py-20 bg-gradient-to-b from-teal-50/50 to-white dark:from-teal-950/20 dark:to-zinc-950">
         <div className="max-w-6xl mx-auto px-6 text-center">
           <h1 className="text-4xl md:text-5xl font-bold text-zinc-900 dark:text-white mb-4">
-            Simple, transparent pricing
+            Less than a client lunch. Way more ROI.
           </h1>
           <p className="text-lg text-zinc-600 dark:text-zinc-400 max-w-2xl mx-auto">
-            One plan with everything included. Pay monthly or save with annual billing.
+            One plan, everything included, no surprise fees. Pick monthly or save with annual — either way, it pays for itself the first time you catch a missing commission.
           </p>
         </div>
       </section>
@@ -51,7 +51,7 @@ function PricingPage() {
                 <span className="text-4xl font-bold text-zinc-900 dark:text-white">$15</span>
                 <span className="text-zinc-500">/month</span>
               </div>
-              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Billed monthly. Cancel anytime.</p>
+              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">Billed monthly. Cancel anytime — no guilt trip.</p>
 
               <ul className="mt-8 space-y-3 flex-1">
                 {features.map((f) => (
@@ -94,7 +94,7 @@ function PricingPage() {
                 <span className="text-4xl font-bold text-zinc-900 dark:text-white">$144</span>
                 <span className="text-zinc-500">/year</span>
               </div>
-              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">$12/month billed annually.</p>
+              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">$12/month billed annually. Your future self says thanks.</p>
 
               <ul className="mt-8 space-y-3 flex-1">
                 {features.map((f) => (
@@ -124,45 +124,45 @@ function PricingPage() {
       <section id="faq" className="py-16 bg-zinc-50 dark:bg-zinc-900/50 scroll-mt-24">
         <div className="max-w-3xl mx-auto px-6">
           <h2 className="text-2xl font-bold text-center text-zinc-900 dark:text-white mb-8">
-            Frequently asked questions
+            Questions we get a lot
           </h2>
           <div className="space-y-6">
             {[
               {
                 q: 'Can I cancel anytime?',
-                a: 'Yes! You can cancel your subscription at any time. You\'ll keep access through the end of your billing period.',
+                a: 'Yep. No contracts, no cancellation fees, no "are you sure?" emails. You\'ll keep access through the end of your billing period.',
               },
               {
                 q: 'Can I switch between monthly and annual?',
-                a: 'Yes, you can switch plans at any time from your account settings.',
+                a: 'Absolutely. Swap plans anytime from your account settings. We won\'t make it weird.',
               },
               {
                 q: 'Is this priced per brand or per rep?',
-                a: 'Neither. Pricing is per subscription — not per brand, order, or commission.',
+                a: 'Neither — one flat price, unlimited brands, unlimited orders. Rep 3 brands or 30, the price is the same.',
               },
               {
                 q: 'Do I own my data?',
-                a: 'Yes. Your data is always yours. You can export your data at any time.',
+                a: '100%. It\'s your data — we just organize it for you. Export anytime, no hoops to jump through.',
               },
               {
                 q: 'Is my data secure?',
-                a: 'Yes. REPCOMMISH uses industry-standard security practices to keep your data safe and private.',
+                a: 'Yes. Industry-standard security keeps your data safe and private. We take this seriously so you don\'t have to worry about it.',
               },
               {
                 q: 'Can I export my commissions and sales data?',
-                a: 'Yes. You can export your data whenever you need — whether for accounting, taxes, or your own records.',
+                a: 'Whenever you want. Clean exports ready for your accountant, your taxes, or that brand that loves asking for reports.',
               },
               {
                 q: 'Can I track different commission rates for different brands?',
-                a: 'Yes. REPCOMMISH supports multiple brands with different commission structures, rates, and terms.',
+                a: 'Of course — every brand gets its own rates, structures, and terms. Because no two brands pay the same way. (Wouldn\'t that be nice.)',
               },
               {
                 q: 'What if a brand changes my commission rate?',
-                a: 'You can update commission rates at any time, and REPCOMMISH will give you the option to update all or apply them going forward so your records stay accurate.',
+                a: 'Update it in seconds. REPCOMMISH lets you apply the new rate going forward or retroactively — your call, your records.',
               },
               {
                 q: 'Can I track partial or split payments?',
-                a: 'Yes. You can track partial payments and outstanding balances so you always know exactly what you\'re still owed.',
+                a: 'Yes. Partial payments, outstanding balances, the whole mess. You\'ll always know exactly what\'s still owed.',
               },
             ].map((faq) => (
               <div key={faq.q}>
@@ -171,6 +171,26 @@ function PricingPage() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* Demo CTA */}
+      <section className="py-16">
+        <div className="max-w-3xl mx-auto px-6 text-center">
+          <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-3">
+            Still on the fence?
+          </h2>
+          <p className="text-zinc-600 dark:text-zinc-400 mb-8 text-lg">
+            We get it — commission math is hard. Let us walk you through it.
+          </p>
+          <a
+            href="https://calendly.com/repcommish"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center px-8 py-3 bg-[#005b5b] hover:bg-[#007a7a] text-white font-semibold rounded-lg transition-colors text-lg shadow-lg shadow-[#005b5b]/25"
+          >
+            Schedule a Demo
+          </a>
         </div>
       </section>
     </div>

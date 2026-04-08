@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
+import { fetchBrandUploads } from '@/lib/db'
 import CompanyDashboard from '@/components/company/CompanyDashboard'
 import CompanySales from '@/components/company/CompanySales'
 import CompanyCommission from '@/components/company/CompanyCommission'
@@ -15,12 +16,14 @@ import ImportPaymentsModal from '@/components/company/ImportPaymentsModal'
 import ImportSalesModal from '@/components/company/ImportSalesModal'
 import InviteBrandAdminModal from '@/components/company/InviteBrandAdminModal'
 import BrandAdminConnections from '@/components/company/BrandAdminConnections'
+import CompanyBrandImports from '@/components/company/CompanyBrandImports'
 
 const tabs = [
   { id: 'dashboard', label: 'Brand', icon: Home },
   { id: 'sales', label: 'Sales' },
   { id: 'commission', label: 'Commissions' },
   { id: 'payments', label: 'Payments' },
+  // { id: 'imports', label: 'Brand Imports' },  // Hidden until ready for production
 ]
 
 function CompanyDetail() {
@@ -43,6 +46,17 @@ function CompanyDetail() {
   const [importCsvOpen, setImportCsvOpen] = useState(false)
   const [importSalesOpen, setImportSalesOpen] = useState(false)
   const [inviteModalOpen, setInviteModalOpen] = useState(false)
+  const [importsPendingCount, setImportsPendingCount] = useState(0)
+
+  // Load pending imports count
+  useEffect(() => {
+    if (!company) return
+    fetchBrandUploads(company.id)
+      .then((uploads) => {
+        setImportsPendingCount(uploads.filter((u) => u.status === 'pending' || u.status === 'unmatched').length)
+      })
+      .catch(() => {})
+  }, [id])
 
   // Listen for tour-set-tab events to programmatically switch tabs
   useEffect(() => {
@@ -158,9 +172,9 @@ function CompanyDetail() {
                 <DropdownMenuItem data-tour="btn-import-payments" onClick={handleImportCsvClick}>
                   <Upload className="size-4 mr-2" /> Import Payments
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setInviteModalOpen(true)}>
+                {/* <DropdownMenuItem onClick={() => setInviteModalOpen(true)}>
                   <UserPlus className="size-4 mr-2" /> Invite Brand Admin
-                </DropdownMenuItem>
+                </DropdownMenuItem> */}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -181,6 +195,11 @@ function CompanyDetail() {
             >
               {tab.icon && <tab.icon className="size-3.5" />}
               {tab.label}
+              {tab.id === 'imports' && importsPendingCount > 0 && (
+                <span className="ml-1 bg-[#005b5b] text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                  {importsPendingCount}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -191,7 +210,7 @@ function CompanyDetail() {
       {activeTab === 'dashboard' && (
         <>
           <CompanyDashboard companyId={company.id} />
-          <BrandAdminConnections companyId={company.id} />
+          {/* <BrandAdminConnections companyId={company.id} /> */}
         </>
       )}
       {activeTab === 'sales' && (
@@ -216,6 +235,9 @@ function CompanyDetail() {
           activeTracker={activeTracker}
           setActiveTracker={setActiveTracker}
         />
+      )}
+      {activeTab === 'imports' && (
+        <CompanyBrandImports companyId={company.id} />
       )}
       </div>
 

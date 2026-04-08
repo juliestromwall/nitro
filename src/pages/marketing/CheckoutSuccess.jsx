@@ -47,7 +47,12 @@ function CheckoutSuccess() {
           'Authorization': `Bearer ${supabaseKey}`,
           'apikey': supabaseKey,
         },
-        body: JSON.stringify({ userId: newUser.id, sessionId }),
+        body: JSON.stringify({
+          userId: newUser.id,
+          sessionId,
+          firstName: sessionStorage.getItem('rc_signup_first_name') || '',
+          email,
+        }),
       })
 
       const data = await response.json()

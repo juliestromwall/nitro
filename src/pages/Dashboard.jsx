@@ -5,6 +5,8 @@ import { useSales, deriveCycle, cycleSortKey } from '@/context/SalesContext'
 import { useAuth } from '@/context/AuthContext'
 import { useCompanies } from '@/context/CompanyContext'
 import { EXCLUDED_STAGES } from '@/lib/constants'
+import { useAccounts } from '@/context/AccountContext'
+import { useExchangeRates } from '@/hooks/useExchangeRate'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -22,9 +24,11 @@ function Dashboard() {
   const { seasons, orders, commissions, loading: salesLoading, getActiveCycles } = useSales()
   const { user } = useAuth()
   const { activeCompanies, loading: companiesLoading } = useCompanies()
+  const { accounts, getAccount } = useAccounts()
   const navigate = useNavigate()
 
   const dataLoading = salesLoading || companiesLoading
+  const [showUSD, setShowUSD] = useState(false)
 
   // Build sorted list of cycles that have trackers
   const activeCycles = useMemo(() => getActiveCycles(), [seasons])
@@ -65,6 +69,17 @@ function Dashboard() {
     return map
   }, [activeCompanies])
 
+  // Fetch exchange rates for all accounts with non-USD currencies
+  const fxPairs = useMemo(() => {
+    const seen = new Set()
+    return accounts
+      .map((a) => a.currency || 'USD')
+      .filter((c) => c !== 'USD' && !seen.has(c) && seen.add(c))
+      .map((c) => ({ from: c, to: 'USD' }))
+  }, [accounts])
+  const { getRate } = useExchangeRates(fxPairs)
+  const getAccountCurrency = (clientId) => getAccount(clientId)?.currency || 'USD'
+
   const brandData = useMemo(() => {
     // Get season IDs that match the selected cycle
     const matchingSeasonIds = new Set(
@@ -86,16 +101,25 @@ function Dashboard() {
     const byCompany = {}
     yearOrders.forEach((o) => {
       if (!byCompany[o.company_id]) {
-        byCompany[o.company_id] = { totalSales: 0, commissionEarned: 0, commissionPaid: 0, orderCount: 0 }
+        byCompany[o.company_id] = { totalSales: 0, commissionEarned: 0, rawCommissionEarned: 0, commissionPaid: 0, orderCount: 0 }
       }
+      // Sales stay in original currency (no conversion)
       byCompany[o.company_id].totalSales += o.total || 0
       byCompany[o.company_id].orderCount += 1
 
-      // Commission earned = order.total * rate (same logic as CompanySales)
+      // Track per-category totals (raw, no conversion)
+      const cat = o.order_type || 'Other'
+      if (!byCompany[o.company_id].categories) byCompany[o.company_id].categories = {}
+      byCompany[o.company_id].categories[cat] = (byCompany[o.company_id].categories[cat] || 0) + (o.total || 0)
+
+      // Commission earned — track raw and USD-converted
       const company = companyMap[o.company_id]
       const defaultPct = company?.commission_percent || 0
       const pct = o.commission_override != null ? o.commission_override : defaultPct
-      byCompany[o.company_id].commissionEarned += (o.total || 0) * pct / 100
+      const rawComm = (o.total || 0) * pct / 100
+      const acctCur = getAccountCurrency(o.client_id)
+      byCompany[o.company_id].rawCommissionEarned += rawComm
+      byCompany[o.company_id].commissionEarned += rawComm * getRate(acctCur, 'USD')
 
       // Commission paid from commissions table (payment tracking)
       const comm = commissionByOrderId[o.id]
@@ -106,7 +130,7 @@ function Dashboard() {
 
     // Map to active companies (include all active, even with no data)
     const rows = activeCompanies.map((c) => {
-      const data = byCompany[c.id] || { totalSales: 0, commissionEarned: 0, commissionPaid: 0, orderCount: 0 }
+      const data = byCompany[c.id] || { totalSales: 0, commissionEarned: 0, rawCommissionEarned: 0, commissionPaid: 0, orderCount: 0, categories: {} }
       return {
         id: c.id,
         name: c.name,
@@ -114,8 +138,11 @@ function Dashboard() {
         commission_percent: c.commission_percent || 0,
         totalSales: data.totalSales,
         commissionEarned: data.commissionEarned,
+        rawCommissionEarned: data.rawCommissionEarned,
         commissionOwed: data.commissionEarned - data.commissionPaid,
+        rawCommissionOwed: data.rawCommissionEarned - data.commissionPaid,
         orderCount: data.orderCount,
+        categories: data.categories || {},
       }
     })
 
@@ -123,13 +150,16 @@ function Dashboard() {
       (acc, r) => ({
         totalSales: acc.totalSales + r.totalSales,
         commissionEarned: acc.commissionEarned + r.commissionEarned,
+        rawCommissionEarned: acc.rawCommissionEarned + r.rawCommissionEarned,
         commissionOwed: acc.commissionOwed + r.commissionOwed,
+        rawCommissionOwed: acc.rawCommissionOwed + r.rawCommissionOwed,
       }),
-      { totalSales: 0, commissionEarned: 0, commissionOwed: 0 }
+      { totalSales: 0, commissionEarned: 0, rawCommissionEarned: 0, commissionOwed: 0, rawCommissionOwed: 0 }
     )
 
-    return { rows, totals }
-  }, [seasons, orders, commissions, activeCompanies, companyMap, selectedCycle])
+    const hasConversion = yearOrders.some((o) => getAccountCurrency(o.client_id) !== 'USD')
+    return { rows, totals, hasConversion }
+  }, [seasons, orders, commissions, activeCompanies, companyMap, selectedCycle, getRate, accounts])
 
   return (
     <div className="px-6 py-4 space-y-8">
@@ -186,8 +216,19 @@ function Dashboard() {
             <TrendingUp className="size-5 text-white" />
           </div>
           <div>
-            <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Earned</p>
-            <p className="text-xl font-bold text-white">{fmt(brandData.totals.commissionEarned)}</p>
+            <div className="flex items-center gap-2">
+              <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Earned</p>
+              {brandData.hasConversion && (
+                <button
+                  onClick={() => setShowUSD(!showUSD)}
+                  className={`flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded border transition-colors ${showUSD ? 'bg-[#005b5b] text-white border-[#005b5b]' : 'text-zinc-400 border-zinc-600 hover:bg-zinc-800'}`}
+                >
+                  <DollarSign className="size-2.5" />
+                  USD
+                </button>
+              )}
+            </div>
+            <p className="text-xl font-bold text-white">{fmt(showUSD ? brandData.totals.commissionEarned : brandData.totals.rawCommissionEarned)}</p>
           </div>
         </div>
         <div className="flex items-center gap-3 bg-zinc-900 rounded-xl px-5 py-4">
@@ -196,7 +237,7 @@ function Dashboard() {
           </div>
           <div>
             <p className="text-xs text-zinc-400 uppercase tracking-wide">Commish Owed</p>
-            <p className="text-xl font-bold text-white">{fmt(brandData.totals.commissionOwed)}</p>
+            <p className="text-xl font-bold text-white">{fmt(showUSD ? brandData.totals.commissionOwed : brandData.totals.rawCommissionOwed)}</p>
           </div>
         </div>
       </div>
@@ -256,7 +297,7 @@ function Dashboard() {
                     <div>
                       <div className="flex justify-between text-sm mb-1">
                         <span className="text-muted-foreground">Earned</span>
-                        <span className="font-semibold text-emerald-600">{fmtCompact(row.commissionEarned)}</span>
+                        <span className="font-semibold text-emerald-600">{fmtCompact(showUSD ? row.commissionEarned : row.rawCommissionEarned)}</span>
                       </div>
                       <div className="h-2 bg-zinc-100 dark:bg-zinc-700 rounded-full overflow-hidden">
                         <div
@@ -269,7 +310,7 @@ function Dashboard() {
                     <div>
                       <div className="flex justify-between text-sm mb-1">
                         <span className="text-muted-foreground">Owed</span>
-                        <span className="font-semibold text-amber-600">{fmtCompact(row.commissionOwed)}</span>
+                        <span className="font-semibold text-amber-600">{fmtCompact(showUSD ? row.commissionOwed : row.rawCommissionOwed)}</span>
                       </div>
                       <div className="h-2 bg-zinc-100 dark:bg-zinc-700 rounded-full overflow-hidden">
                         <div
@@ -278,6 +319,16 @@ function Dashboard() {
                         />
                       </div>
                     </div>
+                    {/* Category breakdown */}
+                    {Object.keys(row.categories).length >= 2 && (
+                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 pt-1 border-t border-zinc-100 dark:border-zinc-700">
+                        {Object.entries(row.categories).map(([cat, total]) => (
+                          <span key={cat} className="text-xs text-muted-foreground">
+                            {cat}: <span className="font-medium text-zinc-700 dark:text-zinc-300">{fmtCompact(total)}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <p className="text-sm text-center text-muted-foreground py-2">

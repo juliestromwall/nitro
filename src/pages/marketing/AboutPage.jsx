@@ -10,7 +10,7 @@ function AboutPage() {
           </h1>
           <div className="prose prose-zinc dark:prose-invert max-w-none">
             <p className="text-lg text-zinc-600 dark:text-zinc-400">
-              REPCOMMISH was built by an independent sales rep who was tired of losing time, money, and sanity to commission spreadsheets.
+              REPCOMMISH was built by an independent sales rep's wife who figured building software was cheaper than the therapy bills from commission season.
             </p>
           </div>
         </div>
@@ -23,7 +23,7 @@ function AboutPage() {
             <div>
               <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">The Problem</h2>
               <p className="text-zinc-600 dark:text-zinc-400">
-                When you're an independent sales rep working with multiple brands, keeping track of what you've sold, what commission you've earned, and what's actually been paid gets complicated fast — especially when every brand does things differently. Spreadsheets break down. Details slip through the cracks. You end up spending hours reconciling instead of selling.
+                You rep multiple brands. Every brand has different pay schedules, different reporting formats, and different ways of doing things. Your commission tracking system is a spreadsheet held together by prayers and conditional formatting. Every hour you spend reconciling is an hour you're not out closing deals. Sound familiar?
               </p>
             </div>
           </div>
@@ -33,7 +33,7 @@ function AboutPage() {
             <div>
               <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">The Solution</h2>
               <p className="text-zinc-600 dark:text-zinc-400">
-                REPCOMMISH is purpose-built for independent reps. It tracks your orders across all your brands, automatically calculates commissions based on <em className="not-italic font-medium text-zinc-800 dark:text-zinc-200">your</em> negotiated rates and keeps a clear record of what's been paid and what's outstanding. No more guessing, no more spreadsheet headaches.
+                REPCOMMISH tracks every order across all your brands, auto-calculates commissions, and keeps a running scorecard of what's been paid vs. what's still owed. Think of it as a personal accountant that never sleeps, never miscounts, and never asks for a raise.
               </p>
             </div>
           </div>
@@ -43,7 +43,7 @@ function AboutPage() {
             <div>
               <h2 className="text-2xl font-bold text-zinc-900 dark:text-white mb-4">Built Different</h2>
               <p className="text-zinc-600 dark:text-zinc-400">
-                Unlike bloated enterprise CRMs, REPCOMMISH is focused on what matters to independent reps: tracking sales, knowing exactly what you're owed, and getting paid. It's fast, simple, and designed to stay out of your way so you can focus on selling.
+                We're not another bloated CRM that takes six months to set up and a PhD to navigate. REPCOMMISH does one thing and does it well: it makes sure you know exactly what you're owed and who owes it. Fast to learn, fast to use, and zero features you'll never touch. Spend less time crunching numbers and more time making sales.
               </p>
             </div>
           </div>
@@ -51,15 +51,15 @@ function AboutPage() {
           <div className="pt-8 mt-4 text-center">
             <div className="bg-gradient-to-br from-[#005b5b] to-[#003d3d] rounded-2xl py-12 px-8">
               <h2 className="text-2xl font-bold text-white mb-4">
-                Ready to try it?
+                Ready to ditch the spreadsheet?
               </h2>
-              <p className="text-teal-100/80 mb-6">Start tracking your commissions in minutes.</p>
-              <Link
-                to="/signup"
+              <p className="text-teal-100/80 mb-6">You'll be up and running before your coffee gets cold.</p>
+              <a
+                href="https://app.repcommish.com/signup"
                 className="inline-flex items-center px-6 py-3 bg-white text-[#005b5b] font-semibold rounded-lg hover:bg-teal-50 transition-colors shadow-lg"
               >
                 Get Started
-              </Link>
+              </a>
             </div>
           </div>
         </div>

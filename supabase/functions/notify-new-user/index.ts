@@ -1,5 +1,3 @@
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
-
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -11,14 +9,21 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { name, email, message } = await req.json()
+    const payload = await req.json()
 
-    // Save to database
-    const supabase = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
-    )
-    await supabase.from('contact_messages').insert({ name, email, message })
+    // Database webhook sends: { type, table, record, schema, old_record }
+    const record = payload.record
+    if (!record) {
+      return new Response(JSON.stringify({ error: 'No record in payload' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    const email = record.email || 'Unknown'
+    const createdAt = record.created_at
+      ? new Date(record.created_at).toLocaleString('en-US', { timeZone: 'America/New_York' })
+      : 'Unknown'
 
     // Send email notification via SendGrid
     const sgResponse = await fetch('https://api.sendgrid.com/v3/mail/send', {
@@ -30,18 +35,16 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         personalizations: [{ to: [{ email: 'hello@repcommish.com' }] }],
         from: { email: 'hello@repcommish.com', name: 'REPCOMMISH' },
-        subject: `New message from ${name}`,
+        subject: `New user registered: ${email}`,
         content: [{
           type: 'text/html',
           value: `
         <div style="font-family: -apple-system, sans-serif; max-width: 500px;">
-          <h2 style="color: #005b5b; margin-bottom: 16px;">New Contact Message</h2>
-          <p><strong>Name:</strong> ${name}</p>
+          <h2 style="color: #005b5b; margin-bottom: 16px;">New User Registration</h2>
           <p><strong>Email:</strong> <a href="mailto:${email}">${email}</a></p>
-          <p><strong>Message:</strong></p>
-          <div style="background: #f4f4f5; padding: 16px; border-radius: 8px; white-space: pre-wrap;">${message}</div>
+          <p><strong>Registered:</strong> ${createdAt} ET</p>
           <hr style="margin-top: 24px; border: none; border-top: 1px solid #e4e4e7;" />
-          <p style="font-size: 12px; color: #a1a1aa;">Sent from the REPCOMMISH contact form</p>
+          <p style="font-size: 12px; color: #a1a1aa;">Sent automatically from REPCOMMISH</p>
         </div>
       `,
         }],
@@ -57,7 +60,7 @@ Deno.serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
   } catch (err) {
-    console.error('Contact email error:', err)
+    console.error('Notify new user error:', err)
     return new Response(JSON.stringify({ error: err.message }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

@@ -25,7 +25,7 @@ function Companies() {
   const { orders, commissions, updateOrder, updateCommission } = useSales()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingId, setEditingId] = useState(null)
-  const [form, setForm] = useState({ name: '', commission_percent: '', logo_path: null, website: '', order_types: [], items: [], stages: [], category_commissions: {} })
+  const [form, setForm] = useState({ name: '', commission_percent: '', logo_path: null, website: '', order_types: [], items: [], stages: [], category_commissions: {}, })
   const [logoPreview, setLogoPreview] = useState(null)
   const [logoFile, setLogoFile] = useState(null)
   const [autoLogo, setAutoLogo] = useState(null)
@@ -109,7 +109,7 @@ function Companies() {
 
   const openAdd = () => {
     setEditingId(null)
-    setForm({ name: '', commission_percent: '', logo_path: null, website: '', order_types: [], items: [], stages: [], category_commissions: {} })
+    setForm({ name: '', commission_percent: '', logo_path: null, website: '', order_types: [], items: [], stages: [], category_commissions: {}, })
     setLogoPreview(null)
     setLogoFile(null)
     setAutoLogo(null)
@@ -204,7 +204,7 @@ function Companies() {
         await addCompany(data)
       }
 
-      setForm({ name: '', commission_percent: '', logo_path: null, website: '', order_types: [], items: [], stages: [], category_commissions: {} })
+      setForm({ name: '', commission_percent: '', logo_path: null, website: '', order_types: [], items: [], stages: [], category_commissions: {}, })
       setLogoPreview(null)
       setLogoFile(null)
       setAutoLogo(null)
@@ -220,7 +220,7 @@ function Companies() {
   }
 
   const resetDialogState = () => {
-    setForm({ name: '', commission_percent: '', logo_path: null, website: '', order_types: [], items: [], stages: [], category_commissions: {} })
+    setForm({ name: '', commission_percent: '', logo_path: null, website: '', order_types: [], items: [], stages: [], category_commissions: {}, })
     setLogoPreview(null)
     setLogoFile(null)
     setAutoLogo(null)
