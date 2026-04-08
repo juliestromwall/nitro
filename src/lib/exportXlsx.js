@@ -170,7 +170,7 @@ export async function exportCommissionsXlsx(commissions, orders, companies, acco
 
     // Order sub-rows
     for (const r of group.items) {
-      dataRows.push(['', '', r.order.order_number || '', fmtUsd(r.order.total), `${r.rate}%`, fmtUsd(r.commission_due), '', '', ''])
+      dataRows.push(['', '', r.order.order_number || '', fmtUsd(r.order.total), `${r.rate}%`, fmtUsd(r.commission_due), '', '', status])
     }
   }
 
