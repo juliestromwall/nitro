@@ -168,9 +168,9 @@ export async function exportCommissionsXlsx(commissions, orders, companies, acco
     accountRowIndices.push(dataRows.length)
     dataRows.push([group.brand, group.account, '', fmtUsd(totalSales), '', fmtUsd(totalDue), fmtUsd(totalPaid), fmtUsd(totalRemaining), status])
 
-    // Order sub-rows
+    // Order sub-rows — include brand+account as hidden text (white on white) so sorting keeps groups together
     for (const r of group.items) {
-      dataRows.push(['', '', r.order.order_number || '', fmtUsd(r.order.total), `${r.rate}%`, fmtUsd(r.commission_due), '', '', status])
+      dataRows.push([group.brand, group.account, r.order.order_number || '', fmtUsd(r.order.total), `${r.rate}%`, fmtUsd(r.commission_due), '', '', status])
     }
   }
 
@@ -236,8 +236,10 @@ export async function exportCommissionsXlsx(commissions, orders, companies, acco
           border: vertBorderTeal,
         }
       } else {
+        // Brand (col 0) and Account (col 1) on sub-rows: white text so invisible but sortable
+        const isHiddenText = c <= 1
         ws[cellRef].s = {
-          font: { sz: 9, color: { rgb: '444444' } },
+          font: { sz: 9, color: { rgb: isHiddenText ? 'FFFFFF' : '444444' } },
           alignment: { horizontal: c >= 3 && c <= 7 ? 'right' : 'left' },
           border: vertBorder,
         }

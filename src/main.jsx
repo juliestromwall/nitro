@@ -21,6 +21,7 @@ import TermsPage from './pages/marketing/TermsPage'
 import PrivacyPage from './pages/marketing/PrivacyPage'
 import Login from './pages/Login'
 import InvitePage from './pages/marketing/InvitePage'
+import SharePage from './pages/SharePage'
 
 // Clean up OAuth error params before React mounts (prevents router crash from invalid hash selectors)
 if (window.location.search.includes('error=') || window.location.hash.includes('error=')) {
@@ -33,6 +34,9 @@ createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <AuthProvider>
         <Routes>
+          {/* Public share page (no layout wrapper) */}
+          <Route path="/share/:token" element={<SharePage />} />
+
           {/* Public marketing routes */}
           <Route element={<MarketingLayout />}>
             <Route path="/" element={<HomePage />} />

@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { ArrowLeft, Plus, Home, Upload, MoreVertical, UserPlus, Users } from 'lucide-react'
+import { ArrowLeft, Plus, Home, Upload, MoreVertical, UserPlus, Users, Share2, Copy, Check, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { useCompanies } from '@/context/CompanyContext'
 import { useSales } from '@/context/SalesContext'
 import { fetchBrandUploads } from '@/lib/db'
+import { supabase } from '@/lib/supabase'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import CompanyDashboard from '@/components/company/CompanyDashboard'
 import CompanySales from '@/components/company/CompanySales'
 import CompanyCommission from '@/components/company/CompanyCommission'
@@ -28,7 +30,7 @@ const tabs = [
 
 function CompanyDetail() {
   const { id } = useParams()
-  const { user } = useAuth()
+  const { user, userRole } = useAuth()
   const { companies } = useCompanies()
   const company = companies.find((c) => c.id === parseInt(id))
 
@@ -47,6 +49,40 @@ function CompanyDetail() {
   const [importSalesOpen, setImportSalesOpen] = useState(false)
   const [inviteModalOpen, setInviteModalOpen] = useState(false)
   const [importsPendingCount, setImportsPendingCount] = useState(0)
+
+  // Share commission link
+  const [shareDialogOpen, setShareDialogOpen] = useState(false)
+  const [shareUrl, setShareUrl] = useState(null)
+  const [shareLoading, setShareLoading] = useState(false)
+  const [shareCopied, setShareCopied] = useState(false)
+  const [shareError, setShareError] = useState(null)
+
+  const handleCreateShareLink = async () => {
+    setShareLoading(true)
+    setShareError(null)
+    try {
+      const { data, error } = await supabase.functions.invoke('create-commission-share', {
+        body: { companyId: parseInt(id), seasonId: null, label: company?.name },
+      })
+      if (error) throw new Error(error.message || JSON.stringify(error))
+      const result = typeof data === 'string' ? JSON.parse(data) : data
+      if (result.error) throw new Error(result.error)
+      setShareUrl(result.shareUrl)
+    } catch (err) {
+      console.error('Share link error:', err)
+      setShareError(err.message || 'Failed to generate link')
+    } finally {
+      setShareLoading(false)
+    }
+  }
+
+  const handleCopyShareUrl = () => {
+    if (shareUrl) {
+      navigator.clipboard.writeText(shareUrl)
+      setShareCopied(true)
+      setTimeout(() => setShareCopied(false), 2000)
+    }
+  }
 
   // Load pending imports count
   useEffect(() => {
@@ -175,6 +211,11 @@ function CompanyDetail() {
                 {/* <DropdownMenuItem onClick={() => setInviteModalOpen(true)}>
                   <UserPlus className="size-4 mr-2" /> Invite Brand Admin
                 </DropdownMenuItem> */}
+                {(userRole === 'pro_rep' || userRole === 'master_admin') && (
+                  <DropdownMenuItem onClick={() => setShareDialogOpen(true)}>
+                    <Share2 className="size-4 mr-2" /> Share Commission Report
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
@@ -264,6 +305,38 @@ function CompanyDetail() {
         onOpenChange={setInviteModalOpen}
         companyId={company.id}
       />
+
+      {/* Share Commission Dialog */}
+      <Dialog open={shareDialogOpen} onOpenChange={(open) => { setShareDialogOpen(open); if (!open) { setShareUrl(null); setShareCopied(false) } }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Share Commission Report</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Generate a link to share a read-only view of this brand's commission data. Anyone with the link can see the report — no login required.
+          </p>
+          {shareError && <p className="text-sm text-red-500">{shareError}</p>}
+          {!shareUrl ? (
+            <Button
+              onClick={handleCreateShareLink}
+              disabled={shareLoading}
+              className="bg-[#005b5b] hover:bg-[#007a7a] text-white"
+            >
+              {shareLoading ? <><Loader2 className="size-4 mr-2 animate-spin" /> Generating...</> : <><Share2 className="size-4 mr-2" /> Generate Share Link</>}
+            </Button>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 bg-zinc-50 rounded-lg p-3 border">
+                <code className="text-xs flex-1 break-all text-zinc-700">{shareUrl}</code>
+                <Button size="sm" variant="outline" onClick={handleCopyShareUrl}>
+                  {shareCopied ? <Check className="size-4 text-green-600" /> : <Copy className="size-4" />}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">This link does not expire. You can revoke it anytime from this menu.</p>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

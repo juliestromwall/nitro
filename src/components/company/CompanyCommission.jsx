@@ -1,5 +1,5 @@
 import { useState, useMemo, Fragment } from 'react'
-import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, DollarSign, Sparkles, Loader2 } from 'lucide-react'
+import { FolderArchive, ChevronDown, Search, Check, X, Pencil, Plus, Trash2, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, DollarSign, Sparkles, Loader2, Sheet } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -520,6 +520,77 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
     }
   }
 
+  // Google Sheets sync
+  const GOOGLE_SHEET_ID = '1O1Dt9rDcId5LmbvqoIuzMlpJ22ZMy-N4KQEU3WOIAfQ'
+  const [sheetSyncing, setSheetSyncing] = useState(false)
+  const [sheetSyncMsg, setSheetSyncMsg] = useState(null)
+
+  const syncToGoogleSheets = async () => {
+    const groups = groupedRows
+    if (!groups.length) return
+
+    setSheetSyncing(true)
+    setSheetSyncMsg(null)
+
+    const num = (v) => v != null && v !== '' ? Math.round(Number(v) * 100) / 100 : 0
+
+    const data = []
+    for (const g of groups) {
+      // Account header row
+      data.push([
+        company?.name || '',
+        g.accountName,
+        '',
+        num(g.totalOrder),
+        '',
+        num(g.totalCommDue),
+        num(g.totalPaid),
+        num(g.totalRemaining),
+        g.aggPayStatus || '',
+      ])
+      // Order sub-rows
+      for (const r of g.rows) {
+        const pct = r.order_type && company?.category_commissions?.[r.order_type] != null
+          ? company.category_commissions[r.order_type]
+          : (r.commission_override ?? company?.commission_percent ?? 0)
+        data.push([
+          company?.name || '',
+          g.accountName,
+          r.order_number || '',
+          num(r.orderTotal),
+          pct,
+          num(r.commissionDue),
+          num(g.totalPaid),
+          num(g.totalRemaining),
+          g.aggPayStatus || '',
+        ])
+      }
+    }
+
+    const trackerLabel = currentSeason?.label || (isAllView ? 'All' : '')
+
+    try {
+      const { data: result, error } = await supabase.functions.invoke('sync-google-sheets', {
+        body: {
+          spreadsheetId: GOOGLE_SHEET_ID,
+          sheetName: 'Sheet1',
+          brandName: company?.name || 'Commissions',
+          trackerLabel,
+          data,
+        },
+      })
+      if (error) throw new Error(error.message || JSON.stringify(error))
+      setSheetSyncMsg('Synced!')
+      setTimeout(() => setSheetSyncMsg(null), 3000)
+    } catch (err) {
+      console.error('Google Sheets sync error:', err)
+      setSheetSyncMsg('Sync failed')
+      setTimeout(() => setSheetSyncMsg(null), 5000)
+    } finally {
+      setSheetSyncing(false)
+    }
+  }
+
   const handleTabChange = (seasonId) => {
     setActiveTab(seasonId)
     setCardFilter('all')
@@ -900,6 +971,8 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
               <p className="text-lg font-bold text-red-600">{fmt(totalOutstanding)}</p>
             </div>
           </div>
+
+          {/* Sync to Google Sheets — hidden, use Share Commission Report instead */}
 
           {/* AI Commission Summary */}
           {groupedRows.length > 0 && (
