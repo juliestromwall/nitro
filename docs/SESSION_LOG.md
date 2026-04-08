@@ -1,5 +1,27 @@
 # Session Log
 
+## 2026-04-08 (Session 20)
+
+**Worked on:** app.repcommish.com subdomain setup, commission report exports (grouped by account), AI commission summary, XLSX styling, exchange rate API fix
+
+**Changes made:**
+- **app.repcommish.com subdomain:** Created DNS A record, nginx config, SSL cert via Certbot. App now served at app.repcommish.com alongside repcommish.com (same build, same /var/www/nitro)
+- **Marketing site links:** Updated Login/Sign Up buttons across MarketingHeader, MarketingFooter, HomePage, FeaturesPage, AboutPage to link to app.repcommish.com instead of relative /login and /signup routes
+- **Commission report exports (PDF + XLSX):** Restructured from flat rows to account-grouped layout — bold account header rows with aggregated Sales Total, Commission Due/Paid/Owed, Status; order sub-rows underneath with Order #, Order Total, Commission %, Commission Due
+- **PDF improvements:** Removed alternating row stripes, only account header rows highlighted (light teal background). Emoji stripped from filter subtitle (jsPDF can't render them)
+- **XLSX styling:** Switched from `xlsx` to `xlsx-js-style` for cell styling support. Teal header row with white text, light teal account header rows with bold text, vertical column dividers only (no horizontal gridlines), proper column widths, right-aligned dollar columns. All values formatted with $ and cents
+- **AI Commission Summary:** New Supabase Edge Function (`commission-summary`) that sends commission data to Claude Haiku and returns a natural language analysis. Collapsible card on CompanyCommission page with loading state, error handling, refresh button, and markdown rendering
+- **Exchange rate API fix:** Updated frankfurter.app URL to frankfurter.dev/v1 (old URL returns 301 causing CORS failures from app.repcommish.com)
+
+**Next steps:**
+- Verify AI summary is working correctly after the groupedRows fix
+- Test XLSX horizontal gridline removal in Excel
+- Gmail API integration (still pending from previous session)
+- Brand Imports feature production launch (still hidden)
+
+**Open questions:**
+- None
+
 ## 2026-03-02 (Session 19)
 
 **Worked on:** Per-company currency conversion with live daily exchange rates
