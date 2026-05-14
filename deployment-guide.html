@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How Deployment Works — RepCommish</title>
+<style>
+  :root {
+    --teal: #005b5b;
+    --teal-light: #005b5b1a;
+    --teal-soft: #005b5b0d;
+    --ink: #0f172a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --bg: #fafaf9;
+    --code-bg: #0f172a;
+    --code-text: #e2e8f0;
+    --warn-bg: #fef3c7;
+    --warn-text: #92400e;
+    --info-bg: #eff6ff;
+    --info-text: #1e40af;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    margin: 0;
+    padding: 0;
+    line-height: 1.65;
+  }
+  .container {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 48px 24px 96px;
+  }
+  header {
+    border-bottom: 2px solid var(--teal);
+    padding-bottom: 24px;
+    margin-bottom: 40px;
+  }
+  h1 {
+    font-size: 36px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    letter-spacing: -0.02em;
+  }
+  header p {
+    color: var(--muted);
+    margin: 0;
+    font-size: 16px;
+  }
+  h2 {
+    font-size: 22px;
+    font-weight: 600;
+    margin: 48px 0 12px;
+    letter-spacing: -0.01em;
+  }
+  h2 .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: var(--teal);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 700;
+    margin-right: 12px;
+    vertical-align: middle;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin: 24px 0 8px;
+  }
+  p { margin: 10px 0 16px; }
+  ul, ol { padding-left: 24px; }
+  li { margin-bottom: 6px; }
+  a { color: var(--teal); text-decoration: none; border-bottom: 1px solid var(--teal-light); }
+  a:hover { border-bottom-color: var(--teal); }
+  strong { font-weight: 600; }
+
+  .lead {
+    font-size: 17px;
+    color: var(--muted);
+    background: var(--teal-soft);
+    border-left: 3px solid var(--teal);
+    padding: 16px 20px;
+    border-radius: 4px;
+    margin-bottom: 32px;
+  }
+
+  pre {
+    background: var(--code-bg);
+    color: var(--code-text);
+    padding: 16px 20px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-family: "SF Mono", Menlo, Monaco, "Courier New", monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 12px 0 20px;
+  }
+  code {
+    font-family: "SF Mono", Menlo, Monaco, "Courier New", monospace;
+    font-size: 13px;
+    background: var(--teal-soft);
+    color: var(--teal);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+  pre code { background: none; color: inherit; padding: 0; font-size: 13px; }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 16px 0 24px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: top;
+  }
+  th {
+    background: var(--teal-soft);
+    font-weight: 600;
+    color: var(--teal);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .callout {
+    background: var(--warn-bg);
+    color: var(--warn-text);
+    border-left: 3px solid #f59e0b;
+    padding: 14px 18px;
+    border-radius: 4px;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+  .callout strong { color: var(--warn-text); }
+
+  .tip {
+    background: var(--teal-soft);
+    border-left: 3px solid var(--teal);
+    padding: 14px 18px;
+    border-radius: 4px;
+    margin: 16px 0;
+    font-size: 14px;
+    color: var(--ink);
+  }
+
+  .info {
+    background: var(--info-bg);
+    color: var(--info-text);
+    border-left: 3px solid #3b82f6;
+    padding: 14px 18px;
+    border-radius: 4px;
+    margin: 16px 0;
+    font-size: 14px;
+  }
+
+  .pieces {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin: 24px 0;
+  }
+  @media (max-width: 700px) {
+    .pieces { grid-template-columns: 1fr; }
+  }
+  .piece {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .piece .badge {
+    display: inline-block;
+    background: var(--teal);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 3px 8px;
+    border-radius: 4px;
+    margin-bottom: 12px;
+  }
+  .piece h4 { margin: 0 0 6px; font-size: 16px; }
+  .piece p { margin: 0 0 8px; font-size: 14px; color: var(--muted); }
+  .piece .deploy-when { font-size: 12px; color: var(--teal); font-weight: 600; }
+
+  .flow {
+    margin: 24px 0;
+    counter-reset: flow;
+  }
+  .flow-step {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 16px;
+    padding: 16px 20px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+  .flow-step::before {
+    counter-increment: flow;
+    content: counter(flow);
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--teal);
+    color: #fff;
+    font-weight: 700;
+    font-size: 13px;
+  }
+  .flow-step .step-body { flex: 1; }
+  .flow-step .step-title { font-weight: 600; margin: 0 0 4px; }
+  .flow-step .step-detail { color: var(--muted); font-size: 14px; margin: 0; }
+
+  .step {
+    border-top: 1px solid var(--line);
+    padding-top: 8px;
+  }
+
+  footer {
+    margin-top: 64px;
+    padding-top: 24px;
+    border-top: 1px solid var(--line);
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+
+<header>
+  <h1>How Deployment Works</h1>
+  <p>Going from your laptop to repcommish.com &mdash; explained without the jargon</p>
+</header>
+
+<div class="lead">
+  <strong>The whole idea:</strong> right now your app runs on your laptop &mdash; only you can see it. <em>Deploying</em> means making a copy that lives on a server somewhere in the world so anyone with the link can use it. That's it.
+</div>
+
+<div class="step">
+  <h2>The restaurant analogy</h2>
+  <p>Imagine your app is a restaurant.</p>
+  <ul>
+    <li><strong>Your laptop</strong> is the test kitchen. You cook, taste, adjust, throw things out, try again. No customers ever see it.</li>
+    <li><strong>The server</strong> is the actual restaurant building. When you're happy with the dish, you bring the final version here, where customers can eat it.</li>
+    <li><strong>The database</strong> is the warehouse next door. Both kitchens pull ingredients from the same warehouse, so the menu stays consistent.</li>
+    <li><strong>Deploying</strong> is the truck that drives the finished recipe from your test kitchen to the restaurant.</li>
+  </ul>
+</div>
+
+<div class="step">
+  <h2>The three pieces of your app</h2>
+  <p>This is the most important thing to internalize. Your app isn't one thing &mdash; it's three things glued together. Each one gets deployed differently (or doesn't need to be deployed at all).</p>
+
+  <div class="pieces">
+    <div class="piece">
+      <div class="badge">Piece 1</div>
+      <h4>Frontend</h4>
+      <p>The website itself &mdash; everything users click on, type into, look at. Written in React. Lives in the <code>src/</code> folder.</p>
+      <p class="deploy-when">Deploy: every time you change UI</p>
+    </div>
+    <div class="piece">
+      <div class="badge">Piece 2</div>
+      <h4>Database</h4>
+      <p>Where all the data lives &mdash; users, accounts, orders, payments. Lives in <strong>Supabase</strong>, which is already in the cloud 24/7. You don't really "deploy" the database, you change its structure when needed.</p>
+      <p class="deploy-when">Deploy: only when you add tables/columns</p>
+    </div>
+    <div class="piece">
+      <div class="badge">Piece 3</div>
+      <h4>Edge Functions</h4>
+      <p>Tiny server-side scripts for things the browser can't do alone (sending emails, calling Claude AI, charging credit cards). Live in <code>supabase/functions/</code>.</p>
+      <p class="deploy-when">Deploy: only when their code changes</p>
+    </div>
+  </div>
+
+  <p>Most of the time you'll only be deploying <strong>Piece 1 (the frontend)</strong>. The other two stay put unless you specifically change them.</p>
+</div>
+
+<div class="step">
+  <h2>The frontend deploy &mdash; the one you'll do most</h2>
+  <p>This is the bread and butter. Five steps. You can have Claude do all of these for you with one sentence.</p>
+
+  <div class="flow">
+    <div class="flow-step">
+      <div class="step-body">
+        <p class="step-title">Test it locally first</p>
+        <p class="step-detail">Run <code>npm run dev</code>, open <code>localhost:5174</code>, click around. Make sure the change actually works. Never skip this.</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="step-body">
+        <p class="step-title">Commit to GitHub</p>
+        <p class="step-detail">Save your work to the repo so it's tracked. <code>git add</code>, <code>git commit</code>, <code>git push</code>.</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="step-body">
+        <p class="step-title">Build a production version</p>
+        <p class="step-detail"><code>npm run build</code> takes your code and squishes it down into optimized files. Output lands in a folder called <code>dist/</code>.</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="step-body">
+        <p class="step-title">Upload <code>dist/</code> to the VPS</p>
+        <p class="step-detail">The "VPS" is the rented computer in the cloud that runs the live site. The files get copied there using <code>scp</code> (basically a secure version of drag-and-drop over the internet).</p>
+      </div>
+    </div>
+    <div class="flow-step">
+      <div class="step-body">
+        <p class="step-title">nginx serves the new files</p>
+        <p class="step-detail">nginx is the program on the VPS that hands files to anyone who visits repcommish.com. As soon as the new files land, nginx serves them. The site updates in ~30 seconds. No restart needed.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="tip">
+    <strong>What to actually say to Claude:</strong> "Deploy the latest changes to repcommish.com." Claude will do all five steps. You don't need to memorize the commands.
+  </div>
+</div>
+
+<div class="step">
+  <h2>The other two deploys (rarer)</h2>
+
+  <h3>Database changes</h3>
+  <p>If you ask Claude to "add a column" or "create a new table," you've changed the database's structure. The change has to be applied to Supabase. Two ways this happens:</p>
+  <ul>
+    <li><strong>SQL Editor</strong> &mdash; go to supabase.com/dashboard, open your project, click "SQL Editor," paste the SQL Claude wrote, hit Run. Done.</li>
+    <li><strong>schema.sql file</strong> &mdash; the project keeps a copy of the database structure at <code>scripts/schema.sql</code>. Update it so future setups stay in sync.</li>
+  </ul>
+  <div class="callout">
+    <strong>Be careful here.</strong> Database changes are permanent and affect all real users immediately. If you accidentally delete a column, the data in it is gone. Always have Claude show you the SQL first and explain what it does before you click Run.
+  </div>
+
+  <h3>Edge function changes</h3>
+  <p>If you change anything inside <code>supabase/functions/</code> &mdash; for example, the AI extraction logic, the Stripe webhook, the email sender &mdash; you have to redeploy that function to Supabase.</p>
+  <pre><code>supabase functions deploy &lt;function-name&gt;</code></pre>
+  <p>Claude does this for you when you say "deploy the updated edge function."</p>
+</div>
+
+<div class="step">
+  <h2>Local vs. production &mdash; the only two worlds</h2>
+  <table>
+    <thead>
+      <tr><th></th><th>Local (your laptop)</th><th>Production (live)</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>URL</strong></td>
+        <td><code>localhost:5174</code></td>
+        <td><a href="https://repcommish.com" target="_blank">repcommish.com</a> &amp; <a href="https://app.repcommish.com" target="_blank">app.repcommish.com</a></td>
+      </tr>
+      <tr>
+        <td><strong>Who sees it</strong></td>
+        <td>Only you</td>
+        <td>Everyone on the internet</td>
+      </tr>
+      <tr>
+        <td><strong>Database</strong></td>
+        <td>Real Supabase (same as production)</td>
+        <td>Real Supabase (same as local)</td>
+      </tr>
+      <tr>
+        <td><strong>When you see changes</strong></td>
+        <td>Instantly, as you save files</td>
+        <td>After you deploy (~30 seconds)</td>
+      </tr>
+      <tr>
+        <td><strong>Safe to break?</strong></td>
+        <td>Yes &mdash; you're the only one</td>
+        <td>No &mdash; real users are using it</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="info">
+    <strong>Important catch:</strong> Local and production share the <em>same Supabase database</em>. If you delete a user from your laptop, they're gone from production too. The "two worlds" are about the UI, not the data. To safely test risky data changes, you'd want a separate "staging" Supabase project &mdash; ask Claude to set one up if you ever need it.
+  </div>
+</div>
+
+<div class="step">
+  <h2>What to ask Claude (your cheat sheet)</h2>
+  <table>
+    <thead><tr><th>You want to&hellip;</th><th>Say this</th></tr></thead>
+    <tbody>
+      <tr><td>Push UI changes to repcommish.com</td><td>"Deploy the latest changes to production."</td></tr>
+      <tr><td>Add a database column or table</td><td>"Add a column for X to the Y table, and update schema.sql."</td></tr>
+      <tr><td>Deploy an edge function</td><td>"Deploy the &lt;function-name&gt; edge function."</td></tr>
+      <tr><td>Check if local matches production</td><td>"Is my local branch ahead of or behind GitHub?"</td></tr>
+      <tr><td>Undo a bad deploy</td><td>"Revert to the previous commit and redeploy."</td></tr>
+      <tr><td>See what's changed since last deploy</td><td>"What's changed in git since the last push?"</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="step">
+  <h2>Glossary &mdash; words Claude will use that sound scary</h2>
+  <table>
+    <thead><tr><th>Word</th><th>Plain English</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Deploy</strong></td><td>Copy your code from your laptop to the live server so real users can see it.</td></tr>
+      <tr><td><strong>Build</strong></td><td>Compress and optimize your code so it runs fast in a browser.</td></tr>
+      <tr><td><strong>Frontend</strong></td><td>The website itself &mdash; the stuff users see and click.</td></tr>
+      <tr><td><strong>Backend</strong></td><td>Everything users can't see &mdash; the database, the logic, the integrations.</td></tr>
+      <tr><td><strong>VPS</strong></td><td>"Virtual Private Server." A rented computer in the cloud that runs your site 24/7. Yours is at Hostinger.</td></tr>
+      <tr><td><strong>nginx</strong></td><td>The program on the VPS that hands your website's files to visitors. Pronounced "engine-x."</td></tr>
+      <tr><td><strong>Supabase</strong></td><td>The company that hosts your database, user logins, and edge functions. You manage it at supabase.com/dashboard.</td></tr>
+      <tr><td><strong>Edge function</strong></td><td>A small piece of server-side code that runs in Supabase. Useful for anything the browser can't do alone (sending email, calling AI, etc.).</td></tr>
+      <tr><td><strong>SSH</strong></td><td>Secure way to remotely control the VPS from your laptop. Like a private back-door key.</td></tr>
+      <tr><td><strong>scp</strong></td><td>"Secure Copy." How files get sent from your laptop to the VPS. Like AirDrop but over the internet.</td></tr>
+      <tr><td><strong>SSL / HTTPS</strong></td><td>The padlock icon in browsers. Means traffic to your site is encrypted. Yours is set up with Let's Encrypt (free).</td></tr>
+      <tr><td><strong>RLS</strong></td><td>"Row-Level Security." Supabase rules that control which users can see which rows of data. Critical for privacy.</td></tr>
+      <tr><td><strong>Migration</strong></td><td>A change to the database structure &mdash; like adding a column or renaming a table.</td></tr>
+      <tr><td><strong>Rollback / revert</strong></td><td>Undo. Go back to the previous working version.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="step">
+  <h2>What can go wrong (and what to do)</h2>
+  <ul>
+    <li><strong>You deploy and the site goes blank or shows an error.</strong> Tell Claude: "The site is broken &mdash; revert to the previous commit and redeploy." Done.</li>
+    <li><strong>The local site works but the production site doesn't.</strong> Usually means a database column exists locally (in <code>schema.sql</code>) but you forgot to run the SQL on production Supabase. Tell Claude: "Compare schema.sql to what's actually in Supabase."</li>
+    <li><strong>Edge function crashes.</strong> Check Supabase logs (supabase.com/dashboard &rarr; your project &rarr; Edge Functions &rarr; Logs). Tell Claude the error message and ask for a fix.</li>
+    <li><strong>You're not sure if a change is already deployed.</strong> Visit the live site and try the feature. Or ask Claude: "Is the latest commit deployed to production?"</li>
+  </ul>
+  <div class="tip">
+    <strong>You almost never have to memorize commands.</strong> The trick to vibe-coding is knowing what to <em>ask for</em>. The glossary above is your translation dictionary &mdash; once you can name what's broken or what you want, Claude does the rest.
+  </div>
+</div>
+
+<footer>
+  Companion to <code>setup-guide.html</code> and <code>your-checklist.html</code>.
+</footer>
+
+</div>
+</body>
+</html>

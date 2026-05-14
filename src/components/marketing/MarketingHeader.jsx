@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import { Menu, X } from 'lucide-react'
+import { APP_LOGIN_URL, APP_SIGNUP_URL } from '@/lib/appUrl'
 
 const navLinks = [
   { to: '/', label: 'Home' },
@@ -79,13 +80,13 @@ function MarketingHeader() {
             Request a Demo
           </a>
           <a
-            href="https://app.repcommish.com/login"
+            href={APP_LOGIN_URL}
             className="text-sm font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors"
           >
             Log In
           </a>
           <a
-            href="https://app.repcommish.com/signup"
+            href={APP_SIGNUP_URL}
             className="text-sm font-medium bg-[#005b5b] hover:bg-[#007a7a] text-white px-4 py-2 rounded-lg transition-colors"
           >
             Sign Up
@@ -139,14 +140,14 @@ function MarketingHeader() {
               Request a Demo
             </a>
             <a
-              href="https://app.repcommish.com/login"
+              href={APP_LOGIN_URL}
               onClick={() => setMobileOpen(false)}
               className="text-sm font-medium text-zinc-600 dark:text-zinc-400 py-2"
             >
               Log In
             </a>
             <a
-              href="https://app.repcommish.com/signup"
+              href={APP_SIGNUP_URL}
               onClick={() => setMobileOpen(false)}
               className="text-sm font-medium bg-[#005b5b] text-white px-4 py-2 rounded-lg text-center"
             >

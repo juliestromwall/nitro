@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { APP_SIGNUP_URL } from '@/lib/appUrl'
 
 function AboutPage() {
   return (
@@ -55,7 +56,7 @@ function AboutPage() {
               </h2>
               <p className="text-teal-100/80 mb-6">You'll be up and running before your coffee gets cold.</p>
               <a
-                href="https://app.repcommish.com/signup"
+                href={APP_SIGNUP_URL}
                 className="inline-flex items-center px-6 py-3 bg-white text-[#005b5b] font-semibold rounded-lg hover:bg-teal-50 transition-colors shadow-lg"
               >
                 Get Started

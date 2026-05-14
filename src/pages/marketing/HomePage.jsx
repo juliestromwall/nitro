@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, Navigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
+import { APP_SIGNUP_URL } from '@/lib/appUrl'
 
 const screenshots = [
   { src: '/preview-dashboard.png', alt: 'Multi-brand dashboard with sales and commission overview' },
@@ -33,7 +34,7 @@ function HomePage() {
             </p>
             <div className="mt-8 flex flex-wrap gap-4">
               <a
-                href="https://app.repcommish.com/signup"
+                href={APP_SIGNUP_URL}
                 className="inline-flex items-center px-6 py-3 bg-[#005b5b] hover:bg-[#007a7a] text-white font-medium rounded-lg transition-colors text-lg shadow-lg shadow-[#005b5b]/25"
               >
                 Get Started
@@ -296,7 +297,7 @@ function HomePage() {
           </p>
           <div className="flex flex-wrap justify-center gap-4">
             <a
-              href="https://app.repcommish.com/signup"
+              href={APP_SIGNUP_URL}
               className="inline-flex items-center px-8 py-3 bg-white text-[#005b5b] font-semibold rounded-lg hover:bg-teal-50 transition-colors text-lg shadow-lg"
             >
               Get Started Today

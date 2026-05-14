@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { APP_LOGIN_URL, APP_SIGNUP_URL } from '@/lib/appUrl'
 
 function MarketingFooter() {
   return (
@@ -28,8 +29,8 @@ function MarketingFooter() {
           <div>
             <h4 className="text-sm font-semibold text-zinc-900 dark:text-white mb-3">Account</h4>
             <ul className="space-y-2">
-              <li><a href="https://app.repcommish.com/login" className="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">Log In</a></li>
-              <li><a href="https://app.repcommish.com/signup" className="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">Sign Up</a></li>
+              <li><a href={APP_LOGIN_URL} className="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">Log In</a></li>
+              <li><a href={APP_SIGNUP_URL} className="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">Sign Up</a></li>
               <li><a href="https://calendly.com/repcommish" target="_blank" rel="noopener noreferrer" className="text-sm text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white transition-colors">Request a Demo</a></li>
             </ul>
           </div>

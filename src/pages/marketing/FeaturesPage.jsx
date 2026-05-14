@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { BarChart3, Package, DollarSign, CreditCard, Upload, Users, FileDown, ListTodo } from 'lucide-react'
+import { APP_SIGNUP_URL } from '@/lib/appUrl'
 
 const features = [
   {
@@ -99,7 +100,7 @@ function FeaturesPage() {
             Ditch the spreadsheet. You've got sales to make.
           </p>
           <a
-            href="https://app.repcommish.com/signup"
+            href={APP_SIGNUP_URL}
             className="inline-flex items-center px-6 py-3 bg-white text-[#005b5b] font-semibold rounded-lg hover:bg-teal-50 transition-colors shadow-lg"
           >
             Sign Up Now
