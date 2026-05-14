@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REPCOMMISH One-Sheeter</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --teal: #005b5b;
+    --teal-dark: #004545;
+    --amber: #f59e0b;
+    --emerald: #10b981;
+    --slate-50: #f8fafc;
+    --slate-100: #f1f5f9;
+    --slate-200: #e2e8f0;
+    --slate-500: #64748b;
+    --slate-600: #475569;
+    --slate-700: #334155;
+    --slate-800: #1e293b;
+    --slate-900: #0f172a;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--slate-800);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    width: 816px;
+    height: 1056px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ===== HEADER ===== */
+  .header {
+    background: linear-gradient(135deg, var(--slate-900) 0%, var(--teal-dark) 100%);
+    color: white;
+    padding: 28px 48px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .header .logo {
+    width: 52px;
+    height: auto;
+    filter: brightness(0) invert(1);
+  }
+
+  .header-text h1 {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    line-height: 1.1;
+  }
+
+  .header-text h1 span {
+    color: var(--amber);
+  }
+
+  .header-text .sub {
+    font-size: 11px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.55);
+    margin-top: 4px;
+  }
+
+  .header .url {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+
+  /* ===== HOOK ===== */
+  .hook {
+    padding: 18px 48px;
+    background: white;
+    border-bottom: 1px solid var(--slate-200);
+  }
+
+  .hook h2 {
+    font-size: 17px;
+    font-weight: 800;
+    color: var(--slate-900);
+    margin-bottom: 5px;
+    letter-spacing: -0.3px;
+  }
+
+  .hook p {
+    font-size: 12px;
+    color: var(--slate-500);
+    line-height: 1.5;
+    max-width: 620px;
+  }
+
+  /* ===== FEATURES GRID ===== */
+  .features {
+    padding: 16px 48px;
+    background: var(--slate-50);
+  }
+
+  .features-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: 2.5px;
+    margin-bottom: 12px;
+  }
+
+  .features-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+  }
+
+  .feature-card {
+    background: white;
+    border-radius: 10px;
+    padding: 14px 14px;
+    border: 1px solid var(--slate-200);
+  }
+
+  .feature-card .icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+
+  .feature-card h3 {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--slate-900);
+    margin-bottom: 3px;
+  }
+
+  .feature-card p {
+    font-size: 10.5px;
+    color: var(--slate-500);
+    line-height: 1.4;
+  }
+
+  /* ===== SCREENSHOT ===== */
+  .screenshot-section {
+    padding: 16px 48px;
+    background: var(--slate-50);
+    display: flex;
+    gap: 32px;
+    align-items: center;
+  }
+
+  .screenshot-section img {
+    width: 300px;
+    height: auto;
+    border-radius: 8px;
+    border: 1px solid var(--slate-200);
+    flex-shrink: 0;
+  }
+
+  .screenshot-text {
+    flex: 1;
+  }
+
+  .screenshot-text .label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: 2.5px;
+    margin-bottom: 6px;
+  }
+
+  .screenshot-text h3 {
+    font-size: 15px;
+    font-weight: 800;
+    color: var(--slate-900);
+    margin-bottom: 6px;
+    line-height: 1.2;
+    letter-spacing: -0.3px;
+  }
+
+  .screenshot-text p {
+    font-size: 11px;
+    color: var(--slate-500);
+    line-height: 1.45;
+    margin-bottom: 8px;
+  }
+
+  .screenshot-text ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .screenshot-text ul li {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--slate-700);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .mini-check {
+    color: var(--teal);
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    min-width: 14px;
+  }
+
+  /* ===== PRICING STRIP ===== */
+  .pricing-strip {
+    padding: 16px 48px;
+    background: var(--slate-50);
+    border-top: 1px solid var(--slate-200);
+    border-bottom: 1px solid var(--slate-200);
+    display: flex;
+    align-items: center;
+    gap: 32px;
+  }
+
+  .pricing-strip .pricing-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: 2.5px;
+    min-width: 60px;
+  }
+
+  .pricing-options {
+    display: flex;
+    gap: 24px;
+    flex: 1;
+  }
+
+  .pricing-option {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .pricing-option .amount {
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--slate-900);
+    letter-spacing: -1px;
+  }
+
+  .pricing-option .period {
+    font-size: 13px;
+    color: var(--slate-500);
+    font-weight: 400;
+  }
+
+  .pricing-option .note {
+    font-size: 11px;
+    color: var(--slate-500);
+    font-style: italic;
+  }
+
+  .pricing-divider {
+    width: 1px;
+    height: 36px;
+    background: var(--slate-300);
+  }
+
+  .pricing-save {
+    background: var(--amber);
+    color: white;
+    font-size: 9px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 20px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  .pricing-strip .trial {
+    margin-left: auto;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--teal);
+  }
+
+  /* ===== FOOTER CTA ===== */
+  .footer-cta {
+    background: linear-gradient(135deg, var(--slate-900) 0%, var(--teal-dark) 100%);
+    color: white;
+    padding: 20px 48px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: auto;
+  }
+
+  .footer-cta .left h3 {
+    font-size: 18px;
+    font-weight: 800;
+    margin-bottom: 4px;
+  }
+
+  .footer-cta .left p {
+    font-size: 12px;
+    color: rgba(255,255,255,0.55);
+    font-style: italic;
+  }
+
+  .footer-cta .right {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .footer-cta .cta-btn {
+    background: var(--amber);
+    color: white;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 10px 28px;
+    border-radius: 8px;
+    text-decoration: none;
+  }
+
+  .footer-cta .url {
+    font-size: 11px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 1.5px;
+  }
+
+  /* ===== ACCENT BAR ===== */
+  .accent-bar {
+    height: 3px;
+    background: linear-gradient(90deg, var(--teal), var(--amber));
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-left">
+      <img src="public/repcommish-logo.png" alt="REPCOMMISH" class="logo">
+      <div class="header-text">
+        <h1>Track your sales. <span>Know your commish.</span></h1>
+        <div class="sub">Sales &amp; commission tracking for independent reps</div>
+      </div>
+    </div>
+    <div class="url">repcommish.com</div>
+  </div>
+
+  <div class="accent-bar"></div>
+
+  <!-- HOOK -->
+  <div class="hook">
+    <h2>Your spreadsheet held together by prayers and conditional formatting?<br>It's time to retire it.</h2>
+    <p>REPCOMMISH replaces the scattered spreadsheets, mental math, and "I think they owe me...?" guesswork with one simple dashboard. Track every order, auto-calculate every commission, and always know exactly what you're owed — across all your brands. Think of it as a personal accountant that never sleeps, never miscounts, and never asks for a raise.</p>
+  </div>
+
+  <!-- FEATURES -->
+  <div class="features">
+    <div class="features-label">What you get</div>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="icon" style="background: #ecfdf5;">&#128202;</div>
+        <h3>Multi-Brand Dashboard</h3>
+        <p>All your brands, one screen. Total sales, commissions earned, and what's owed. No more tab-switching like a maniac.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon" style="background: #fef3c7;">&#128176;</div>
+        <h3>Commission Tracking</h3>
+        <p>Auto-calculated from your orders. Track who paid, who partially paid, and who's pretending your invoice got lost in spam.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon" style="background: #eff6ff;">&#128230;</div>
+        <h3>Order Management</h3>
+        <p>Every order from "just placed" to "closed and celebrating." Import in bulk or add one at a time — whatever matches your chaos style.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon" style="background: #fce7f3;">&#128179;</div>
+        <h3>Payment Management</h3>
+        <p>Record payments, track outstanding balances, import from CSV. Full payment history, zero guesswork.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon" style="background: #f3e8ff;">&#128196;</div>
+        <h3>Reports &amp; Exports</h3>
+        <p>Clean PDFs and Excel reports for your accountant, your taxes, or that brand that keeps asking "can you send that again?"</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon" style="background: #e0f2fe;">&#128218;</div>
+        <h3>Account Management</h3>
+        <p>Contacts, notes, order history — all in one place. No more digging through emails to find "what's that guy's number again?"</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREENSHOT + HIGHLIGHTS -->
+  <div class="screenshot-section">
+    <img src="public/preview-dashboard.png" alt="REPCOMMISH Dashboard">
+    <div class="screenshot-text">
+      <div class="label">Why reps love it</div>
+      <h3>Built for reps, not IT departments.</h3>
+      <p>Set up in 5 minutes. No training manual required. You'll be up and running before your coffee gets cold.</p>
+      <ul>
+        <li><span class="mini-check">&#10003;</span> Unlimited brands and orders</li>
+        <li><span class="mini-check">&#10003;</span> Per-brand and per-category commission rates</li>
+        <li><span class="mini-check">&#10003;</span> CSV import for accounts, sales, and payments</li>
+        <li><span class="mini-check">&#10003;</span> Per-brand to-dos, notepad, and calculator</li>
+        <li><span class="mini-check">&#10003;</span> Invoice and document attachments</li>
+        <li><span class="mini-check">&#10003;</span> Dark mode (for the late-night sessions)</li>
+        <li><span class="mini-check">&#10003;</span> Secure &amp; private — your data is yours</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- PRICING STRIP -->
+  <div class="pricing-strip">
+    <div class="pricing-label">Pricing</div>
+    <div class="pricing-options">
+      <div class="pricing-option">
+        <div class="amount">$15</div>
+        <div class="period">/mo</div>
+        <div class="note">&nbsp;— cancel anytime, no guilt trip</div>
+      </div>
+      <div class="pricing-divider"></div>
+      <div class="pricing-option">
+        <div class="amount">$144</div>
+        <div class="period">/yr</div>
+        <div class="note">&nbsp;— $12/mo if purchased annually</div>
+        <span class="pricing-save">SAVE 20%</span>
+      </div>
+    </div>
+    <div class="trial">Free 7-day trial</div>
+  </div>
+
+  <!-- FOOTER CTA -->
+  <div class="footer-cta">
+    <div class="left">
+      <h3>Ready to ditch the spreadsheet?</h3>
+      <p>Made with love and a grudge against Excel.</p>
+    </div>
+    <div class="right">
+      <a href="https://repcommish.com" class="cta-btn">Start your free trial</a>
+      <div class="url">REPCOMMISH.COM</div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

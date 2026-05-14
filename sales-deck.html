@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>REPCOMMISH Sales Deck</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --teal: #005b5b;
+    --teal-light: #007a7a;
+    --teal-dark: #004545;
+    --amber: #f59e0b;
+    --emerald: #10b981;
+    --slate-50: #f8fafc;
+    --slate-100: #f1f5f9;
+    --slate-200: #e2e8f0;
+    --slate-300: #cbd5e1;
+    --slate-500: #64748b;
+    --slate-600: #475569;
+    --slate-700: #334155;
+    --slate-800: #1e293b;
+    --slate-900: #0f172a;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--slate-800);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .slide {
+    width: 1280px;
+    height: 720px;
+    position: relative;
+    overflow: hidden;
+    page-break-after: always;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .slide:last-child {
+    page-break-after: avoid;
+  }
+
+  /* ===== SLIDE 1: COVER ===== */
+  .slide-cover {
+    background: linear-gradient(135deg, var(--slate-900) 0%, var(--teal-dark) 100%);
+    color: white;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
+
+  .slide-cover .logo {
+    width: 100px;
+    height: auto;
+    margin-bottom: 40px;
+    filter: brightness(0) invert(1);
+  }
+
+  .slide-cover h1 {
+    font-size: 52px;
+    font-weight: 800;
+    letter-spacing: -1.5px;
+    line-height: 1.1;
+    margin-bottom: 16px;
+  }
+
+  .slide-cover h1 span {
+    color: var(--amber);
+  }
+
+  .slide-cover .subtitle {
+    font-size: 20px;
+    font-weight: 300;
+    color: rgba(255,255,255,0.7);
+    max-width: 600px;
+    line-height: 1.5;
+  }
+
+  .slide-cover .tagline {
+    position: absolute;
+    bottom: 80px;
+    font-size: 15px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.45);
+    font-style: italic;
+  }
+
+  .slide-cover .url {
+    position: absolute;
+    bottom: 40px;
+    font-size: 16px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 2px;
+  }
+
+  /* ===== SLIDE 2: PROBLEM ===== */
+  .slide-problem {
+    background: white;
+    padding: 80px 100px;
+  }
+
+  .slide-problem .label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 16px;
+  }
+
+  .slide-problem h2 {
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: var(--slate-900);
+    margin-bottom: 48px;
+    line-height: 1.15;
+  }
+
+  .pain-points {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 32px;
+  }
+
+  .pain-point {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .pain-icon {
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    border-radius: 12px;
+    background: #fef2f2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+  }
+
+  .pain-point h3 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--slate-900);
+    margin-bottom: 6px;
+  }
+
+  .pain-point p {
+    font-size: 14px;
+    color: var(--slate-500);
+    line-height: 1.5;
+  }
+
+  /* ===== SLIDE 3: SOLUTION ===== */
+  .slide-solution {
+    background: var(--teal);
+    color: white;
+    padding: 80px 100px;
+    justify-content: center;
+  }
+
+  .slide-solution .label {
+    font-size: 13px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 16px;
+    color: rgba(255,255,255,0.6);
+  }
+
+  .slide-solution h2 {
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 24px;
+    line-height: 1.15;
+  }
+
+  .slide-solution .desc {
+    font-size: 20px;
+    font-weight: 300;
+    line-height: 1.6;
+    max-width: 700px;
+    color: rgba(255,255,255,0.85);
+    margin-bottom: 48px;
+  }
+
+  .solution-pills {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  .solution-pill {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 100px;
+    padding: 10px 24px;
+    font-size: 15px;
+    font-weight: 500;
+    color: white;
+  }
+
+  /* ===== FEATURE SLIDES (4, 5, 6) ===== */
+  .slide-feature {
+    background: white;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .slide-feature .text-side {
+    padding: 80px 60px 80px 80px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .slide-feature .label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 16px;
+  }
+
+  .slide-feature h2 {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+    color: var(--slate-900);
+    margin-bottom: 20px;
+    line-height: 1.15;
+  }
+
+  .slide-feature .desc {
+    font-size: 16px;
+    color: var(--slate-500);
+    line-height: 1.6;
+    margin-bottom: 32px;
+  }
+
+  .feature-bullets {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .feature-bullets li {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--slate-700);
+  }
+
+  .feature-bullets li::before {
+    content: "";
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    border-radius: 50%;
+    background: #ecfdf5;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .check {
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
+    border-radius: 50%;
+    background: #ecfdf5;
+    color: var(--emerald);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .slide-feature .image-side {
+    background: var(--slate-100);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    overflow: hidden;
+  }
+
+  .slide-feature .screenshot {
+    width: 100%;
+    height: auto;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+  }
+
+  /* ===== SLIDE 7: MORE FEATURES ===== */
+  .slide-more {
+    background: var(--slate-50);
+    padding: 80px 100px;
+  }
+
+  .slide-more .label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 16px;
+  }
+
+  .slide-more h2 {
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: var(--slate-900);
+    margin-bottom: 48px;
+  }
+
+  .more-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 28px;
+  }
+
+  .more-card {
+    background: white;
+    border-radius: 16px;
+    padding: 32px 28px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    border: 1px solid var(--slate-200);
+  }
+
+  .more-card .icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    margin-bottom: 16px;
+  }
+
+  .more-card h3 {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--slate-900);
+    margin-bottom: 8px;
+  }
+
+  .more-card p {
+    font-size: 13px;
+    color: var(--slate-500);
+    line-height: 1.5;
+  }
+
+  /* ===== SLIDE 8: PRICING ===== */
+  .slide-pricing {
+    background: white;
+    padding: 80px 100px;
+    align-items: center;
+  }
+
+  .slide-pricing .label {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--teal);
+    text-transform: uppercase;
+    letter-spacing: 3px;
+    margin-bottom: 16px;
+  }
+
+  .slide-pricing h2 {
+    font-size: 42px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: var(--slate-900);
+    margin-bottom: 12px;
+  }
+
+  .slide-pricing .subtitle {
+    font-size: 18px;
+    color: var(--slate-500);
+    margin-bottom: 48px;
+  }
+
+  .pricing-cards {
+    display: flex;
+    gap: 32px;
+    width: 100%;
+    max-width: 800px;
+  }
+
+  .pricing-card {
+    flex: 1;
+    border-radius: 20px;
+    padding: 40px 36px;
+    border: 2px solid var(--slate-200);
+    text-align: center;
+  }
+
+  .pricing-card.featured {
+    border-color: var(--teal);
+    background: linear-gradient(180deg, rgba(0,91,91,0.03) 0%, white 100%);
+    position: relative;
+  }
+
+  .pricing-card.featured .save-badge {
+    position: absolute;
+    top: -14px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--amber);
+    color: white;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 16px;
+    border-radius: 100px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .pricing-card .plan-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--slate-500);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 16px;
+  }
+
+  .pricing-card .price {
+    font-size: 48px;
+    font-weight: 800;
+    color: var(--slate-900);
+    letter-spacing: -2px;
+    margin-bottom: 4px;
+  }
+
+  .pricing-card .price span {
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--slate-500);
+    letter-spacing: 0;
+  }
+
+  .pricing-card .period {
+    font-size: 14px;
+    color: var(--slate-500);
+    margin-bottom: 28px;
+  }
+
+  .pricing-features {
+    list-style: none;
+    text-align: left;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .pricing-features li {
+    font-size: 14px;
+    color: var(--slate-600);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .pricing-features li .pcheck {
+    color: var(--emerald);
+    font-weight: 700;
+    font-size: 16px;
+  }
+
+  /* ===== SLIDE 9: CTA ===== */
+  .slide-cta {
+    background: linear-gradient(135deg, var(--slate-900) 0%, var(--teal-dark) 100%);
+    color: white;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
+
+  .slide-cta .logo {
+    width: 80px;
+    height: auto;
+    margin-bottom: 40px;
+    filter: brightness(0) invert(1);
+  }
+
+  .slide-cta h2 {
+    font-size: 46px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    margin-bottom: 20px;
+    line-height: 1.15;
+  }
+
+  .slide-cta .desc {
+    font-size: 20px;
+    font-weight: 300;
+    color: rgba(255,255,255,0.7);
+    max-width: 550px;
+    line-height: 1.5;
+    margin-bottom: 48px;
+  }
+
+  .cta-button {
+    display: inline-block;
+    background: var(--amber);
+    color: white;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 16px 48px;
+    border-radius: 12px;
+    text-decoration: none;
+    letter-spacing: 0.5px;
+    margin-bottom: 16px;
+  }
+
+  .slide-cta .tagline {
+    font-size: 15px;
+    font-weight: 400;
+    color: rgba(255,255,255,0.4);
+    font-style: italic;
+    margin-top: 12px;
+  }
+
+  .slide-cta .url {
+    font-size: 16px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.5);
+    letter-spacing: 2px;
+  }
+
+  /* ===== FOOTER BAR ===== */
+  .slide-footer {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 4px;
+    background: linear-gradient(90deg, var(--teal), var(--amber));
+  }
+
+  @media print {
+    .slide {
+      page-break-after: always;
+    }
+    .slide:last-child {
+      page-break-after: avoid;
+    }
+  }
+</style>
+</head>
+<body>
+
+<!-- SLIDE 1: COVER -->
+<div class="slide slide-cover">
+  <img src="public/repcommish-logo.png" alt="REPCOMMISH" class="logo">
+  <h1>Track your sales.<br><span>Know your commish.</span></h1>
+  <p class="subtitle">Because your spreadsheet held together by prayers and conditional formatting deserves to retire.</p>
+  <div class="tagline">Built by a rep's wife. Because somebody had to fix this.</div>
+  <div class="url">REPCOMMISH.COM</div>
+</div>
+
+<!-- SLIDE 2: THE PROBLEM -->
+<div class="slide slide-problem">
+  <div class="label">Sound Familiar?</div>
+  <h2>Your commission tracking system<br>is held together by vibes.</h2>
+  <div class="pain-points">
+    <div class="pain-point">
+      <div class="pain-icon">&#128466;</div>
+      <div>
+        <h3>Spreadsheet Chaos</h3>
+        <p>12 tabs open, 4 different spreadsheets, and a formula that broke three months ago that you're too scared to fix. We've all been there.</p>
+      </div>
+    </div>
+    <div class="pain-point">
+      <div class="pain-icon">&#128176;</div>
+      <div>
+        <h3>The Mental Math Era</h3>
+        <p>You know you're owed money. You just can't say exactly how much, from which brand, for which orders. The info exists — it's just scattered across 47 places.</p>
+      </div>
+    </div>
+    <div class="pain-point">
+      <div class="pain-icon">&#9203;</div>
+      <div>
+        <h3>Reconciliation Nightmares</h3>
+        <p>A check arrives. Cool. Now spend the next hour matching it to accounts while questioning your career choices. Every hour reconciling is an hour you're not closing.</p>
+      </div>
+    </div>
+    <div class="pain-point">
+      <div class="pain-icon">&#128200;</div>
+      <div>
+        <h3>No Big Picture</h3>
+        <p>How's the season going across all your brands? What's your total pipeline? If your answer involves opening 6 files... we need to talk.</p>
+      </div>
+    </div>
+  </div>
+  <div class="slide-footer"></div>
+</div>
+
+<!-- SLIDE 3: THE SOLUTION -->
+<div class="slide slide-solution">
+  <div class="label">The Fix</div>
+  <h2>One app. All your brands.<br>Zero spreadsheet nightmares.</h2>
+  <p class="desc">Think of it as a personal accountant that never sleeps, never miscounts, and never asks for a raise. Add your brands, enter your sales, and always know exactly what you're owed.</p>
+  <div class="solution-pills">
+    <div class="solution-pill">Multi-brand dashboard</div>
+    <div class="solution-pill">Order tracking</div>
+    <div class="solution-pill">Auto-calculated commission</div>
+    <div class="solution-pill">Payment tracking</div>
+    <div class="solution-pill">CSV import & export</div>
+    <div class="solution-pill">Reports (XLSX + PDF)</div>
+  </div>
+</div>
+
+<!-- SLIDE 4: FEATURE - DASHBOARD -->
+<div class="slide slide-feature">
+  <div class="text-side">
+    <div class="label">Dashboard</div>
+    <h2>All your brands. One screen. No more tab-switching like a maniac.</h2>
+    <p class="desc">Total sales, commissions earned, and what's owed across every brand you carry. It's the view you've been building in your head but could never get Excel to cooperate on.</p>
+    <ul class="feature-bullets">
+      <li><span class="check">&#10003;</span> Cross-brand totals at a glance</li>
+      <li><span class="check">&#10003;</span> Commission earned vs. still owed</li>
+      <li><span class="check">&#10003;</span> Per-brand cards with progress bars</li>
+      <li><span class="check">&#10003;</span> Filter by sale cycle (Winter, Spring, etc.)</li>
+    </ul>
+  </div>
+  <div class="image-side">
+    <img src="public/preview-dashboard.png" alt="Dashboard" class="screenshot">
+  </div>
+  <div class="slide-footer"></div>
+</div>
+
+<!-- SLIDE 5: FEATURE - COMMISSION TRACKING -->
+<div class="slide slide-feature">
+  <div class="text-side">
+    <div class="label">Commission</div>
+    <h2>Know what you're owed. Down to the penny.</h2>
+    <p class="desc">Your calculator app can finally retire. Commission auto-calculates from your orders and each brand's rates. Track who paid, who partially paid, and who's pretending your invoice got lost in spam.</p>
+    <ul class="feature-bullets">
+      <li><span class="check">&#10003;</span> Auto-calculated from order totals</li>
+      <li><span class="check">&#10003;</span> Per-brand and per-category rates</li>
+      <li><span class="check">&#10003;</span> Paid / Partial / Unpaid at a glance</li>
+      <li><span class="check">&#10003;</span> Bulk payment recording + CSV import</li>
+    </ul>
+  </div>
+  <div class="image-side">
+    <img src="public/preview-commission.png" alt="Commission Tracking" class="screenshot">
+  </div>
+  <div class="slide-footer"></div>
+</div>
+
+<!-- SLIDE 6: FEATURE - BRAND MANAGEMENT -->
+<div class="slide slide-feature">
+  <div class="text-side">
+    <div class="label">Brand Pages</div>
+    <h2>Every brand gets its own workspace. Finally, some order.</h2>
+    <p class="desc">Sales trackers, commission tracking, to-dos, a notepad, and a calculator — all per brand. Rep 3 brands or 30, everything stays organized. Your brain has enough to remember.</p>
+    <ul class="feature-bullets">
+      <li><span class="check">&#10003;</span> Per-brand dashboard with summary cards</li>
+      <li><span class="check">&#10003;</span> To-do lists (pin it, drag it, check it off)</li>
+      <li><span class="check">&#10003;</span> Custom order types, stages, and items</li>
+      <li><span class="check">&#10003;</span> Quick-access brand icons in the sidebar</li>
+    </ul>
+  </div>
+  <div class="image-side">
+    <img src="public/preview-brand.png" alt="Brand Management" class="screenshot">
+  </div>
+  <div class="slide-footer"></div>
+</div>
+
+<!-- SLIDE 7: MORE FEATURES -->
+<div class="slide slide-more">
+  <div class="label">But Wait, There's More</div>
+  <h2>Built for reps, not IT departments.</h2>
+  <div class="more-grid">
+    <div class="more-card">
+      <div class="icon" style="background: #ecfdf5;">&#128230;</div>
+      <h3>CSV Import</h3>
+      <p>Bring your existing data in minutes. Upload a CSV or fill it in the app — whatever matches your chaos style.</p>
+    </div>
+    <div class="more-card">
+      <div class="icon" style="background: #eff6ff;">&#128196;</div>
+      <h3>Reports & Exports</h3>
+      <p>Clean PDFs and Excel reports for your accountant, your taxes, or that brand that keeps asking "can you send that again?"</p>
+    </div>
+    <div class="more-card">
+      <div class="icon" style="background: #fef3c7;">&#128218;</div>
+      <h3>Account Management</h3>
+      <p>Contacts, notes, order history — all in one place. No more digging through emails to find "what's that guy's number again?"</p>
+    </div>
+    <div class="more-card">
+      <div class="icon" style="background: #fce7f3;">&#128900;</div>
+      <h3>Invoice & Doc Tracking</h3>
+      <p>Attach invoices, POs, and anything else you'd normally lose in your email. Securely stored and always where you left them.</p>
+    </div>
+    <div class="more-card">
+      <div class="icon" style="background: #f3e8ff;">&#127769;</div>
+      <h3>Dark Mode</h3>
+      <p>For the late-night "let me just check one thing" sessions that turn into two hours. Your eyes will thank you.</p>
+    </div>
+    <div class="more-card">
+      <div class="icon" style="background: #e0f2fe;">&#128274;</div>
+      <h3>Secure & Private</h3>
+      <p>Your data is yours. Row-level security means nobody else can peek at your numbers. Not even us. Pinky promise.</p>
+    </div>
+  </div>
+  <div class="slide-footer"></div>
+</div>
+
+<!-- SLIDE 8: PRICING -->
+<div class="slide slide-pricing">
+  <div class="label">Pricing</div>
+  <h2>Less than a client lunch. Way more ROI.</h2>
+  <p class="subtitle">One plan, everything included. It pays for itself the first time you catch a missing commission.</p>
+  <div class="pricing-cards">
+    <div class="pricing-card">
+      <div class="plan-name">Monthly</div>
+      <div class="price">$15<span>/mo</span></div>
+      <div class="period">Cancel anytime — no guilt trip.</div>
+      <ul class="pricing-features">
+        <li><span class="pcheck">&#10003;</span> Unlimited brands</li>
+        <li><span class="pcheck">&#10003;</span> Unlimited orders & accounts</li>
+        <li><span class="pcheck">&#10003;</span> Commission tracking</li>
+        <li><span class="pcheck">&#10003;</span> CSV import & export</li>
+        <li><span class="pcheck">&#10003;</span> PDF & Excel reports</li>
+        <li><span class="pcheck">&#10003;</span> Free 7-day trial</li>
+      </ul>
+    </div>
+    <div class="pricing-card featured">
+      <div class="save-badge">Save 20%</div>
+      <div class="plan-name">Annual</div>
+      <div class="price">$144<span>/yr</span></div>
+      <div class="period">$12/mo. Your future self says thanks.</div>
+      <ul class="pricing-features">
+        <li><span class="pcheck">&#10003;</span> Everything in Monthly</li>
+        <li><span class="pcheck">&#10003;</span> Save $36 per year</li>
+        <li><span class="pcheck">&#10003;</span> Priority support</li>
+        <li><span class="pcheck">&#10003;</span> Free 7-day trial</li>
+      </ul>
+    </div>
+  </div>
+  <div class="slide-footer"></div>
+</div>
+
+<!-- SLIDE 9: CTA -->
+<div class="slide slide-cta">
+  <img src="public/repcommish-logo.png" alt="REPCOMMISH" class="logo">
+  <h2>Ready to ditch the<br>spreadsheet?</h2>
+  <p class="desc">You'll be up and running before your coffee gets cold. No training manual required.</p>
+  <div class="cta-button">Start your free trial at repcommish.com</div>
+  <div class="tagline">Made with love and a grudge against Excel.</div>
+  <div class="url" style="margin-top: 16px;">REPCOMMISH.COM</div>
+</div>
+
+</body>
+</html>

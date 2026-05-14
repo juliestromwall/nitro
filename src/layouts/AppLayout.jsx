@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
-import { Tag, Store, BarChart3, LogOut, Home, RotateCcw, ChevronUp, ChevronDown, Shield } from 'lucide-react'
+import { Tag, Store, BarChart3, LogOut, Home, RotateCcw, ChevronUp, ChevronDown, Shield, Wallet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -20,6 +20,7 @@ import Accounts from '@/pages/Accounts'
 import AccountDetail from '@/pages/AccountDetail'
 import Reports from '@/pages/Reports'
 import Admin from '@/pages/Admin'
+import PaymentsTracker from '@/pages/PaymentsTracker'
 
 function CompanyLinks() {
   const { activeCompanies } = useCompanies()
@@ -96,6 +97,7 @@ function AppLayout() {
   // Brand admins get a completely separate layout
   if (isBrandAdmin) return <BrandAdminLayout />
   const location = useLocation()
+  const isTonyView = location.pathname.startsWith('/app/payments')
   const [showHomeMenu, setShowHomeMenu] = useState(false)
   const [homeConfirm, setHomeConfirm] = useState(null) // 'set' | 'reset'
   const [signOutOpen, setSignOutOpen] = useState(false)
@@ -223,22 +225,72 @@ function AppLayout() {
             )}
           </div>
 
-          <div className="border-t border-zinc-700 w-12 mb-3" />
+          {!isTonyView && <div className="border-t border-zinc-700 w-12 mb-3" />}
 
-          {/* Brand quick links */}
-          <div data-tour="brand-links" className="flex-1 min-h-0 overflow-hidden">
-            <CompanyLinks />
-          </div>
+          {/* Brand quick links — hidden in Tony's view */}
+          {!isTonyView && (
+            <div data-tour="brand-links" className="flex-1 min-h-0 overflow-hidden">
+              <CompanyLinks />
+            </div>
+          )}
+          {isTonyView && <div className="flex-1" />}
 
           <div className="border-t border-zinc-700 w-12 my-3" />
 
           {/* Navigation — icon only */}
           <nav className="flex flex-col gap-2 px-2 w-full mt-auto">
+            {!isTonyView && (
+              <>
+                <NavLink
+                  to="/app"
+                  end
+                  data-tour="nav-dashboard"
+                  title="Dashboard"
+                  className={({ isActive }) =>
+                    `flex items-center justify-center p-2 rounded-lg transition-colors ${
+                      isActive
+                        ? 'bg-[#005b5b] text-white'
+                        : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
+                    }`
+                  }
+                >
+                  <Home className="size-5" />
+                </NavLink>
+                <NavLink
+                  to="/app/companies"
+                  end
+                  data-tour="nav-brands"
+                  title="My Brands"
+                  className={({ isActive }) =>
+                    `flex items-center justify-center p-2 rounded-lg transition-colors ${
+                      isActive
+                        ? 'bg-[#005b5b] text-white'
+                        : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
+                    }`
+                  }
+                >
+                  <Tag className="size-5" />
+                </NavLink>
+                <NavLink
+                  to="/app/accounts"
+                  end
+                  data-tour="nav-accounts"
+                  title="Accounts"
+                  className={({ isActive }) =>
+                    `flex items-center justify-center p-2 rounded-lg transition-colors ${
+                      isActive
+                        ? 'bg-[#005b5b] text-white'
+                        : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
+                    }`
+                  }
+                >
+                  <Store className="size-5" />
+                </NavLink>
+              </>
+            )}
             <NavLink
-              to="/app"
-              end
-              data-tour="nav-dashboard"
-              title="Dashboard"
+              to="/app/payments"
+              title="Rep Payments (Brand Admin)"
               className={({ isActive }) =>
                 `flex items-center justify-center p-2 rounded-lg transition-colors ${
                   isActive
@@ -247,54 +299,26 @@ function AppLayout() {
                 }`
               }
             >
-              <Home className="size-5" />
+              <Wallet className="size-5" />
             </NavLink>
-            <NavLink
-              to="/app/companies"
-              end
-              data-tour="nav-brands"
-              title="My Brands"
-              className={({ isActive }) =>
-                `flex items-center justify-center p-2 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-[#005b5b] text-white'
-                    : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
-                }`
-              }
-            >
-              <Tag className="size-5" />
-            </NavLink>
-            <NavLink
-              to="/app/accounts"
-              end
-              data-tour="nav-accounts"
-              title="Accounts"
-              className={({ isActive }) =>
-                `flex items-center justify-center p-2 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-[#005b5b] text-white'
-                    : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
-                }`
-              }
-            >
-              <Store className="size-5" />
-            </NavLink>
-            <NavLink
-              to="/app/reports"
-              end
-              data-tour="nav-reports"
-              title="Reports"
-              className={({ isActive }) =>
-                `flex items-center justify-center p-2 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-[#005b5b] text-white'
-                    : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
-                }`
-              }
-            >
-              <BarChart3 className="size-5" />
-            </NavLink>
-            {userRole === 'master_admin' && (
+            {!isTonyView && (
+              <NavLink
+                to="/app/reports"
+                end
+                data-tour="nav-reports"
+                title="Reports"
+                className={({ isActive }) =>
+                  `flex items-center justify-center p-2 rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-[#005b5b] text-white'
+                      : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
+                  }`
+                }
+              >
+                <BarChart3 className="size-5" />
+              </NavLink>
+            )}
+            {userRole === 'master_admin' && !isTonyView && (
               <NavLink
                 to="/app/admin"
                 end
@@ -350,9 +374,10 @@ function AppLayout() {
               <Route path="accounts/:id" element={<AccountDetail />} />
               <Route path="reports" element={<Reports />} />
               <Route path="admin" element={<Admin />} />
+              <Route path="payments" element={<PaymentsTracker />} />
             </Routes>
           </main>
-          <OnboardingTour />
+          {!isTonyView && <OnboardingTour />}
         </div>
       </div>
     </TodoProvider>

@@ -974,8 +974,8 @@ function CompanyCommission({ companyId, activeTracker, setActiveTracker }) {
 
           {/* Sync to Google Sheets — hidden, use Share Commission Report instead */}
 
-          {/* AI Commission Summary */}
-          {groupedRows.length > 0 && (
+          {/* AI Commission Summary — pro_rep + master_admin only */}
+          {groupedRows.length > 0 && (userRole === 'pro_rep' || userRole === 'master_admin') && (
             <div className="border border-zinc-200 dark:border-zinc-700 rounded-xl overflow-hidden">
               <button
                 onClick={() => showSummary ? setShowSummary(false) : generateAiSummary()}

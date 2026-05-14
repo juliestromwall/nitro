@@ -25,7 +25,7 @@ const tabs = [
   { id: 'sales', label: 'Sales' },
   { id: 'commission', label: 'Commissions' },
   { id: 'payments', label: 'Payments' },
-  // { id: 'imports', label: 'Brand Imports' },  // Hidden until ready for production
+  { id: 'imports', label: 'Brand Imports' },
 ]
 
 function CompanyDetail() {
@@ -208,9 +208,9 @@ function CompanyDetail() {
                 <DropdownMenuItem data-tour="btn-import-payments" onClick={handleImportCsvClick}>
                   <Upload className="size-4 mr-2" /> Import Payments
                 </DropdownMenuItem>
-                {/* <DropdownMenuItem onClick={() => setInviteModalOpen(true)}>
+                <DropdownMenuItem onClick={() => setInviteModalOpen(true)}>
                   <UserPlus className="size-4 mr-2" /> Invite Brand Admin
-                </DropdownMenuItem> */}
+                </DropdownMenuItem>
                 {(userRole === 'pro_rep' || userRole === 'master_admin') && (
                   <DropdownMenuItem onClick={() => setShareDialogOpen(true)}>
                     <Share2 className="size-4 mr-2" /> Share Commission Report
@@ -251,7 +251,7 @@ function CompanyDetail() {
       {activeTab === 'dashboard' && (
         <>
           <CompanyDashboard companyId={company.id} />
-          {/* <BrandAdminConnections companyId={company.id} /> */}
+          <BrandAdminConnections companyId={company.id} />
         </>
       )}
       {activeTab === 'sales' && (
