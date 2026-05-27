@@ -60,7 +60,18 @@ const GENERIC_SKU_NAME = 'generic sku'
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
-const normCustomer = (s) => String(s || '').trim().toUpperCase()
+// Customer name normalization — must match what PaymentsTracker's
+// `accountOpenBalances` and `AccountDetailView` use, otherwise the engine
+// will route different invoices than the on-screen account totals say.
+// Strips: contact suffix ("- Scott Moffatt"), parens, apostrophes, punctuation.
+const normCustomer = (s) => String(s || '')
+  .toUpperCase()
+  .replace(/['']/g, '')
+  .replace(/\([^)]*\)/g, '')
+  .replace(/\s+-\s.*$/, '')
+  .replace(/[^A-Z0-9 ]/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim()
 const normSku = (s) => String(s || '').trim().toLowerCase()
 
 function isExcluded(sku) { return EXCLUDED_SKU_NAMES.has(normSku(sku)) }
@@ -69,7 +80,19 @@ function isGenericSku(sku) { return normSku(sku) === GENERIC_SKU_NAME }
 
 function findAccount(invoiceCustomer, accountsByName) {
   if (!invoiceCustomer) return null
-  return accountsByName.get(normCustomer(invoiceCustomer)) || null
+  const n = normCustomer(invoiceCustomer)
+  if (!n) return null
+  // Exact match on normalized name
+  const exact = accountsByName.get(n)
+  if (exact) return exact
+  // Substring fallback (min 4 chars, both directions). Catches cases like
+  // an account named "Sundown Ski" matching invoice "Sundown Ski (WSR)".
+  for (const [key, a] of accountsByName.entries()) {
+    if (Math.min(key.length, n.length) >= 4 && (key.includes(n) || n.includes(key))) {
+      return a
+    }
+  }
+  return null
 }
 
 function getCustomerOverride(invoiceCustomer, brandId, season) {

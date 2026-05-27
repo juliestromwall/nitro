@@ -14,6 +14,7 @@ import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, A
 import { computeCommissions, aggregateByRep } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { shouldIgnoreCustomer, isWsrPostPaymentCustomer } from '@/lib/customerIgnoreList'
+import { loadLineItems, saveLineItems as idbSaveLineItems, clearLineItems as idbClearLineItems } from '@/lib/lineItemsStore'
 import { exportRepReportPDF, exportRepReportXLSX } from '@/lib/repReport'
 
 // Loose column-name matcher for QuickBooks-style payment report imports.
@@ -355,35 +356,28 @@ function PaymentsTracker() {
   }
 
   // Invoice line items — separate CSV ("items by invoice"), joined to invoices
-  // by `num`. Used for SKU → brand attribution.
-  const [lineItems, setLineItemsState] = useState(() => {
-    try {
-      const raw = localStorage.getItem(LINE_ITEMS_LS_KEY)
-      if (raw) return JSON.parse(raw)
-    } catch {}
-    return []
-  })
-  const [lineItemsMeta, setLineItemsMetaState] = useState(() => {
-    try {
-      const raw = localStorage.getItem(LINE_ITEMS_META_LS_KEY)
-      if (raw) return JSON.parse(raw)
-    } catch {}
-    return null
-  })
+  // by `num`. Used for SKU → brand attribution. Stored in IndexedDB (legacy
+  // localStorage data is auto-migrated on first load).
+  const [lineItems, setLineItemsState] = useState([])
+  const [lineItemsMeta, setLineItemsMetaState] = useState(null)
+  useEffect(() => {
+    loadLineItems().then(({ items, meta }) => {
+      setLineItemsState(items)
+      setLineItemsMetaState(meta)
+    })
+  }, [])
   const [lineItemsStorageError, setLineItemsStorageError] = useState(null)
   const [lastLineItemsImport, setLastLineItemsImport] = useState(null)
   const persistLineItems = (rows, meta) => {
     setLineItemsState(rows)
     setLineItemsMetaState(meta)
-    try {
-      localStorage.setItem(LINE_ITEMS_LS_KEY, JSON.stringify(rows))
-      localStorage.setItem(LINE_ITEMS_META_LS_KEY, JSON.stringify(meta))
-      setLineItemsStorageError(null)
-    } catch (e) {
-      setLineItemsStorageError(
-        'Saved in memory for this session, but localStorage quota was exceeded — the line items will NOT survive a browser refresh. Reduce the date range in the source file, or let me know and I\'ll switch to IndexedDB.'
-      )
-    }
+    idbSaveLineItems(rows, meta)
+      .then(() => setLineItemsStorageError(null))
+      .catch((e) => {
+        setLineItemsStorageError(
+          `Saved in memory for this session, but IndexedDB save failed (${e?.message || e}). Data will not survive a browser refresh.`
+        )
+      })
   }
   const saveLineItems = (rows, meta) => {
     persistLineItems(rows, meta)
@@ -430,10 +424,7 @@ function PaymentsTracker() {
   const clearLineItemsState = () => {
     setLineItemsState([])
     setLineItemsMetaState(null)
-    try {
-      localStorage.removeItem(LINE_ITEMS_LS_KEY)
-      localStorage.removeItem(LINE_ITEMS_META_LS_KEY)
-    } catch {}
+    idbClearLineItems().catch(() => {})
   }
 
   // Commission payouts (Tony paid Rep $X on date Y)
@@ -483,6 +474,26 @@ function PaymentsTracker() {
     for (const p of commissionPayouts) m[p.repId] = (m[p.repId] || 0) + (p.amount || 0)
     return m
   }, [commissionPayouts])
+  // Reps-as-customers: when a rep is billed by Foundry for samples, the QB
+  // customer name on the invoice contains the rep's first AND last name (e.g.
+  // "ADAM STROMWALL - CUSTOMER", "JASON MARTIN - CUSTOMER"). Match
+  // conservatively — both name parts must be present.
+  const owedByRep = useMemo(() => {
+    const out = {}
+    for (const rep of reps) {
+      const parts = (rep.name || '').split(/\s+/).filter(Boolean)
+      if (parts.length < 2) { out[rep.id] = 0; continue }
+      const first = parts[0].toLowerCase()
+      const last = parts[parts.length - 1].toLowerCase()
+      let total = 0
+      for (const inv of invoices) {
+        const c = (inv.customer || '').toLowerCase()
+        if (c.includes(first) && c.includes(last)) total += inv.openBalance || 0
+      }
+      out[rep.id] = total
+    }
+    return out
+  }, [reps, invoices])
   // Final per-rep summary: agg + payouts → { earned, paidOut, available, openCommission }
   const repSummary = useMemo(() => {
     const out = {}
@@ -496,10 +507,11 @@ function PaymentsTracker() {
         available: earned - paidOut,
         openCommission: agg?.openCommission || 0,   // locked behind unpaid balance
         totalCommission: agg?.totalCommission || 0, // full invoice basis
+        owesFoundry: owedByRep[rep.id] || 0,        // outstanding sample bills
       }
     }
     return out
-  }, [reps, aggregatesByRep, payoutsByRep])
+  }, [reps, aggregatesByRep, payoutsByRep, owedByRep])
 
   // Match invoice customer names to account names, sum open balances per account.
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
@@ -827,6 +839,12 @@ function PaymentsTracker() {
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">Pending (open invoices)</span>
                           <span className="text-muted-foreground">{fmt(summary.openCommission)}</span>
+                        </div>
+                      )}
+                      {summary.owesFoundry > 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Owes Foundry (samples)</span>
+                          <span className="text-amber-700 dark:text-amber-300 font-medium">{fmt(summary.owesFoundry)}</span>
                         </div>
                       )}
                     </div>
@@ -2526,7 +2544,7 @@ function AccountDetailView({ account, entries, reps, brands, invoices = [], line
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
 function RepLedgerView({ rep, aggregate, summary, payouts, onAddPayout, onDeletePayout, territories }) {
-  const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0, totalCommission: 0 }
+  const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   const byInvoice = aggregate?.byInvoice || {}
 
   // Split rep's invoices by status
@@ -2677,7 +2695,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, onAddPayout, onDelete
       </Card>
 
       {/* Summary cards: the three pieces of info Tony's monthly report needs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${safeSummary.owesFoundry > 0 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Earned (on paid invoices)</CardDescription>
@@ -2702,6 +2720,14 @@ function RepLedgerView({ rep, aggregate, summary, payouts, onAddPayout, onDelete
             <CardTitle className="text-2xl text-muted-foreground">{fmt(safeSummary.openCommission)}</CardTitle>
           </CardHeader>
         </Card>
+        {safeSummary.owesFoundry > 0 && (
+          <Card className="border-amber-300 dark:border-amber-800">
+            <CardHeader className="pb-2">
+              <CardDescription>Owes Foundry (samples)</CardDescription>
+              <CardTitle className="text-2xl text-amber-700 dark:text-amber-300">{fmt(safeSummary.owesFoundry)}</CardTitle>
+            </CardHeader>
+          </Card>
+        )}
       </div>
 
       {/* Brand subtotal */}
