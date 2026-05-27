@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from 'react'
-import { ArrowLeft, ChevronRight, ChevronDown, Plus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map, FileSpreadsheet } from 'lucide-react'
+import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
+import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -11,6 +11,10 @@ import {
 import { useCompanies } from '@/context/CompanyContext'
 import JSZip from 'jszip'
 import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS } from '@/lib/paymentsDemoData'
+import { computeCommissions, aggregateByRep } from '@/lib/commissionEngine'
+import { lookupBrand } from '@/lib/catalogs'
+import { shouldIgnoreCustomer, isWsrPostPaymentCustomer } from '@/lib/customerIgnoreList'
+import { exportRepReportPDF, exportRepReportXLSX } from '@/lib/repReport'
 
 // Loose column-name matcher for QuickBooks-style payment report imports.
 // QB doesn't always label columns the same way, so we accept several variants.
@@ -45,8 +49,9 @@ function findRealCompanyForMockBrand(mockBrand, companies) {
   // exact name match
   let m = companies.find(c => c.name.toLowerCase() === mockName)
   if (m) return m
-  // first word in mock contained in real name
-  const firstWord = mockName.split(/\s+/)[0]
+  // first word in mock contained in real name (split on whitespace AND slash,
+  // so combined names like "Autumn/Corduroy" still match a real "Autumn" company)
+  const firstWord = mockName.split(/[\s/]+/)[0]
   m = companies.find(c => c.name.toLowerCase().includes(firstWord))
   return m || null
 }
@@ -65,6 +70,27 @@ const fmtDate = (s) => {
   const [y, m, d] = s.split('-')
   return `${parseInt(m)}/${parseInt(d)}/${y.slice(2)}`
 }
+
+// localStorage key for persisting Manage Territories modal edits across refresh.
+// To reset to the defaults in REP_TERRITORIES, clear this key in DevTools or
+// click "Reset to defaults" in the modal.
+const REP_TERRITORIES_LS_KEY = 'rc_tony_rep_territories_v1'
+
+// localStorage keys for the Invoices CSV upload (lifted to module scope so both
+// PaymentsTracker and InvoicesView reference the same source-of-truth strings).
+const INVOICES_LS_KEY = 'rc_tony_invoices_v1'
+const INVOICES_META_LS_KEY = 'rc_tony_invoices_meta_v1'
+const INVOICES_PAGE_SIZE = 100
+
+// Line items CSV ("items by invoice"): joined to invoices by `num`.
+// Each item: { customer, num, date, sku, description, qty, salesPrice, amount }
+const LINE_ITEMS_LS_KEY = 'rc_tony_invoice_items_v1'
+const LINE_ITEMS_META_LS_KEY = 'rc_tony_invoice_items_meta_v1'
+
+// Commission payouts — Tony records when he's paid a rep a portion of their
+// earned commissions. Each entry: { id, repId, date, amount, method, note, createdAt }
+// These subtract from "available to collect" in the per-rep ledger.
+const COMMISSION_PAYOUTS_LS_KEY = 'rc_tony_commission_payouts_v1'
 
 function PaymentsTracker() {
   const { activeCompanies } = useCompanies()
@@ -113,7 +139,7 @@ function PaymentsTracker() {
     [mockBrandToReal]
   )
 
-  const [view, setView] = useState('reps') // 'reps' | 'brands' | 'ledger'
+  const [view, setView] = useState('reps') // 'reps' | 'accounts' | 'invoices' | 'rep-ledger' | 'brands' | 'ledger' | 'account-detail'
   const [selectedRepId, setSelectedRepId] = useState(null)
   const [selectedBrandId, setSelectedBrandId] = useState(null)
   const [expandedPayouts, setExpandedPayouts] = useState({})
@@ -174,6 +200,31 @@ function PaymentsTracker() {
     return totals
   }, [reps, remappedEntries, remappedRepBrands, activeCompanies, brands])
 
+  // Per-rep brand list — used to render brand pills on rep cards.
+  // Walks REP_BRANDS pairs; for each, prefer the real Supabase company match,
+  // and fall back to the mock BRANDS entry so unmatched brands (e.g. EIVY when
+  // there's no real Eivy company) still render instead of being dropped silently.
+  const brandsByRep = useMemo(() => {
+    const map = {}
+    for (const rep of reps) {
+      const list = REP_BRANDS
+        .filter(rb => rb.repId === rep.id)
+        .map(rb => {
+          const realId = mockBrandToReal[rb.brandId]
+          const real = realId ? brands.find(b => b.id === realId) : null
+          return real || BRANDS.find(b => b.id === rb.brandId)
+        })
+        .filter(Boolean)
+      // Adam (the seed rep) gets ALL the user's real brands by default
+      if (rep.id === 'rep-adam' && activeCompanies?.length) {
+        const seen = new Set(list.map(b => b.id))
+        for (const b of brands) if (!seen.has(b.id)) list.push(b)
+      }
+      map[rep.id] = list
+    }
+    return map
+  }, [reps, brands, mockBrandToReal, activeCompanies])
+
   const brandTotals = useMemo(() => {
     const totals = {}
     for (const brand of repBrands) {
@@ -203,8 +254,303 @@ function PaymentsTracker() {
   const [accountSearch, setAccountSearch] = useState('')
   const [accountTerritoryFilter, setAccountTerritoryFilter] = useState('all')
 
-  // Rep ↔ territory mapping (used for routing imported payments)
-  const [repTerritories, setRepTerritories] = useState(REP_TERRITORIES)
+  // Rep ↔ territory mapping. Persisted to localStorage so Manage Territories
+  // modal edits survive browser refresh.
+  const [repTerritories, setRepTerritoriesState] = useState(() => {
+    try {
+      const raw = localStorage.getItem(REP_TERRITORIES_LS_KEY)
+      if (raw) return JSON.parse(raw)
+    } catch {}
+    return REP_TERRITORIES
+  })
+  const setRepTerritories = (next) => {
+    setRepTerritoriesState(prev => {
+      const value = typeof next === 'function' ? next(prev) : next
+      try { localStorage.setItem(REP_TERRITORIES_LS_KEY, JSON.stringify(value)) } catch {}
+      return value
+    })
+  }
+  const resetRepTerritories = () => {
+    try { localStorage.removeItem(REP_TERRITORIES_LS_KEY) } catch {}
+    setRepTerritoriesState(REP_TERRITORIES)
+  }
+
+  // Lifted from InvoicesView so other views (e.g. AccountDetailView) can
+  // navigate to a specific customer's drill-down. `invoiceDrillHighlight` is
+  // an optional Num — when set, the drill-in scrolls to and flashes that row.
+  const [invoiceDrillCustomer, setInvoiceDrillCustomer] = useState(null)
+  const [invoiceDrillHighlight, setInvoiceDrillHighlight] = useState(null)
+
+  // Invoices (lifted from InvoicesView so AccountsView can derive Open Balance)
+  const [invoices, setInvoicesState] = useState(() => {
+    try {
+      const raw = localStorage.getItem(INVOICES_LS_KEY)
+      if (raw) return JSON.parse(raw)
+    } catch {}
+    return []
+  })
+  const [invoicesMeta, setInvoicesMetaState] = useState(() => {
+    try {
+      const raw = localStorage.getItem(INVOICES_META_LS_KEY)
+      if (raw) return JSON.parse(raw)
+    } catch {}
+    return null
+  })
+  const saveInvoices = (rows, meta) => {
+    setInvoicesState(rows)
+    setInvoicesMetaState(meta)
+    try {
+      localStorage.setItem(INVOICES_LS_KEY, JSON.stringify(rows))
+      localStorage.setItem(INVOICES_META_LS_KEY, JSON.stringify(meta))
+    } catch {}
+    setLastInvoicesImport({ mode: 'replace', added: rows.length, updated: 0, total: rows.length })
+  }
+  const clearInvoicesState = () => {
+    setInvoicesState([])
+    setInvoicesMetaState(null)
+    try {
+      localStorage.removeItem(INVOICES_LS_KEY)
+      localStorage.removeItem(INVOICES_META_LS_KEY)
+    } catch {}
+  }
+  // Append: merge by Num, incoming rows replace existing rows with the same Num.
+  // Returns { added, updated, total } so the UI can show a summary.
+  const [lastInvoicesImport, setLastInvoicesImport] = useState(null)
+  const appendInvoices = (rows, meta) => {
+    const map = new Map(invoices.map(r => [r.num, r]))
+    let added = 0, updated = 0, wsrPreserved = 0
+    for (const r of rows) {
+      if (!r?.num) continue
+      if (map.has(r.num)) {
+        updated++
+        const existing = map.get(r.num)
+        // WSR special case: when QB renames a member's invoice to "WSR" on
+        // payment, preserve the original member name from our prior record so
+        // territory routing & customer matching survive the rename.
+        if (isWsrPostPaymentCustomer(r.customer) && !isWsrPostPaymentCustomer(existing.customer)) {
+          map.set(r.num, { ...r, customer: existing.customer })
+          wsrPreserved++
+        } else {
+          map.set(r.num, r)
+        }
+      } else {
+        added++
+        map.set(r.num, r)
+      }
+    }
+    const merged = Array.from(map.values())
+    const newMeta = {
+      ...meta,
+      count: merged.length,
+      lastAppendCount: rows.length,
+      lastAppendFile: meta?.fileName,
+    }
+    setInvoicesState(merged)
+    setInvoicesMetaState(newMeta)
+    try {
+      localStorage.setItem(INVOICES_LS_KEY, JSON.stringify(merged))
+      localStorage.setItem(INVOICES_META_LS_KEY, JSON.stringify(newMeta))
+    } catch {}
+    setLastInvoicesImport({ mode: 'append', added, updated, wsrPreserved, total: merged.length })
+  }
+
+  // Invoice line items — separate CSV ("items by invoice"), joined to invoices
+  // by `num`. Used for SKU → brand attribution.
+  const [lineItems, setLineItemsState] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LINE_ITEMS_LS_KEY)
+      if (raw) return JSON.parse(raw)
+    } catch {}
+    return []
+  })
+  const [lineItemsMeta, setLineItemsMetaState] = useState(() => {
+    try {
+      const raw = localStorage.getItem(LINE_ITEMS_META_LS_KEY)
+      if (raw) return JSON.parse(raw)
+    } catch {}
+    return null
+  })
+  const [lineItemsStorageError, setLineItemsStorageError] = useState(null)
+  const [lastLineItemsImport, setLastLineItemsImport] = useState(null)
+  const persistLineItems = (rows, meta) => {
+    setLineItemsState(rows)
+    setLineItemsMetaState(meta)
+    try {
+      localStorage.setItem(LINE_ITEMS_LS_KEY, JSON.stringify(rows))
+      localStorage.setItem(LINE_ITEMS_META_LS_KEY, JSON.stringify(meta))
+      setLineItemsStorageError(null)
+    } catch (e) {
+      setLineItemsStorageError(
+        'Saved in memory for this session, but localStorage quota was exceeded — the line items will NOT survive a browser refresh. Reduce the date range in the source file, or let me know and I\'ll switch to IndexedDB.'
+      )
+    }
+  }
+  const saveLineItems = (rows, meta) => {
+    persistLineItems(rows, meta)
+    setLastLineItemsImport({
+      mode: 'replace',
+      invoicesAdded: new Set(rows.map(r => r.num)).size,
+      invoicesUpdated: 0,
+      itemsTotal: rows.length,
+    })
+  }
+  // Append line items: incoming rows for a given Num completely replace any
+  // existing rows for that Num. (Keeps the join key consistent — one invoice
+  // re-uploaded = the new file's items win wholesale.)
+  const appendLineItems = (rows, meta) => {
+    const incomingByNum = new Map()
+    for (const item of rows) {
+      if (!item?.num) continue
+      if (!incomingByNum.has(item.num)) incomingByNum.set(item.num, [])
+      incomingByNum.get(item.num).push(item)
+    }
+    const existingNums = new Set(lineItems.map(item => item.num).filter(Boolean))
+    let invoicesUpdated = 0, invoicesAdded = 0
+    for (const num of incomingByNum.keys()) {
+      if (existingNums.has(num)) invoicesUpdated++
+      else invoicesAdded++
+    }
+    const kept = lineItems.filter(item => !incomingByNum.has(item.num))
+    const merged = [...kept, ...rows]
+    const newMeta = {
+      ...meta,
+      count: merged.length,
+      invoiceCount: new Set(merged.map(r => r.num)).size,
+      lastAppendItemCount: rows.length,
+      lastAppendFile: meta?.fileName,
+    }
+    persistLineItems(merged, newMeta)
+    setLastLineItemsImport({
+      mode: 'append',
+      invoicesAdded,
+      invoicesUpdated,
+      itemsTotal: merged.length,
+    })
+  }
+  const clearLineItemsState = () => {
+    setLineItemsState([])
+    setLineItemsMetaState(null)
+    try {
+      localStorage.removeItem(LINE_ITEMS_LS_KEY)
+      localStorage.removeItem(LINE_ITEMS_META_LS_KEY)
+    } catch {}
+  }
+
+  // Commission payouts (Tony paid Rep $X on date Y)
+  const [commissionPayouts, setCommissionPayoutsState] = useState(() => {
+    try {
+      const raw = localStorage.getItem(COMMISSION_PAYOUTS_LS_KEY)
+      if (raw) return JSON.parse(raw)
+    } catch {}
+    return []
+  })
+  const persistCommissionPayouts = (next) => {
+    setCommissionPayoutsState(next)
+    try { localStorage.setItem(COMMISSION_PAYOUTS_LS_KEY, JSON.stringify(next)) } catch {}
+  }
+  const addCommissionPayout = (payout) => {
+    const entry = {
+      id: `cpayout-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      ...payout,
+    }
+    persistCommissionPayouts([...commissionPayouts, entry])
+  }
+  const deleteCommissionPayout = (id) => {
+    persistCommissionPayouts(commissionPayouts.filter(p => p.id !== id))
+  }
+  const [recordPayoutOpen, setRecordPayoutOpen] = useState(false)
+  const [prefilledPayoutRepId, setPrefilledPayoutRepId] = useState(null)
+  const openRecordPayout = (repId = null) => {
+    setPrefilledPayoutRepId(repId)
+    setRecordPayoutOpen(true)
+  }
+
+  // Run the commission engine over the current invoices + line items + accounts.
+  // Recomputes when any input changes. Cheap to render even with thousands of
+  // entries because aggregations are memoized too.
+  const commissionResult = useMemo(
+    () => computeCommissions({ invoices, lineItems, accounts: ACCOUNTS, repTerritories, season: '2025-26' }),
+    [invoices, lineItems, repTerritories]
+  )
+  const aggregatesByRep = useMemo(
+    () => aggregateByRep(commissionResult.entries),
+    [commissionResult]
+  )
+  // Sum recorded payouts per rep (for "available to collect" math).
+  const payoutsByRep = useMemo(() => {
+    const m = {}
+    for (const p of commissionPayouts) m[p.repId] = (m[p.repId] || 0) + (p.amount || 0)
+    return m
+  }, [commissionPayouts])
+  // Final per-rep summary: agg + payouts → { earned, paidOut, available, openCommission }
+  const repSummary = useMemo(() => {
+    const out = {}
+    for (const rep of reps) {
+      const agg = aggregatesByRep[rep.id]
+      const earned = agg?.totalAvailable || 0       // commission on the paid portion of invoices
+      const paidOut = payoutsByRep[rep.id] || 0
+      out[rep.id] = {
+        earned,
+        paidOut,
+        available: earned - paidOut,
+        openCommission: agg?.openCommission || 0,   // locked behind unpaid balance
+        totalCommission: agg?.totalCommission || 0, // full invoice basis
+      }
+    }
+    return out
+  }, [reps, aggregatesByRep, payoutsByRep])
+
+  // Match invoice customer names to account names, sum open balances per account.
+  // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
+  // Also returns the list of invoice customers that couldn't be matched, grouped
+  // by customer name, so the Accounts page can surface them in a banner.
+  const { accountOpenBalances, unmatchedSummary } = useMemo(() => {
+    const norm = (s) => String(s || '')
+      .toUpperCase()
+      .replace(/['']/g, '')
+      .replace(/\([^)]*\)/g, '')
+      .replace(/\s+-\s.*$/, '')   // strip everything after first " - "
+      .replace(/[^A-Z0-9 ]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+
+    const byNorm = new Map()
+    for (const a of accounts) {
+      const n = norm(a.name)
+      if (n && !byNorm.has(n)) byNorm.set(n, a)
+    }
+
+    const balances = {}
+    const unmatched = {}
+    for (const inv of invoices) {
+      if (!inv?.openBalance) continue
+      const n = norm(inv.customer)
+      if (!n) continue
+      let acct = byNorm.get(n)
+      if (!acct) {
+        // substring fallback (both directions, min 4 chars)
+        for (const [key, a] of byNorm.entries()) {
+          if (Math.min(key.length, n.length) >= 4 && (key.includes(n) || n.includes(key))) {
+            acct = a
+            break
+          }
+        }
+      }
+      if (acct) {
+        balances[acct.id] = (balances[acct.id] || 0) + inv.openBalance
+      } else {
+        if (!unmatched[inv.customer]) unmatched[inv.customer] = { count: 0, total: 0 }
+        unmatched[inv.customer].count += 1
+        unmatched[inv.customer].total += inv.openBalance
+      }
+    }
+    const unmatchedList = Object.entries(unmatched)
+      .map(([customer, v]) => ({ customer, count: v.count, total: v.total }))
+      .sort((a, b) => b.total - a.total)
+    return { accountOpenBalances: balances, unmatchedSummary: unmatchedList }
+  }, [invoices, accounts])
+
   const [territoryModalOpen, setTerritoryModalOpen] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [salesImportOpen, setSalesImportOpen] = useState(false)
@@ -215,7 +561,7 @@ function PaymentsTracker() {
   )
 
   // ===== Actions =====
-  const goToRep = (repId) => { setSelectedRepId(repId); setView('brands') }
+  const goToRep = (repId) => { setSelectedRepId(repId); setView('rep-ledger') }
   const goToBrand = (brandId) => { setSelectedBrandId(brandId); setView('ledger') }
   const goToAccount = (id) => { setSelectedAccountId(id); setView('account-detail') }
   const backToReps = () => { setSelectedRepId(null); setSelectedBrandId(null); setView('reps') }
@@ -308,7 +654,7 @@ function PaymentsTracker() {
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-4 space-y-6">
       {/* Top-level tab bar (only on top-level views) */}
-      {(view === 'reps' || view === 'accounts') && (
+      {(view === 'reps' || view === 'accounts' || view === 'invoices') && (
         <div className="flex items-center gap-2 border-b">
           <button
             onClick={() => setView('reps')}
@@ -325,6 +671,14 @@ function PaymentsTracker() {
             }`}
           >
             Accounts <span className="text-xs text-muted-foreground">({accounts.length})</span>
+          </button>
+          <button
+            onClick={() => setView('invoices')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              view === 'invoices' ? 'border-[#005b5b] text-[#005b5b]' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Invoices
           </button>
         </div>
       )}
@@ -352,18 +706,28 @@ function PaymentsTracker() {
           <span className="text-foreground font-semibold">{selectedAccount?.name}</span>
         </div>
       )}
+      {view === 'rep-ledger' && (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <button onClick={backToReps} className="hover:text-foreground transition-colors">Reps</button>
+          <ChevronRight className="size-3.5" />
+          <span className="text-foreground font-semibold">{selectedRep?.name}</span>
+        </div>
+      )}
 
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold tracking-tight">
           {view === 'reps' && 'Rep Payments'}
           {view === 'accounts' && 'Accounts'}
+          {view === 'invoices' && 'Invoices'}
+          {view === 'rep-ledger' && `${selectedRep?.name} — Commission Ledger`}
           {view === 'brands' && `${selectedRep?.name}`}
           {view === 'ledger' && `${selectedRep?.name} • ${selectedBrand?.name}`}
           {view === 'account-detail' && selectedAccount?.name}
         </h1>
         {view === 'reps' && <p className="mt-2 text-muted-foreground">Track commission payments for each rep</p>}
         {view === 'accounts' && <p className="mt-2 text-muted-foreground">{accounts.length} accounts across {new Set(accounts.map(a => a.territory).filter(Boolean)).size} territories</p>}
+        {view === 'invoices' && <p className="mt-2 text-muted-foreground">Customer invoice payments</p>}
         {view === 'brands' && <p className="mt-2 text-muted-foreground">Select a brand to view payment history</p>}
         {view === 'ledger' && (
           <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
@@ -392,7 +756,13 @@ function PaymentsTracker() {
         <>
           <div className="flex items-center justify-end gap-2 -mt-2">
             <Button variant="outline" size="sm" onClick={() => setTerritoryModalOpen(true)}>
-              <Map className="size-4 mr-1.5" /> Manage Territories
+              <MapIcon className="size-4 mr-1.5" /> Manage Territories
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => openRecordPayout()}>
+              <Banknote className="size-4 mr-1.5" /> Record Payout
+              {commissionPayouts.length > 0 && (
+                <span className="ml-1.5 text-xs text-muted-foreground">({commissionPayouts.length})</span>
+              )}
             </Button>
             <Button variant="outline" size="sm" onClick={() => setSalesImportOpen(true)}>
               <FileSpreadsheet className="size-4 mr-1.5" /> Import Sales (Bright Pearl)
@@ -405,6 +775,8 @@ function PaymentsTracker() {
             {reps.map((rep) => {
               const t = repTotals[rep.id]
               const territories = repTerritories[rep.id] || []
+              const repBrandList = brandsByRep[rep.id] || []
+              const summary = repSummary[rep.id] || { earned: 0, paidOut: 0, available: 0, openCommission: 0 }
               return (
                 <Card key={rep.id} onClick={() => goToRep(rep.id)} className="cursor-pointer hover:border-[#005b5b] transition-colors">
                   <CardHeader>
@@ -414,36 +786,50 @@ function PaymentsTracker() {
                       </div>
                       {rep.name}
                     </CardTitle>
+                    {rep.agency && <div className="text-sm font-medium">{rep.agency}</div>}
                     <CardDescription>{rep.email}</CardDescription>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Brands</span>
-                        <span className="font-medium">{t.brandCount}</span>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground shrink-0">Brands</span>
+                        <span className="font-medium text-right">
+                          {repBrandList.length === 0 ? (
+                            '—'
+                          ) : (
+                            <span className="inline-flex flex-wrap gap-1 justify-end">
+                              {repBrandList.map(b => (
+                                <span key={b.id} className="inline-flex items-center gap-1 text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+                                  {b.name}
+                                </span>
+                              ))}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-muted-foreground shrink-0">Territories</span>
+                        <span className="font-medium text-right">{territories.length ? territories.join(', ') : '—'}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Territories</span>
-                        <span className="font-medium">{territories.length}</span>
+                        <span className="text-muted-foreground">Earned</span>
+                        <span className="font-medium">{fmt(summary.earned)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Lifetime earned</span>
-                        <span className="font-medium">{fmt(t.earned)}</span>
+                        <span className="text-muted-foreground">Paid out</span>
+                        <span className="font-medium">{fmt(summary.paidOut)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Pending payout</span>
-                        <span className={`font-bold ${t.pending > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(t.pending)}</span>
+                        <span className="text-muted-foreground">Available</span>
+                        <span className={`font-bold ${summary.available > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(summary.available)}</span>
                       </div>
+                      {summary.openCommission > 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Pending (open invoices)</span>
+                          <span className="text-muted-foreground">{fmt(summary.openCommission)}</span>
+                        </div>
+                      )}
                     </div>
-                    {territories.length > 0 && (
-                      <div className="mt-3 flex flex-wrap gap-1">
-                        {territories.map(t => (
-                          <span key={t} className="inline-flex items-center gap-1 text-[10px] uppercase font-medium px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
-                            <MapPin className="size-2.5" /> {t.replace(/\s*\([^)]*\)/, '')}
-                          </span>
-                        ))}
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               )
@@ -457,11 +843,39 @@ function PaymentsTracker() {
         <AccountsView
           accounts={accounts}
           accountTotals={accountTotals}
+          accountOpenBalances={accountOpenBalances}
+          unmatchedSummary={unmatchedSummary}
           search={accountSearch}
           onSearchChange={setAccountSearch}
           territoryFilter={accountTerritoryFilter}
           onTerritoryChange={setAccountTerritoryFilter}
           onSelect={goToAccount}
+        />
+      )}
+
+      {/* === INVOICES VIEW === */}
+      {view === 'invoices' && (
+        <InvoicesView
+          invoices={invoices}
+          invoicesMeta={invoicesMeta}
+          onSave={saveInvoices}
+          onAppend={appendInvoices}
+          onClear={clearInvoicesState}
+          lastInvoicesImport={lastInvoicesImport}
+          lineItems={lineItems}
+          lineItemsMeta={lineItemsMeta}
+          onSaveLineItems={saveLineItems}
+          onAppendLineItems={appendLineItems}
+          onClearLineItems={clearLineItemsState}
+          lineItemsStorageError={lineItemsStorageError}
+          lastLineItemsImport={lastLineItemsImport}
+          selectedCustomer={invoiceDrillCustomer}
+          setSelectedCustomer={(c) => {
+            setInvoiceDrillCustomer(c)
+            if (!c) setInvoiceDrillHighlight(null)
+          }}
+          highlightNum={invoiceDrillHighlight}
+          clearHighlight={() => setInvoiceDrillHighlight(null)}
         />
       )}
 
@@ -472,7 +886,27 @@ function PaymentsTracker() {
           entries={selectedAccountEntries}
           reps={reps}
           brands={brands}
+          invoices={invoices}
+          lineItems={lineItems}
           onBack={backToAccounts}
+          onJumpToInvoice={(customer, num) => {
+            setInvoiceDrillCustomer(customer)
+            setInvoiceDrillHighlight(num)
+            setView('invoices')
+          }}
+        />
+      )}
+
+      {/* === REP LEDGER VIEW (new commission engine) === */}
+      {view === 'rep-ledger' && selectedRep && (
+        <RepLedgerView
+          rep={selectedRep}
+          aggregate={aggregatesByRep[selectedRep.id]}
+          summary={repSummary[selectedRep.id]}
+          payouts={commissionPayouts.filter(p => p.repId === selectedRep.id)}
+          onAddPayout={() => openRecordPayout(selectedRep.id)}
+          onDeletePayout={deleteCommissionPayout}
+          territories={repTerritories[selectedRep.id] || []}
         />
       )}
 
@@ -635,6 +1069,7 @@ function PaymentsTracker() {
         accounts={accounts}
         repTerritories={repTerritories}
         onSave={setRepTerritories}
+        onReset={resetRepTerritories}
       />
       <ImportPaymentsModal
         open={importModalOpen}
@@ -656,6 +1091,13 @@ function PaymentsTracker() {
         ratesForBrand={ratesForBrand}
         onApply={applyImportedEntries}
       />
+      <RecordCommissionPayoutModal
+        open={recordPayoutOpen}
+        onOpenChange={setRecordPayoutOpen}
+        reps={reps}
+        prefilledRepId={prefilledPayoutRepId}
+        onSave={addCommissionPayout}
+      />
     </div>
   )
 }
@@ -663,7 +1105,12 @@ function PaymentsTracker() {
 // =====================================================================
 // AccountsView — Tony's master list of all 439 accounts
 // =====================================================================
-function AccountsView({ accounts, accountTotals, search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
+function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedSummary, search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
+  const [unmatchedOpen, setUnmatchedOpen] = useState(false)
+  const unmatchedTotal = useMemo(
+    () => (unmatchedSummary || []).reduce((s, u) => s + (u.total || 0), 0),
+    [unmatchedSummary]
+  )
   const territories = useMemo(() => {
     const set = new Set(accounts.map(a => a.territory).filter(Boolean))
     return Array.from(set).sort()
@@ -704,6 +1151,16 @@ function AccountsView({ accounts, accountTotals, search, onSearchChange, territo
     })
   }, [grouped])
 
+  const [expanded, setExpanded] = useState(() => new Set())
+  const toggleTerritory = (terr) => {
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(terr)) next.delete(terr)
+      else next.add(terr)
+      return next
+    })
+  }
+
   return (
     <>
       {/* Filters */}
@@ -729,59 +1186,1046 @@ function AccountsView({ accounts, accountTotals, search, onSearchChange, territo
         </select>
       </div>
 
+      {/* Unmatched invoices banner */}
+      {unmatchedSummary?.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2.5 text-sm">
+          <button
+            type="button"
+            onClick={() => setUnmatchedOpen(o => !o)}
+            className="flex items-center justify-between gap-2 w-full text-left"
+            aria-expanded={unmatchedOpen}
+          >
+            <span className="text-amber-900 dark:text-amber-200">
+              <span className="font-semibold">Unmatched invoices:</span>{' '}
+              {unmatchedSummary.length} {unmatchedSummary.length === 1 ? 'customer' : 'customers'}
+              {' • '}
+              <span className="font-medium">{fmt(unmatchedTotal)}</span> open
+              {' — '}
+              <span className="underline">{unmatchedOpen ? 'Hide' : 'View'}</span>
+            </span>
+          </button>
+          {unmatchedOpen && (
+            <div className="mt-3 max-h-60 overflow-y-auto pr-1 space-y-1 border-t border-amber-200 dark:border-amber-900 pt-2">
+              {unmatchedSummary.map((u) => (
+                <div key={u.customer} className="flex items-center justify-between gap-3 text-xs">
+                  <span className="truncate">
+                    {u.customer}{' '}
+                    <span className="text-muted-foreground">({u.count} {u.count === 1 ? 'invoice' : 'invoices'})</span>
+                  </span>
+                  <span className="font-medium whitespace-nowrap">{fmt(u.total)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Grouped list */}
       <div className="space-y-6">
-        {territoryOrder.map((terr) => (
+        {territoryOrder.map((terr) => {
+          const isCollapsed = !expanded.has(terr)
+          return (
           <div key={terr}>
-            <div className="flex items-center gap-2 mb-3 sticky top-0 bg-background py-2 z-[1]">
-              <MapPin className="size-4 text-[#005b5b]" />
-              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#005b5b]">{terr}</h2>
+            <button
+              type="button"
+              onClick={() => toggleTerritory(terr)}
+              className="flex items-center gap-2 mb-3 sticky top-0 bg-background py-2 z-[1] w-full text-left"
+              aria-expanded={!isCollapsed}
+            >
+              <span className="size-5 inline-flex items-center justify-center rounded text-[#005b5b] hover:bg-[#005b5b]/10">
+                {isCollapsed ? <Plus className="size-4" /> : <Minus className="size-4" />}
+              </span>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-[#005b5b] ml-2">{terr}</h2>
               <span className="text-xs text-muted-foreground">{grouped[terr].length} {grouped[terr].length === 1 ? 'account' : 'accounts'}</span>
+            </button>
+            {!isCollapsed && (
+              <div className="rounded-lg border overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/30 text-xs uppercase text-muted-foreground border-b">
+                      <th className="py-2 px-4 text-left font-medium">Account</th>
+                      <th className="py-2 px-4 text-left font-medium">Contact</th>
+                      <th className="py-2 px-4 text-left font-medium">Email</th>
+                      <th className="py-2 px-4 text-left font-medium">Phone</th>
+                      <th className="py-2 px-4 text-right font-medium">Open Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grouped[terr].map((a) => {
+                      const contact = [a.firstName, a.lastName].filter(Boolean).join(' ')
+                      const openBal = accountOpenBalances?.[a.id]
+                      return (
+                        <tr key={a.id} onClick={() => onSelect(a.id)} className="border-b last:border-0 cursor-pointer hover:bg-muted/30">
+                          <td className="py-2.5 px-4 font-medium">{a.name}</td>
+                          <td className="py-2.5 px-4 text-xs text-muted-foreground">{contact || '—'}</td>
+                          <td className="py-2.5 px-4 text-xs text-muted-foreground">{a.email || '—'}</td>
+                          <td className="py-2.5 px-4 text-xs text-muted-foreground">{a.phone || '—'}</td>
+                          <td className={`py-2.5 px-4 text-right ${openBal ? 'font-bold text-[#005b5b]' : 'text-muted-foreground'}`}>
+                            {openBal ? fmt(openBal) : '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
+// Returns a ref that, when attached to a row, scrolls it into view once and
+// clears the parent's highlight state. Used to land on a specific invoice
+// from a deep link (e.g. clicking a row on the Account detail page).
+function useHighlightedRow(highlightNum, scope, clearHighlight) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (!highlightNum) return
+    if (ref.current) {
+      ref.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }
+  }, [highlightNum, scope])
+  return ref
+}
+
+// Sortable table header cell — shows a ↑/↓ arrow when this column is active.
+function SortableTh({ col, label, align = 'left', sortBy, sortDir, onClick }) {
+  const active = sortBy === col
+  return (
+    <th
+      onClick={() => onClick(col)}
+      className={`py-2 px-4 text-${align} font-medium cursor-pointer hover:text-foreground transition-colors ${active ? 'text-[#005b5b]' : ''}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        {active && <span aria-hidden>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+      </span>
+    </th>
+  )
+}
+
+// LineItemsUploader — dual mode:
+//   - default (empty state): full dashed card, "Step 2 — Line Items CSV"
+//   - compact (post-upload): single-line status with a Replace/Clear strip
+function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsError, lastImport, onPickFile, onClear, compact }) {
+  const hasItems = (lineItems?.length || 0) > 0
+  const pickHandler = (mode) => (e) => {
+    if (e.target.files?.[0]) { onPickFile(e.target.files[0], mode); e.target.value = '' }
+  }
+  if (compact) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        {hasItems ? (
+          <>
+            <span className="text-muted-foreground">Line items:</span>
+            <span className="font-medium">{lineItems.length.toLocaleString()}</span>
+            <span className="text-muted-foreground">across</span>
+            <span className="font-medium">{itemsInvoiceCount.toLocaleString()}</span>
+            <span className="text-muted-foreground">{itemsInvoiceCount === 1 ? 'invoice' : 'invoices'}</span>
+            {lineItemsMeta && <span className="text-xs text-muted-foreground">• {lineItemsMeta.fileName}</span>}
+          </>
+        ) : (
+          <span className="text-muted-foreground">
+            <span className="font-medium">No line items loaded.</span> Upload to enable per-invoice brand attribution.
+          </span>
+        )}
+        <div className="ml-auto flex gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pickHandler(hasItems ? 'append' : 'replace')} />
+            <span className={`inline-flex items-center px-2.5 py-1 text-xs rounded-md cursor-pointer gap-1.5 ${hasItems ? 'bg-[#005b5b] text-white hover:bg-[#004848]' : 'border border-input bg-background hover:bg-muted'}`}>
+              <Upload className="size-3.5" /> {hasItems ? 'Append' : 'Upload Line Items'}
+            </span>
+          </label>
+          {hasItems && (
+            <>
+              <label className="inline-flex">
+                <input type="file" accept=".csv" className="hidden" onChange={pickHandler('replace')} />
+                <span className="inline-flex items-center px-2.5 py-1 text-xs rounded-md border border-input bg-background hover:bg-muted cursor-pointer">
+                  Replace
+                </span>
+              </label>
+              <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+            </>
+          )}
+        </div>
+        {lastImport && (
+          <p className="basis-full text-xs text-[#005b5b]">
+            {lastImport.mode === 'append'
+              ? `Merged: ${lastImport.invoicesAdded} new invoices, ${lastImport.invoicesUpdated} updated — ${lastImport.itemsTotal.toLocaleString()} line items total.`
+              : `Loaded ${lastImport.itemsTotal.toLocaleString()} line items (replaced).`
+            }
+          </p>
+        )}
+        {itemsError && <p className="basis-full text-sm text-red-600">{itemsError}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1">Step 2 — Line Items CSV (optional)</p>
+      <p className="text-sm text-muted-foreground mb-4">Enables brand attribution per invoice. Drop later if you only have the invoices file now.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pickHandler('replace')} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> Choose Line Items CSV
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected columns: Num, Product/Service full name, Quantity, Amount</p>
+      {hasItems && (
+        <p className="text-xs text-[#005b5b] mt-2">
+          {lineItems.length.toLocaleString()} line items loaded across {itemsInvoiceCount} invoices
+        </p>
+      )}
+      {itemsError && <p className="mt-3 text-sm text-red-600">{itemsError}</p>}
+    </div>
+  )
+}
+
+// =====================================================================
+// InvoicesView — upload a CSV of open invoices and browse the table
+// =====================================================================
+function InvoicesView({
+  invoices, invoicesMeta, onSave, onAppend, onClear, lastInvoicesImport,
+  lineItems, lineItemsMeta, onSaveLineItems, onAppendLineItems, onClearLineItems, lineItemsStorageError, lastLineItemsImport,
+  selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
+}) {
+  const rows = invoices
+  const meta = invoicesMeta
+  const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [error, setError] = useState(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [itemsError, setItemsError] = useState(null)
+
+  // Invoice-num set, useful for showing how many invoices have items loaded.
+  const itemsInvoiceNumSet = useMemo(
+    () => new Set((lineItems || []).map(it => it.num).filter(Boolean)),
+    [lineItems]
+  )
+  const itemsInvoiceCount = itemsInvoiceNumSet.size
+
+  // Data-integrity check: invoices that have NO matching line items in the
+  // current items dataset. These can't be brand-attributed for the commission
+  // engine. We only flag this when BOTH datasets are loaded (otherwise the
+  // gap is obvious — items haven't been uploaded yet).
+  const invoicesMissingLineItems = useMemo(() => {
+    if (!invoices?.length || !lineItems?.length) return []
+    return invoices.filter(r => r.num && !itemsInvoiceNumSet.has(r.num))
+  }, [invoices, lineItems, itemsInvoiceNumSet])
+  const [missingItemsOpen, setMissingItemsOpen] = useState(false)
+
+  const parseAmount = (v) => {
+    if (v == null || v === '') return null
+    const n = parseFloat(String(v).replace(/[$,]/g, ''))
+    return isNaN(n) ? null : n
+  }
+
+  // XLSX auto-parses date-looking cells into Excel serial numbers. With
+  // cellDates:true we get JS Date objects instead; this helper formats them
+  // back to mm/dd/yyyy. Already-string cells pass through unchanged.
+  const cellToDateString = (v) => {
+    if (v == null || v === '') return ''
+    if (v instanceof Date) {
+      const mm = String(v.getUTCMonth() + 1).padStart(2, '0')
+      const dd = String(v.getUTCDate()).padStart(2, '0')
+      const yyyy = v.getUTCFullYear()
+      return `${mm}/${dd}/${yyyy}`
+    }
+    return String(v).trim()
+  }
+
+  // Days from due date to today. Positive = past due, ≤0 or null = not past due.
+  const daysPastDue = (dueDateStr) => {
+    if (!dueDateStr) return null
+    const m = String(dueDateStr).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+    if (!m) return null
+    const [, mm, dd, yyyy] = m
+    const due = new Date(Number(yyyy.length === 2 ? `20${yyyy}` : yyyy), Number(mm) - 1, Number(dd))
+    if (isNaN(due.getTime())) return null
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    due.setHours(0, 0, 0, 0)
+    return Math.round((today.getTime() - due.getTime()) / 86400000)
+  }
+
+  // Status from the math: 0 owed = Paid, partial = Partial, full open = Open.
+  const computeStatus = (amount, openBalance) => {
+    if (amount == null || openBalance == null) return ''
+    if (openBalance <= 0.005) return 'Paid'
+    if (openBalance + 0.005 < amount) return 'Partial'
+    return 'Open'
+  }
+
+  const handleFile = async (file, mode = 'replace') => {
+    if (!file) return
+    setError(null)
+    try {
+      const buffer = await file.arrayBuffer()
+      const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+
+      // Locate the header row. Two formats supported:
+      //   - Flat (old "Open Invoices Report"): has a "Customer" column.
+      //   - Grouped (new "Transaction List by Customer"): no Customer column;
+      //     customer name appears in a header row above each invoice block.
+      const headerIdx = matrix.findIndex(r => {
+        if (!r) return false
+        const cells = r.map(c => String(c || '').toLowerCase().trim())
+        const hasDate = cells.includes('date')
+        const hasNum = cells.includes('num')
+        const hasAmount = cells.includes('amount')
+        return (cells.includes('customer') && hasDate) || (hasDate && hasNum && hasAmount)
+      })
+      if (headerIdx === -1) throw new Error("Couldn't find a header row containing the expected invoice columns.")
+
+      const headers = matrix[headerIdx].map(c => String(c || '').toLowerCase().trim())
+      const col = {
+        customer: headers.indexOf('customer'),
+        date: headers.indexOf('date'),
+        dueDate: headers.indexOf('due date'),
+        transactionType: headers.indexOf('transaction type'),
+        num: headers.indexOf('num'),
+        amount: headers.indexOf('amount'),
+        openBalance: headers.indexOf('open balance'),
+      }
+      const isGrouped = col.customer === -1
+
+      const parsed = []
+
+      if (!isGrouped) {
+        // Flat format — customer column on every row.
+        for (let i = headerIdx + 1; i < matrix.length; i++) {
+          const r = matrix[i]
+          if (!r || r.every(c => c == null || String(c).trim() === '')) continue
+          const customer = String(r[col.customer] || '').trim()
+          if (!customer) continue
+          const amount = col.amount >= 0 ? parseAmount(r[col.amount]) : null
+          const openBalance = col.openBalance >= 0 ? parseAmount(r[col.openBalance]) : null
+          parsed.push({
+            customer,
+            date: col.date >= 0 ? cellToDateString(r[col.date]) : '',
+            dueDate: col.dueDate >= 0 ? cellToDateString(r[col.dueDate]) : '',
+            num: col.num >= 0 ? String(r[col.num] || '').trim() : '',
+            amount,
+            openBalance,
+            status: computeStatus(amount, openBalance),
+          })
+        }
+      } else {
+        // Grouped format — customer in column 0 of header rows above each
+        // invoice block. Track current customer, skip "Total for ..." rows
+        // and any customer in src/lib/customerIgnoreList.js (internal QB
+        // entries, rep records, promo orders, etc.). Also filter to
+        // Transaction type === Invoice when that column is present.
+        let currentCustomer = null
+        let skipped = false
+        for (let i = headerIdx + 1; i < matrix.length; i++) {
+          const r = matrix[i]
+          if (!r || r.every(c => c == null || String(c).trim() === '')) continue
+          const firstCell = String(r[0] || '').trim()
+          const numCell = col.num >= 0 ? String(r[col.num] || '').trim() : ''
+          const amountCell = col.amount >= 0 ? r[col.amount] : null
+
+          // Customer group header row (only first cell populated, no Num/Amount)
+          if (firstCell && !numCell && !amountCell) {
+            if (firstCell.startsWith('Total for')) {
+              currentCustomer = null
+              skipped = false
+              continue
+            }
+            currentCustomer = firstCell
+            skipped = shouldIgnoreCustomer(firstCell)
+            continue
+          }
+          if (skipped) continue
+          if (!numCell) continue
+
+          // Filter to Invoice transactions only (skip Credit Memo, Payment, etc.)
+          if (col.transactionType >= 0) {
+            const tt = String(r[col.transactionType] || '').trim().toLowerCase()
+            if (tt && tt !== 'invoice') continue
+          }
+
+          const amount = parseAmount(amountCell)
+          const openBalance = col.openBalance >= 0 ? parseAmount(r[col.openBalance]) : null
+          parsed.push({
+            customer: currentCustomer || '',
+            date: col.date >= 0 ? cellToDateString(r[col.date]) : '',
+            dueDate: col.dueDate >= 0 ? cellToDateString(r[col.dueDate]) : '',
+            num: numCell,
+            amount,
+            openBalance,
+            status: computeStatus(amount, openBalance),
+          })
+        }
+      }
+
+      const newMeta = {
+        fileName: file.name,
+        uploadedAt: new Date().toISOString(),
+        count: parsed.length,
+        format: isGrouped ? 'grouped' : 'flat',
+      }
+      if (mode === 'append') onAppend(parsed, newMeta)
+      else onSave(parsed, newMeta)
+      setPage(1)
+    } catch (e) {
+      setError(e.message || 'Failed to parse CSV')
+    }
+  }
+
+  const clearInvoices = () => {
+    if (!confirm('Clear all invoices? You can re-upload at any time.')) return
+    onClear()
+    setSearch('')
+    setPage(1)
+  }
+
+  // ============ Line items CSV ("items by invoice") ============
+  // Grouped format from QuickBooks "Sales by Customer Type Detail":
+  //   - 3 metadata rows at the top
+  //   - Header row with `Transaction type, Item customer type, Transaction date,
+  //     Num, Product/Service full name, Description, Quantity, Sales price,
+  //     Amount, Balance`
+  //   - Customer name appears in column 0 of a "group header" row above each
+  //     customer's invoices; data rows have an empty column 0.
+  //   - "Total for {customer}" rows are summary rows to skip.
+  //   - Customers in src/lib/customerIgnoreList.js are skipped entirely
+  //     (internal QB entries, rep records, promo orders, etc.).
+  const handleItemsFile = async (file, mode = 'replace') => {
+    if (!file) return
+    setItemsError(null)
+    try {
+      const buffer = await file.arrayBuffer()
+      const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+
+      // Find header row containing both "Num" and "Product/Service full name"
+      const headerIdx = matrix.findIndex(r => {
+        if (!r) return false
+        const cells = r.map(c => String(c || '').toLowerCase().trim())
+        return cells.includes('num') && cells.some(c => c.includes('product/service'))
+      })
+      if (headerIdx === -1) throw new Error("Couldn't find a header row containing 'Num' and 'Product/Service full name'.")
+
+      const headers = matrix[headerIdx].map(c => String(c || '').toLowerCase().trim())
+      const col = {
+        transactionType: headers.indexOf('transaction type'),
+        date: headers.findIndex(h => h.includes('transaction date') || h === 'date'),
+        num: headers.indexOf('num'),
+        sku: headers.findIndex(h => h.includes('product/service')),
+        description: headers.indexOf('description'),
+        qty: headers.findIndex(h => h === 'quantity' || h === 'qty'),
+        salesPrice: headers.findIndex(h => h.includes('sales price') || h === 'price'),
+        amount: headers.indexOf('amount'),
+      }
+
+      const parsed = []
+      let currentCustomer = null
+      let skippedCustomer = false  // true while inside a customer block we're skipping (per customerIgnoreList)
+
+      for (let i = headerIdx + 1; i < matrix.length; i++) {
+        const row = matrix[i]
+        if (!row || row.every(c => c == null || String(c).trim() === '')) continue
+
+        const firstCell = String(row[0] || '').trim()
+
+        // Group header row (customer name) — first cell populated, other data cols empty
+        const looksLikeGroupHeader = firstCell && !row[col.num] && !row[col.amount]
+        if (looksLikeGroupHeader) {
+          if (firstCell.startsWith('Total for')) {
+            // End of a customer group; do nothing special, the next non-empty
+            // first cell will set the new currentCustomer.
+            currentCustomer = null
+            skippedCustomer = false
+            continue
+          }
+          currentCustomer = firstCell
+          // Skip internal QB customer entry
+          skippedCustomer = shouldIgnoreCustomer(currentCustomer)
+          continue
+        }
+        if (skippedCustomer) continue
+
+        // Data row — must have Num
+        const num = col.num >= 0 ? String(row[col.num] || '').trim() : ''
+        if (!num) continue
+
+        const dateRaw = col.date >= 0 ? row[col.date] : null
+        const date = cellToDateString(dateRaw)
+
+        // Persisted shape kept LEAN — line items JSON for a full year easily
+        // exceeds the ~5MB localStorage quota with full per-item fields.
+        // Only persist what the engine + brand attribution actually use.
+        parsed.push({
+          customer: currentCustomer || '',
+          num,
+          sku: col.sku >= 0 ? String(row[col.sku] || '').trim() : '',
+          amount: col.amount >= 0 ? parseAmount(row[col.amount]) : null,
+        })
+      }
+
+      const distinctInvoices = new Set(parsed.map(p => p.num)).size
+      const newMeta = {
+        fileName: file.name,
+        uploadedAt: new Date().toISOString(),
+        count: parsed.length,
+        invoiceCount: distinctInvoices,
+      }
+      if (mode === 'append') onAppendLineItems(parsed, newMeta)
+      else onSaveLineItems(parsed, newMeta)
+    } catch (e) {
+      setItemsError(e.message || 'Failed to parse line items CSV')
+    }
+  }
+
+  const clearLineItems = () => {
+    if (!confirm('Clear all line items? You can re-upload at any time.')) return
+    onClearLineItems()
+    setItemsError(null)
+  }
+
+  const [groupByCustomer, setGroupByCustomer] = useState(true)
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter(r =>
+      r.customer.toLowerCase().includes(q) ||
+      r.num.toLowerCase().includes(q) ||
+      r.date.toLowerCase().includes(q) ||
+      r.dueDate.toLowerCase().includes(q)
+    )
+  }, [rows, search])
+
+  // Customer-grouped view: aggregates invoice counts + totals per customer.
+  // Status breakdown (Paid / Open / Partial counts) helps Tony spot accounts
+  // with mixed payment states.
+  const filteredByCustomer = useMemo(() => {
+    const m = {}
+    for (const r of filtered) {
+      const key = r.customer || '(unknown)'
+      if (!m[key]) m[key] = {
+        customer: key, count: 0, paid: 0, open: 0, partial: 0,
+        amount: 0, openBalance: 0,
+      }
+      const g = m[key]
+      g.count += 1
+      if (r.status === 'Paid') g.paid += 1
+      else if (r.status === 'Partial') g.partial += 1
+      else if (r.status === 'Open') g.open += 1
+      g.amount += r.amount || 0
+      g.openBalance += r.openBalance || 0
+    }
+    return Object.values(m).sort((a, b) => b.openBalance - a.openBalance || b.amount - a.amount)
+  }, [filtered])
+
+  const totalAmount = useMemo(() => filtered.reduce((s, r) => s + (r.amount || 0), 0), [filtered])
+  const totalOpen = useMemo(() => filtered.reduce((s, r) => s + (r.openBalance || 0), 0), [filtered])
+  const totalPages = groupByCustomer
+    ? Math.max(1, Math.ceil(filteredByCustomer.length / INVOICES_PAGE_SIZE))
+    : Math.max(1, Math.ceil(filtered.length / INVOICES_PAGE_SIZE))
+  const safePage = Math.min(page, totalPages)
+  const paged = filtered.slice((safePage - 1) * INVOICES_PAGE_SIZE, safePage * INVOICES_PAGE_SIZE)
+  const pagedGrouped = filteredByCustomer.slice((safePage - 1) * INVOICES_PAGE_SIZE, safePage * INVOICES_PAGE_SIZE)
+
+  // Sort controls for the customer drill-in view.
+  // Convert "mm/dd/yyyy" strings to "yyyy-mm-dd" for lex-comparable date sorting.
+  const dateKey = (s) => {
+    if (!s) return ''
+    const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+    if (!m) return s
+    const [, mm, dd, yyyy] = m
+    const y = yyyy.length === 2 ? `20${yyyy}` : yyyy
+    return `${y}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`
+  }
+  const sortKeyFor = (col) => (r) => {
+    switch (col) {
+      case 'num':         return r.num || ''
+      case 'date':        return dateKey(r.date)
+      case 'dueDate':     return dateKey(r.dueDate)
+      case 'pastDue':     return daysPastDue(r.dueDate) ?? Number.NEGATIVE_INFINITY
+      case 'status':      return r.status || ''
+      case 'amount':      return r.amount ?? 0
+      case 'openBalance': return r.openBalance ?? 0
+      default:            return ''
+    }
+  }
+  const [detailSortBy, setDetailSortBy] = useState('date')
+  const [detailSortDir, setDetailSortDir] = useState('desc')
+  const toggleDetailSort = (col) => {
+    if (detailSortBy === col) {
+      setDetailSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setDetailSortBy(col)
+      // Numeric/date columns default to desc (biggest/newest first); text to asc.
+      const numericCols = new Set(['date', 'dueDate', 'pastDue', 'amount', 'openBalance'])
+      setDetailSortDir(numericCols.has(col) ? 'desc' : 'asc')
+    }
+  }
+
+  // Invoices for the selected customer (drill-in view).
+  const selectedCustomerInvoices = useMemo(() => {
+    if (!selectedCustomer) return []
+    const key = sortKeyFor(detailSortBy)
+    const sign = detailSortDir === 'asc' ? 1 : -1
+    return rows
+      .filter(r => r.customer === selectedCustomer)
+      .slice()
+      .sort((a, b) => {
+        const ka = key(a), kb = key(b)
+        if (ka < kb) return -1 * sign
+        if (ka > kb) return  1 * sign
+        return 0
+      })
+  }, [rows, selectedCustomer, detailSortBy, detailSortDir])
+  const selectedCustomerTotals = useMemo(() => ({
+    count: selectedCustomerInvoices.length,
+    amount: selectedCustomerInvoices.reduce((s, r) => s + (r.amount || 0), 0),
+    openBalance: selectedCustomerInvoices.reduce((s, r) => s + (r.openBalance || 0), 0),
+    paid: selectedCustomerInvoices.filter(r => r.status === 'Paid').length,
+    open: selectedCustomerInvoices.filter(r => r.status === 'Open').length,
+    partial: selectedCustomerInvoices.filter(r => r.status === 'Partial').length,
+  }), [selectedCustomerInvoices])
+
+  // ─── Customer drill-in view ───
+  // When highlightNum is set, scroll to and visually flash that row on mount.
+  const highlightedRowRef = useHighlightedRow(highlightNum, selectedCustomer, clearHighlight)
+  if (selectedCustomer) {
+    return (
+      <div className="space-y-4">
+        <Button variant="ghost" size="sm" onClick={() => setSelectedCustomer(null)}>
+          <ArrowLeft className="size-4 mr-1" /> Back to all customers
+        </Button>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>{selectedCustomer}</CardTitle>
+            <CardDescription>
+              {selectedCustomerTotals.count} {selectedCustomerTotals.count === 1 ? 'invoice' : 'invoices'}
+              {' • '}
+              {[
+                selectedCustomerTotals.paid > 0 && `${selectedCustomerTotals.paid} paid`,
+                selectedCustomerTotals.open > 0 && `${selectedCustomerTotals.open} open`,
+                selectedCustomerTotals.partial > 0 && `${selectedCustomerTotals.partial} partial`,
+              ].filter(Boolean).join(' · ')}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm items-baseline">
+              <div><span className="text-muted-foreground">Total Amount:</span> <span className="font-medium">{fmt(selectedCustomerTotals.amount)}</span></div>
+              <div><span className="text-muted-foreground">Total Open:</span> <span className="font-bold text-[#005b5b]">{fmt(selectedCustomerTotals.openBalance)}</span></div>
             </div>
-            <div className="rounded-lg border overflow-hidden">
-              <table className="w-full text-sm">
+          </CardContent>
+        </Card>
+
+        <div className="rounded-lg border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/30 text-xs uppercase text-muted-foreground border-b select-none">
+                <SortableTh col="num"         label="Num"          align="left"  sortBy={detailSortBy} sortDir={detailSortDir} onClick={toggleDetailSort} />
+                <SortableTh col="date"        label="Date"         align="left"  sortBy={detailSortBy} sortDir={detailSortDir} onClick={toggleDetailSort} />
+                <SortableTh col="dueDate"     label="Due Date"     align="left"  sortBy={detailSortBy} sortDir={detailSortDir} onClick={toggleDetailSort} />
+                <SortableTh col="pastDue"     label="Past Due"     align="right" sortBy={detailSortBy} sortDir={detailSortDir} onClick={toggleDetailSort} />
+                <SortableTh col="status"      label="Status"       align="left"  sortBy={detailSortBy} sortDir={detailSortDir} onClick={toggleDetailSort} />
+                <SortableTh col="amount"      label="Amount"       align="right" sortBy={detailSortBy} sortDir={detailSortDir} onClick={toggleDetailSort} />
+                <SortableTh col="openBalance" label="Open Balance" align="right" sortBy={detailSortBy} sortDir={detailSortDir} onClick={toggleDetailSort} />
+              </tr>
+            </thead>
+            <tbody>
+              {selectedCustomerInvoices.map((r, idx) => {
+                const days = daysPastDue(r.dueDate)
+                const isHighlighted = highlightNum && r.num === highlightNum
+                return (
+                  <tr
+                    key={`${r.num}-${idx}`}
+                    ref={isHighlighted ? highlightedRowRef : null}
+                    className={`border-b last:border-0 hover:bg-muted/30 transition-colors ${isHighlighted ? 'bg-amber-100 dark:bg-amber-900/40 ring-2 ring-amber-400 ring-inset' : ''}`}
+                  >
+                    <td className="py-2.5 px-4 text-xs whitespace-nowrap">{r.num || '—'}</td>
+                    <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">{r.date || '—'}</td>
+                    <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">{r.dueDate || '—'}</td>
+                    <td className={`py-2.5 px-4 text-right text-xs whitespace-nowrap ${days != null && days > 0 ? 'text-red-600 font-semibold' : 'text-muted-foreground'}`}>
+                      {days != null && days > 0 ? `${days} ${days === 1 ? 'day' : 'days'}` : '—'}
+                    </td>
+                    <td className="py-2.5 px-4 whitespace-nowrap">
+                      {r.status === 'Paid' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Paid</span>}
+                      {r.status === 'Partial' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Partial</span>}
+                      {r.status === 'Open' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">Open</span>}
+                      {!r.status && <span className="text-xs text-muted-foreground">—</span>}
+                    </td>
+                    <td className="py-2.5 px-4 text-right whitespace-nowrap">{r.amount != null ? fmt(r.amount) : '—'}</td>
+                    <td className={`py-2.5 px-4 text-right font-bold whitespace-nowrap ${r.openBalance ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
+                      {r.openBalance != null ? fmt(r.openBalance) : '—'}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    )
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="space-y-4">
+        <div
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            setIsDragging(false)
+            const file = e.dataTransfer.files[0]
+            if (file) handleFile(file)
+          }}
+          className={`rounded-lg border-2 border-dashed py-16 px-6 text-center transition-colors ${
+            isDragging ? 'border-[#005b5b] bg-[#005b5b]/5' : 'border-muted-foreground/30'
+          }`}
+        >
+          <FileSpreadsheet className="size-12 mx-auto text-muted-foreground mb-3" />
+          <p className="text-sm font-medium mb-1">Step 1 — Invoices CSV</p>
+          <p className="text-sm text-muted-foreground mb-4">Drag and drop your CSV file here, or</p>
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
+            <span className="inline-flex items-center px-4 py-2 text-sm font-medium rounded-md bg-[#005b5b] text-white hover:bg-[#004848] cursor-pointer gap-1.5">
+              <Upload className="size-4" /> Choose CSV file
+            </span>
+          </label>
+          <p className="text-xs text-muted-foreground mt-3">Expected columns: Customer, Date, Due date, Num, Amount, Open balance</p>
+          {error && <p className="mt-4 text-sm text-red-600">{error}</p>}
+        </div>
+
+        {/* Line items upload is optional but enables brand attribution */}
+        <LineItemsUploader
+          lineItems={lineItems}
+          lineItemsMeta={lineItemsMeta}
+          itemsInvoiceCount={itemsInvoiceCount}
+          itemsError={itemsError}
+          lastImport={lastLineItemsImport}
+          onPickFile={handleItemsFile}
+          onClear={clearLineItems}
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+          <Input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
+            placeholder="Search by customer, invoice #, or date..."
+            className="pl-9"
+          />
+        </div>
+        <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer select-none whitespace-nowrap">
+          <input
+            type="checkbox"
+            checked={groupByCustomer}
+            onChange={(e) => { setGroupByCustomer(e.target.checked); setPage(1) }}
+            className="size-3.5"
+          />
+          Group by customer
+        </label>
+        <div className="flex gap-2">
+          <label className="inline-flex">
+            <input
+              type="file" accept=".csv" className="hidden"
+              onChange={(e) => { if (e.target.files?.[0]) { handleFile(e.target.files[0], 'append'); e.target.value = '' } }}
+            />
+            <span className="inline-flex items-center px-3 py-1.5 text-sm rounded-md bg-[#005b5b] text-white hover:bg-[#004848] cursor-pointer gap-1.5">
+              <Upload className="size-4" /> Append CSV
+            </span>
+          </label>
+          <label className="inline-flex">
+            <input
+              type="file" accept=".csv" className="hidden"
+              onChange={(e) => { if (e.target.files?.[0]) { handleFile(e.target.files[0], 'replace'); e.target.value = '' } }}
+            />
+            <span className="inline-flex items-center px-3 py-1.5 text-sm rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+              Replace
+            </span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={clearInvoices} className="text-muted-foreground">Clear</Button>
+        </div>
+      </div>
+
+      {/* Last import result */}
+      {lastInvoicesImport && (
+        <div className="text-xs text-[#005b5b] bg-[#005b5b]/5 border border-[#005b5b]/20 rounded-md px-3 py-2">
+          {lastInvoicesImport.mode === 'append'
+            ? (
+                <>
+                  Merged: {lastInvoicesImport.added} new invoices, {lastInvoicesImport.updated} updated, total now {lastInvoicesImport.total.toLocaleString()}.
+                  {lastInvoicesImport.wsrPreserved > 0 && (
+                    <> <span className="font-medium">{lastInvoicesImport.wsrPreserved} WSR rename{lastInvoicesImport.wsrPreserved === 1 ? '' : 's'} preserved</span> (original member names kept on paid invoices).</>
+                  )}
+                </>
+              )
+            : `Loaded ${lastInvoicesImport.total.toLocaleString()} invoices (replaced).`
+          }
+        </div>
+      )}
+
+      {/* Summary */}
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm items-baseline">
+        {groupByCustomer && (
+          <div><span className="text-muted-foreground">Customers:</span> <span className="font-medium">{filteredByCustomer.length.toLocaleString()}</span></div>
+        )}
+        <div><span className="text-muted-foreground">Invoices:</span> <span className="font-medium">{filtered.length.toLocaleString()}</span></div>
+        <div><span className="text-muted-foreground">Total Amount:</span> <span className="font-medium">{fmt(totalAmount)}</span></div>
+        <div><span className="text-muted-foreground">Total Open:</span> <span className="font-bold text-[#005b5b]">{fmt(totalOpen)}</span></div>
+        {meta && <div className="text-xs text-muted-foreground ml-auto">Source: {meta.fileName} • {new Date(meta.uploadedAt).toLocaleString()}</div>}
+      </div>
+
+      {/* Invoices-without-line-items data-integrity banner */}
+      {invoicesMissingLineItems.length > 0 && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3 py-2.5 text-sm">
+          <button
+            type="button"
+            onClick={() => setMissingItemsOpen(o => !o)}
+            className="flex items-center justify-between gap-2 w-full text-left"
+            aria-expanded={missingItemsOpen}
+          >
+            <span className="text-amber-900 dark:text-amber-200">
+              <span className="font-semibold">Missing line items:</span>{' '}
+              {invoicesMissingLineItems.length} {invoicesMissingLineItems.length === 1 ? 'invoice has' : 'invoices have'} no line items uploaded
+              {' • '}
+              <span className="font-medium">{fmt(invoicesMissingLineItems.reduce((s, r) => s + (r.amount || 0), 0))}</span> total
+              {' — '}
+              <span className="underline">{missingItemsOpen ? 'Hide' : 'View'}</span>
+            </span>
+          </button>
+          {missingItemsOpen && (
+            <div className="mt-3 max-h-72 overflow-y-auto pr-1 border-t border-amber-200 dark:border-amber-900 pt-2">
+              <table className="w-full text-xs">
                 <thead>
-                  <tr className="bg-muted/30 text-xs uppercase text-muted-foreground border-b">
-                    <th className="py-2 px-4 text-left font-medium">Account</th>
-                    <th className="py-2 px-4 text-left font-medium">Contact</th>
-                    <th className="py-2 px-4 text-left font-medium">Email</th>
-                    <th className="py-2 px-4 text-right font-medium">Entries</th>
-                    <th className="py-2 px-4 text-right font-medium">Lifetime Paid</th>
-                    <th className="py-2 px-4 text-right font-medium">Commission</th>
+                  <tr className="text-amber-900 dark:text-amber-200 text-left">
+                    <th className="py-1 pr-3 font-medium">Num</th>
+                    <th className="py-1 pr-3 font-medium">Customer</th>
+                    <th className="py-1 pr-3 font-medium">Date</th>
+                    <th className="py-1 pr-3 font-medium text-left">Status</th>
+                    <th className="py-1 text-right font-medium">Amount</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {grouped[terr].map((a) => {
-                    const t = accountTotals[a.id]
-                    const contact = [a.firstName, a.lastName].filter(Boolean).join(' ')
-                    return (
-                      <tr key={a.id} onClick={() => onSelect(a.id)} className="border-b last:border-0 cursor-pointer hover:bg-muted/30">
-                        <td className="py-2.5 px-4 font-medium">{a.name}</td>
-                        <td className="py-2.5 px-4 text-xs text-muted-foreground">{contact || '—'}</td>
-                        <td className="py-2.5 px-4 text-xs text-muted-foreground">{a.email || '—'}</td>
-                        <td className="py-2.5 px-4 text-right text-xs">{t?.entries || 0}</td>
-                        <td className="py-2.5 px-4 text-right">{t?.paid ? fmt(t.paid) : '—'}</td>
-                        <td className={`py-2.5 px-4 text-right font-bold ${t?.commission ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
-                          {t?.commission ? fmt(t.commission) : '—'}
-                        </td>
-                      </tr>
-                    )
-                  })}
+                  {invoicesMissingLineItems.slice(0, 200).map((r, idx) => (
+                    <tr key={`${r.num}-${idx}`} className="border-t border-amber-100 dark:border-amber-900/60">
+                      <td className="py-1 pr-3 whitespace-nowrap font-medium">{r.num}</td>
+                      <td className="py-1 pr-3 truncate max-w-xs">{r.customer}</td>
+                      <td className="py-1 pr-3 whitespace-nowrap text-muted-foreground">{r.date || '—'}</td>
+                      <td className="py-1 pr-3 whitespace-nowrap">{r.status || '—'}</td>
+                      <td className="py-1 text-right whitespace-nowrap">{fmt(r.amount)}</td>
+                    </tr>
+                  ))}
+                  {invoicesMissingLineItems.length > 200 && (
+                    <tr>
+                      <td colSpan={5} className="py-1 text-center text-muted-foreground">
+                        ... and {invoicesMissingLineItems.length - 200} more.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Line items uploader / status */}
+      <LineItemsUploader
+        lineItems={lineItems}
+        lineItemsMeta={lineItemsMeta}
+        itemsInvoiceCount={itemsInvoiceCount}
+        itemsError={itemsError || lineItemsStorageError}
+        lastImport={lastLineItemsImport}
+        onPickFile={handleItemsFile}
+        onClear={clearLineItems}
+        compact
+      />
+
+      {/* Table */}
+      {groupByCustomer ? (
+        <div className="rounded-lg border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/30 text-xs uppercase text-muted-foreground border-b">
+                <th className="py-2 px-4 text-left font-medium">Customer</th>
+                <th className="py-2 px-4 text-right font-medium">Invoices</th>
+                <th className="py-2 px-4 text-right font-medium">Paid</th>
+                <th className="py-2 px-4 text-right font-medium">Open</th>
+                <th className="py-2 px-4 text-right font-medium">Partial</th>
+                <th className="py-2 px-4 text-right font-medium">Amount</th>
+                <th className="py-2 px-4 text-right font-medium">Open Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pagedGrouped.map((g) => (
+                <tr
+                  key={g.customer}
+                  onClick={() => setSelectedCustomer(g.customer)}
+                  className="border-b last:border-0 hover:bg-muted/30 cursor-pointer"
+                >
+                  <td className="py-2.5 px-4 font-medium">{g.customer}</td>
+                  <td className="py-2.5 px-4 text-right text-xs">{g.count}</td>
+                  <td className="py-2.5 px-4 text-right text-xs text-emerald-700 dark:text-emerald-300">{g.paid || '—'}</td>
+                  <td className="py-2.5 px-4 text-right text-xs text-[#005b5b]">{g.open || '—'}</td>
+                  <td className="py-2.5 px-4 text-right text-xs text-amber-700 dark:text-amber-300">{g.partial || '—'}</td>
+                  <td className="py-2.5 px-4 text-right whitespace-nowrap">{fmt(g.amount)}</td>
+                  <td className={`py-2.5 px-4 text-right font-bold whitespace-nowrap ${g.openBalance ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
+                    {g.openBalance ? fmt(g.openBalance) : '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="rounded-lg border overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-muted/30 text-xs uppercase text-muted-foreground border-b">
+                <th className="py-2 px-4 text-left font-medium">Customer</th>
+                <th className="py-2 px-4 text-left font-medium">Date</th>
+                <th className="py-2 px-4 text-left font-medium">Due Date</th>
+                <th className="py-2 px-4 text-right font-medium">Past Due</th>
+                <th className="py-2 px-4 text-left font-medium">Num</th>
+                <th className="py-2 px-4 text-left font-medium">Status</th>
+                <th className="py-2 px-4 text-right font-medium">Amount</th>
+                <th className="py-2 px-4 text-right font-medium">Open Balance</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paged.map((r, idx) => {
+                const days = daysPastDue(r.dueDate)
+                return (
+                <tr key={`${r.num}-${idx}`} className="border-b last:border-0 hover:bg-muted/30">
+                  <td className="py-2.5 px-4 font-medium">{r.customer}</td>
+                  <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">{r.date || '—'}</td>
+                  <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">{r.dueDate || '—'}</td>
+                  <td className={`py-2.5 px-4 text-right text-xs whitespace-nowrap ${days != null && days > 0 ? 'text-red-600 font-semibold' : 'text-muted-foreground'}`}>
+                    {days != null && days > 0 ? `${days} ${days === 1 ? 'day' : 'days'}` : '—'}
+                  </td>
+                  <td className="py-2.5 px-4 text-xs whitespace-nowrap">{r.num || '—'}</td>
+                  <td className="py-2.5 px-4 whitespace-nowrap">
+                    {r.status === 'Paid' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Paid</span>}
+                    {r.status === 'Partial' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Partial</span>}
+                    {r.status === 'Open' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">Open</span>}
+                    {!r.status && <span className="text-xs text-muted-foreground">—</span>}
+                  </td>
+                  <td className="py-2.5 px-4 text-right whitespace-nowrap">{r.amount != null ? fmt(r.amount) : '—'}</td>
+                  <td className={`py-2.5 px-4 text-right font-bold whitespace-nowrap ${r.openBalance ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
+                    {r.openBalance != null ? fmt(r.openBalance) : '—'}
+                  </td>
+                </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground">
+            {groupByCustomer
+              ? `Showing ${((safePage - 1) * INVOICES_PAGE_SIZE) + 1}–${Math.min(safePage * INVOICES_PAGE_SIZE, filteredByCustomer.length)} of ${filteredByCustomer.length.toLocaleString()} customers`
+              : `Showing ${((safePage - 1) * INVOICES_PAGE_SIZE) + 1}–${Math.min(safePage * INVOICES_PAGE_SIZE, filtered.length)} of ${filtered.length.toLocaleString()} invoices`
+            }
+          </span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</Button>
+            <span className="px-3 text-muted-foreground">Page {safePage} of {totalPages}</span>
+            <Button variant="outline" size="sm" disabled={safePage >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</Button>
           </div>
-        ))}
-      </div>
-    </>
+        </div>
+      )}
+
+      {error && <p className="text-sm text-red-600">{error}</p>}
+    </div>
   )
 }
 
 // =====================================================================
 // AccountDetailView — cross-rep, cross-brand history for one account
 // =====================================================================
-function AccountDetailView({ account, entries, reps, brands, onBack }) {
-  const totals = useMemo(() => {
+function AccountDetailView({ account, entries, reps, brands, invoices = [], lineItems = [], onBack, onJumpToInvoice }) {
+  // Match invoices for this account using the same fuzzy normalization as the
+  // unmatched-invoices banner: strip "- Contact" suffixes, parens, punctuation.
+  const accountInvoices = useMemo(() => {
+    const norm = (s) => String(s || '')
+      .toUpperCase()
+      .replace(/['']/g, '')
+      .replace(/\([^)]*\)/g, '')
+      .replace(/\s+-\s.*$/, '')
+      .replace(/[^A-Z0-9 ]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const want = norm(account.name)
+    if (!want) return []
+    const exact = invoices.filter(inv => norm(inv.customer) === want)
+    if (exact.length > 0) return exact
+    // Substring fallback (both directions, min 4 chars) — same as engine logic.
+    return invoices.filter(inv => {
+      const got = norm(inv.customer)
+      return got && Math.min(got.length, want.length) >= 4 && (got.includes(want) || want.includes(got))
+    })
+  }, [invoices, account.name])
+
+  // Convert mm/dd/yyyy → yyyy-mm-dd for proper min/max comparison.
+  const isoDate = (s) => {
+    if (!s) return ''
+    const m = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+    if (!m) return s
+    const [, mm, dd, yyyy] = m
+    const y = yyyy.length === 2 ? `20${yyyy}` : yyyy
+    return `${y}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`
+  }
+  const fmtUSDate = (s) => s || '—'
+
+  const accountStats = useMemo(() => {
+    let totalSales = 0
+    let openBalance = 0
+    let paidCount = 0, openCount = 0, partialCount = 0
+    let firstIso = '', lastIso = '', firstDisplay = '', lastDisplay = ''
+    for (const inv of accountInvoices) {
+      totalSales += inv.amount || 0
+      openBalance += inv.openBalance || 0
+      if (inv.status === 'Paid') paidCount++
+      else if (inv.status === 'Open') openCount++
+      else if (inv.status === 'Partial') partialCount++
+      const iso = isoDate(inv.date)
+      if (iso) {
+        if (!firstIso || iso < firstIso) { firstIso = iso; firstDisplay = inv.date }
+        if (!lastIso || iso > lastIso)   { lastIso = iso;   lastDisplay = inv.date }
+      }
+    }
+    return {
+      totalSales, openBalance,
+      count: accountInvoices.length,
+      paidCount, openCount, partialCount,
+      firstInvoiceDate: firstDisplay,
+      lastInvoiceDate: lastDisplay,
+    }
+  }, [accountInvoices])
+
+  // Keep the old entry-derived numbers as fallback when no invoice data is loaded.
+  const entryFallback = useMemo(() => {
     const paid = entries.reduce((s, e) => s + (e.actualPaid || 0), 0)
     const commission = entries.reduce((s, e) => s + (e.commission || 0), 0)
     return { paid, commission, count: entries.length }
@@ -790,6 +2234,87 @@ function AccountDetailView({ account, entries, reps, brands, onBack }) {
   const sorted = useMemo(() => [...entries].sort((a, b) => (b.date || '').localeCompare(a.date || '')), [entries])
   const repName = (id) => reps.find(r => r.id === id)?.name || id
   const brandName = (id) => brands.find(b => b.id === id)?.name || id
+
+  // Past-due days from a mm/dd/yyyy due date. Positive = past due.
+  const daysPastDue = (dueDateStr) => {
+    if (!dueDateStr) return null
+    const m = String(dueDateStr).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+    if (!m) return null
+    const [, mm, dd, yyyy] = m
+    const y = yyyy.length === 2 ? `20${yyyy}` : yyyy
+    const due = new Date(Number(y), Number(mm) - 1, Number(dd))
+    if (isNaN(due.getTime())) return null
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    due.setHours(0, 0, 0, 0)
+    return Math.round((today.getTime() - due.getTime()) / 86400000)
+  }
+
+  // Sortable invoice table for this account.
+  const [invSortBy, setInvSortBy] = useState('date')
+  const [invSortDir, setInvSortDir] = useState('desc')
+  const invSortKey = (col) => (r) => {
+    switch (col) {
+      case 'num':         return r.num || ''
+      case 'date':        return isoDate(r.date)
+      case 'dueDate':     return isoDate(r.dueDate)
+      case 'pastDue':     return daysPastDue(r.dueDate) ?? Number.NEGATIVE_INFINITY
+      case 'status':      return r.status || ''
+      case 'amount':      return r.amount ?? 0
+      case 'openBalance': return r.openBalance ?? 0
+      default:            return ''
+    }
+  }
+  const toggleInvSort = (col) => {
+    if (invSortBy === col) {
+      setInvSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setInvSortBy(col)
+      const numeric = new Set(['date', 'dueDate', 'pastDue', 'amount', 'openBalance'])
+      setInvSortDir(numeric.has(col) ? 'desc' : 'asc')
+    }
+  }
+  // Filters above the invoice table
+  const [statusFilter, setStatusFilter] = useState('all')   // all | Paid | Open | Partial
+  const [fromDate, setFromDate] = useState('')              // YYYY-MM-DD
+  const [toDate, setToDate] = useState('')
+
+  // Brand attribution per invoice — looks up each line item's SKU through the
+  // catalog and collects distinct brands for the invoice.
+  const brandsByInvoiceNum = useMemo(() => {
+    const m = {}
+    for (const item of lineItems || []) {
+      if (!item?.num) continue
+      const info = lookupBrand(item.sku)
+      if (!info?.brandName) continue
+      if (!m[item.num]) m[item.num] = new Set()
+      m[item.num].add(info.brandName)
+    }
+    const out = {}
+    for (const k of Object.keys(m)) out[k] = Array.from(m[k]).sort()
+    return out
+  }, [lineItems])
+
+  const filteredInvoices = useMemo(() => {
+    return accountInvoices.filter(r => {
+      if (statusFilter !== 'all' && r.status !== statusFilter) return false
+      const iso = isoDate(r.date)
+      if (fromDate && iso && iso < fromDate) return false
+      if (toDate && iso && iso > toDate) return false
+      return true
+    })
+  }, [accountInvoices, statusFilter, fromDate, toDate])
+
+  const sortedInvoices = useMemo(() => {
+    const key = invSortKey(invSortBy)
+    const sign = invSortDir === 'asc' ? 1 : -1
+    return [...filteredInvoices].sort((a, b) => {
+      const ka = key(a), kb = key(b)
+      if (ka < kb) return -1 * sign
+      if (ka > kb) return  1 * sign
+      return 0
+    })
+  }, [filteredInvoices, invSortBy, invSortDir])
 
   return (
     <>
@@ -822,61 +2347,696 @@ function AccountDetailView({ account, entries, reps, brands, onBack }) {
         </CardContent>
       </Card>
 
-      {/* Summary */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Entries</CardDescription>
-            <CardTitle className="text-2xl">{totals.count}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Lifetime Paid</CardDescription>
-            <CardTitle className="text-2xl">{fmt(totals.paid)}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Total Commission Earned</CardDescription>
-            <CardTitle className="text-2xl text-[#005b5b]">{fmt(totals.commission)}</CardTitle>
-          </CardHeader>
-        </Card>
-      </div>
+      {/* Summary — invoice-derived KPIs when invoices are loaded, falls back
+          to entry-derived numbers when not. */}
+      {accountInvoices.length > 0 ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Total Sales</CardDescription>
+              <CardTitle className="text-2xl">{fmt(accountStats.totalSales)}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Open Balance</CardDescription>
+              <CardTitle className={`text-2xl ${accountStats.openBalance > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(accountStats.openBalance)}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Invoices</CardDescription>
+              <CardTitle className="text-2xl">{accountStats.count.toLocaleString()}</CardTitle>
+              <div className="text-xs text-muted-foreground mt-1">
+                {accountStats.paidCount > 0 && <span className="text-emerald-700 dark:text-emerald-300">{accountStats.paidCount} paid</span>}
+                {accountStats.openCount > 0 && <span>{accountStats.paidCount > 0 && ' · '}<span className="text-[#005b5b]">{accountStats.openCount} open</span></span>}
+                {accountStats.partialCount > 0 && <span>{(accountStats.paidCount > 0 || accountStats.openCount > 0) && ' · '}<span className="text-amber-700 dark:text-amber-300">{accountStats.partialCount} partial</span></span>}
+              </div>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>First Invoice</CardDescription>
+              <CardTitle className="text-xl">{fmtUSDate(accountStats.firstInvoiceDate)}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Last Invoice</CardDescription>
+              <CardTitle className="text-xl">{fmtUSDate(accountStats.lastInvoiceDate)}</CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Entries</CardDescription>
+              <CardTitle className="text-2xl">{entryFallback.count}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Lifetime Paid</CardDescription>
+              <CardTitle className="text-2xl">{fmt(entryFallback.paid)}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Total Commission Earned</CardDescription>
+              <CardTitle className="text-2xl text-[#005b5b]">{fmt(entryFallback.commission)}</CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
+      )}
 
-      {/* Entries across reps + brands */}
+      {/* Invoice list for this account */}
       <Card>
         <CardHeader>
-          <CardTitle>Payment History</CardTitle>
-          <CardDescription>Across all reps and brands</CardDescription>
+          <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div>
+              <CardTitle>Invoices</CardTitle>
+              <CardDescription>
+                {accountInvoices.length === 0
+                  ? 'No invoices matched to this account.'
+                  : `${sortedInvoices.length} of ${accountInvoices.length} ${accountInvoices.length === 1 ? 'invoice' : 'invoices'} shown`
+                }
+              </CardDescription>
+            </div>
+            {accountInvoices.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="h-8 px-2 rounded-md border border-input bg-transparent text-xs"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="Paid">Paid</option>
+                  <option value="Open">Open</option>
+                  <option value="Partial">Partial</option>
+                </select>
+                <Label className="text-muted-foreground">From</Label>
+                <Input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="w-36 h-8 text-xs" />
+                <Label className="text-muted-foreground">To</Label>
+                <Input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} className="w-36 h-8 text-xs" />
+                {(statusFilter !== 'all' || fromDate || toDate) && (
+                  <Button variant="ghost" size="sm" onClick={() => { setStatusFilter('all'); setFromDate(''); setToDate('') }} className="text-muted-foreground h-7">
+                    Clear
+                  </Button>
+                )}
+              </div>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
-          {sorted.length === 0 ? (
-            <div className="text-sm text-muted-foreground text-center py-8">No payments recorded yet for this account.</div>
+          {accountInvoices.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-8">
+              No invoices found for this customer. Upload an invoices CSV from the Invoices tab to populate.
+            </div>
+          ) : sortedInvoices.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-8">
+              No invoices match the current filters.
+            </div>
           ) : (
             <div className="overflow-x-auto -mx-4 sm:mx-0">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-xs uppercase text-muted-foreground">
-                    <th className="py-3 px-4 text-left font-medium">Date</th>
-                    <th className="py-3 px-4 text-left font-medium">Rep</th>
-                    <th className="py-3 px-4 text-left font-medium">Brand</th>
-                    <th className="py-3 px-4 text-left font-medium">Invoice</th>
-                    <th className="py-3 px-4 text-left font-medium">Method</th>
-                    <th className="py-3 px-4 text-right font-medium">Actual</th>
-                    <th className="py-3 px-4 text-right font-medium">Commission</th>
+                  <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30 select-none">
+                    <SortableTh col="num"         label="Num"          align="left"  sortBy={invSortBy} sortDir={invSortDir} onClick={toggleInvSort} />
+                    <SortableTh col="date"        label="Date"         align="left"  sortBy={invSortBy} sortDir={invSortDir} onClick={toggleInvSort} />
+                    <SortableTh col="dueDate"     label="Due Date"     align="left"  sortBy={invSortBy} sortDir={invSortDir} onClick={toggleInvSort} />
+                    <SortableTh col="pastDue"     label="Past Due"     align="right" sortBy={invSortBy} sortDir={invSortDir} onClick={toggleInvSort} />
+                    <SortableTh col="status"      label="Status"       align="left"  sortBy={invSortBy} sortDir={invSortDir} onClick={toggleInvSort} />
+                    <th className="py-2 px-4 text-left font-medium">Brand</th>
+                    <SortableTh col="amount"      label="Amount"       align="right" sortBy={invSortBy} sortDir={invSortDir} onClick={toggleInvSort} />
+                    <SortableTh col="openBalance" label="Open Balance" align="right" sortBy={invSortBy} sortDir={invSortDir} onClick={toggleInvSort} />
                   </tr>
                 </thead>
                 <tbody>
-                  {sorted.map((e) => (
-                    <tr key={e.id} className="border-b">
-                      <td className="py-3 px-4 whitespace-nowrap">{fmtDate(e.date)}</td>
-                      <td className="py-3 px-4">{repName(e.repId)}</td>
-                      <td className="py-3 px-4">{brandName(e.brandId)}</td>
-                      <td className="py-3 px-4 text-xs text-muted-foreground">{e.invoice || '—'}</td>
-                      <td className="py-3 px-4 text-xs">{e.method || '—'}</td>
-                      <td className="py-3 px-4 text-right">{fmt(e.actualPaid)}</td>
-                      <td className={`py-3 px-4 text-right font-bold ${e.commission < 0 ? 'text-red-600' : 'text-[#005b5b]'}`}>{fmt(e.commission)}</td>
+                  {sortedInvoices.map((r, idx) => {
+                    const days = daysPastDue(r.dueDate)
+                    const invBrands = brandsByInvoiceNum[r.num] || []
+                    return (
+                      <tr
+                        key={`${r.num}-${idx}`}
+                        onClick={() => onJumpToInvoice?.(r.customer, r.num)}
+                        className="border-b last:border-0 hover:bg-muted/30 cursor-pointer"
+                      >
+                        <td className="py-2.5 px-4 text-xs whitespace-nowrap text-[#005b5b] font-medium hover:underline">{r.num || '—'}</td>
+                        <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">{r.date || '—'}</td>
+                        <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">{r.dueDate || '—'}</td>
+                        <td className={`py-2.5 px-4 text-right text-xs whitespace-nowrap ${days != null && days > 0 ? 'text-red-600 font-semibold' : 'text-muted-foreground'}`}>
+                          {days != null && days > 0 ? `${days} ${days === 1 ? 'day' : 'days'}` : '—'}
+                        </td>
+                        <td className="py-2.5 px-4 whitespace-nowrap">
+                          {r.status === 'Paid' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Paid</span>}
+                          {r.status === 'Partial' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Partial</span>}
+                          {r.status === 'Open' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">Open</span>}
+                          {!r.status && <span className="text-xs text-muted-foreground">—</span>}
+                        </td>
+                        <td className="py-2.5 px-4">
+                          {invBrands.length === 0 ? (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {invBrands.map(b => (
+                                <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-4 text-right whitespace-nowrap">{r.amount != null ? fmt(r.amount) : '—'}</td>
+                        <td className={`py-2.5 px-4 text-right font-bold whitespace-nowrap ${r.openBalance ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
+                          {r.openBalance != null ? fmt(r.openBalance) : '—'}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
+  )
+}
+
+// =====================================================================
+// RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
+// =====================================================================
+function RepLedgerView({ rep, aggregate, summary, payouts, onAddPayout, onDeletePayout, territories }) {
+  const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0, totalCommission: 0 }
+  const byInvoice = aggregate?.byInvoice || {}
+
+  // Split rep's invoices by status
+  const paidInvoices = []
+  const openInvoices = []
+  for (const k of Object.keys(byInvoice)) {
+    const inv = byInvoice[k]
+    if (inv.status === 'Paid') paidInvoices.push(inv)
+    else if (inv.status === 'Open' || inv.status === 'Partial') openInvoices.push(inv)
+  }
+  // Sort: paid by date desc (most recent first), open by due date asc (most urgent first)
+  paidInvoices.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+  openInvoices.sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''))
+
+  // Optional date filter for the Paid section (defaults to "all paid invoices")
+  const [paidSince, setPaidSince] = useState('')
+  const [groupByCustomer, setGroupByCustomer] = useState(true)
+  const visiblePaidInvoices = paidSince
+    ? paidInvoices.filter(i => (i.date || '') >= paidSince)
+    : paidInvoices
+
+  // Customer-grouped paid invoices: one row per customer, totals only.
+  const paidByCustomer = useMemo(() => {
+    const m = {}
+    for (const inv of visiblePaidInvoices) {
+      const key = inv.customer || '(unknown)'
+      if (!m[key]) m[key] = { customer: key, count: 0, amount: 0, commission: 0 }
+      m[key].count += 1
+      m[key].amount += inv.amount || 0
+      m[key].commission += inv.commission || 0
+    }
+    return Object.values(m).sort((a, b) => b.commission - a.commission)
+  }, [visiblePaidInvoices])
+  const paidTotals = useMemo(() => ({
+    count: visiblePaidInvoices.length,
+    amount: visiblePaidInvoices.reduce((s, i) => s + (i.amount || 0), 0),
+    commission: visiblePaidInvoices.reduce((s, i) => s + (i.commission || 0), 0),
+  }), [visiblePaidInvoices])
+
+  // Brand subtotal: per-brand commission across all paid invoice line items
+  // for this rep, in the visible date window. Sorted by commission desc.
+  const brandSubtotals = useMemo(() => {
+    const m = {}
+    for (const inv of visiblePaidInvoices) {
+      for (const line of inv.lines || []) {
+        const brand = line.brand || '—'
+        if (!m[brand]) m[brand] = { brand, commission: 0 }
+        m[brand].commission += line.commission || 0
+      }
+    }
+    return Object.values(m).sort((a, b) => b.commission - a.commission)
+  }, [visiblePaidInvoices])
+
+  // Customer-grouped OPEN invoices
+  const openByCustomer = useMemo(() => {
+    const m = {}
+    for (const inv of openInvoices) {
+      const key = inv.customer || '(unknown)'
+      if (!m[key]) m[key] = { customer: key, count: 0, amount: 0, openBalance: 0, pending: 0 }
+      m[key].count += 1
+      m[key].amount += inv.amount || 0
+      m[key].openBalance += inv.openBalance || 0
+      m[key].pending += (inv.commission || 0) - (inv.commissionAvailable || 0)
+    }
+    return Object.values(m).sort((a, b) => b.openBalance - a.openBalance)
+  }, [openInvoices])
+  // Lookup: customer name → list of their open invoices (used for expand-in-place).
+  const openInvoicesByCustomer = useMemo(() => {
+    const m = {}
+    for (const inv of openInvoices) {
+      const key = inv.customer || '(unknown)'
+      if (!m[key]) m[key] = []
+      m[key].push(inv)
+    }
+    // Sort each customer's invoices by most-overdue (oldest due date) first
+    for (const k of Object.keys(m)) m[k].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''))
+    return m
+  }, [openInvoices])
+  const [expandedOpenCustomers, setExpandedOpenCustomers] = useState(() => new Set())
+  const toggleOpenCustomer = (customer) => {
+    setExpandedOpenCustomers(prev => {
+      const next = new Set(prev)
+      if (next.has(customer)) next.delete(customer)
+      else next.add(customer)
+      return next
+    })
+  }
+  // Days past due (positive = past due) from mm/dd/yyyy
+  const daysPastDueFor = (s) => {
+    if (!s) return null
+    const mm = String(s).match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+    if (!mm) return null
+    const [, m1, d1, y1] = mm
+    const y = y1.length === 2 ? `20${y1}` : y1
+    const due = new Date(Number(y), Number(m1) - 1, Number(d1))
+    if (isNaN(due.getTime())) return null
+    const today = new Date(); today.setHours(0,0,0,0); due.setHours(0,0,0,0)
+    return Math.round((today.getTime() - due.getTime()) / 86400000)
+  }
+  const openTotals = useMemo(() => ({
+    count: openInvoices.length,
+    amount: openInvoices.reduce((s, i) => s + (i.amount || 0), 0),
+    openBalance: openInvoices.reduce((s, i) => s + (i.openBalance || 0), 0),
+    pending: openInvoices.reduce((s, i) => s + ((i.commission || 0) - (i.commissionAvailable || 0)), 0),
+  }), [openInvoices])
+
+  const sortedPayouts = useMemo(
+    () => [...(payouts || [])].sort((a, b) => (b.date || '').localeCompare(a.date || '')),
+    [payouts]
+  )
+
+  const exportArgs = {
+    rep, summary: safeSummary, byInvoice, payouts, paidSince, territories, groupByCustomer,
+    brandSubtotals,
+  }
+
+  return (
+    <>
+      {/* Rep header */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <CardTitle className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-full bg-[#005b5b] text-white flex items-center justify-center font-bold text-xl">
+                  {rep.name.charAt(0)}
+                </div>
+                <div>
+                  <div>{rep.name}</div>
+                  {rep.agency && <div className="text-sm font-normal text-muted-foreground">{rep.agency}</div>}
+                </div>
+              </CardTitle>
+              <CardDescription className="mt-2">
+                {rep.email || '—'}
+                {territories?.length > 0 && <> • {territories.join(', ')}</>}
+              </CardDescription>
+            </div>
+            <div className="flex gap-2 shrink-0">
+              <Button variant="outline" size="sm" onClick={() => exportRepReportPDF(exportArgs)}>
+                <FileSpreadsheet className="size-4 mr-1.5" /> PDF
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => exportRepReportXLSX(exportArgs)}>
+                <FileSpreadsheet className="size-4 mr-1.5" /> XLSX
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+      </Card>
+
+      {/* Summary cards: the three pieces of info Tony's monthly report needs */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Earned (on paid invoices)</CardDescription>
+            <CardTitle className="text-2xl">{fmt(safeSummary.earned)}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Paid out to date</CardDescription>
+            <CardTitle className="text-2xl">{fmt(safeSummary.paidOut)}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card className="border-[#005b5b]">
+          <CardHeader className="pb-2">
+            <CardDescription>Available to collect</CardDescription>
+            <CardTitle className={`text-2xl ${safeSummary.available > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(safeSummary.available)}</CardTitle>
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Pending (open invoices)</CardDescription>
+            <CardTitle className="text-2xl text-muted-foreground">{fmt(safeSummary.openCommission)}</CardTitle>
+          </CardHeader>
+        </Card>
+      </div>
+
+      {/* Brand subtotal */}
+      {brandSubtotals.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardDescription>Earned by brand{paidSince ? ` (since ${paidSince})` : ''}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap gap-3 text-sm">
+              {brandSubtotals.map((b) => (
+                <div key={b.brand} className="inline-flex items-baseline gap-1.5 px-3 py-1.5 rounded-md bg-[#005b5b]/10">
+                  <span className="text-xs font-semibold uppercase text-[#005b5b]">{b.brand}</span>
+                  <span className="font-bold text-[#005b5b]">{fmt(b.commission)}</span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Paid invoices */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <CardTitle>Paid invoices</CardTitle>
+              <CardDescription>
+                {groupByCustomer
+                  ? `${paidByCustomer.length} ${paidByCustomer.length === 1 ? 'customer' : 'customers'}`
+                  : `${visiblePaidInvoices.length} ${visiblePaidInvoices.length === 1 ? 'invoice' : 'invoices'}`
+                }
+                {paidSince ? ` paid on or after ${paidSince}` : ' — all paid for this rep'}
+              </CardDescription>
+            </div>
+            <div className="flex items-center gap-2 text-sm flex-wrap">
+              <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={groupByCustomer}
+                  onChange={(e) => setGroupByCustomer(e.target.checked)}
+                  className="size-3.5"
+                />
+                Group by customer
+              </label>
+              <Label className="text-muted-foreground">Since</Label>
+              <Input type="date" value={paidSince} onChange={(e) => setPaidSince(e.target.value)} className="w-40" />
+              {paidSince && (
+                <Button variant="ghost" size="sm" onClick={() => setPaidSince('')} className="text-muted-foreground">Clear</Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {visiblePaidInvoices.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-6">
+              {paidInvoices.length === 0 ? 'No paid invoices yet.' : 'No paid invoices in this date range.'}
+            </div>
+          ) : groupByCustomer ? (
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
+                    <th className="py-2 px-4 text-left font-medium">Customer</th>
+                    <th className="py-2 px-4 text-right font-medium">Invoices</th>
+                    <th className="py-2 px-4 text-right font-medium">Amount</th>
+                    <th className="py-2 px-4 text-right font-medium">Commission</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paidByCustomer.map((row) => (
+                    <tr key={row.customer} className="border-b last:border-0">
+                      <td className="py-2 px-4 font-medium">{row.customer}</td>
+                      <td className="py-2 px-4 text-right text-xs">{row.count}</td>
+                      <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(row.amount)}</td>
+                      <td className="py-2 px-4 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(row.commission)}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-muted/40 font-semibold">
+                    <td className="py-2 px-4">Total</td>
+                    <td className="py-2 px-4 text-right text-xs">{paidTotals.count}</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(paidTotals.amount)}</td>
+                    <td className="py-2 px-4 text-right text-[#005b5b] whitespace-nowrap">{fmt(paidTotals.commission)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
+                    <th className="py-2 px-4 text-left font-medium">Invoice</th>
+                    <th className="py-2 px-4 text-left font-medium">Customer</th>
+                    <th className="py-2 px-4 text-left font-medium">Date</th>
+                    <th className="py-2 px-4 text-right font-medium">Amount</th>
+                    <th className="py-2 px-4 text-right font-medium">Commission</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visiblePaidInvoices.slice(0, 200).map((inv) => (
+                    <tr key={inv.invoiceNum} className="border-b last:border-0">
+                      <td className="py-2 px-4 text-xs whitespace-nowrap">{inv.invoiceNum}</td>
+                      <td className="py-2 px-4">{inv.customer}</td>
+                      <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{inv.date || '—'}</td>
+                      <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(inv.amount)}</td>
+                      <td className="py-2 px-4 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(inv.commission)}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-muted/40 font-semibold">
+                    <td className="py-2 px-4" colSpan={3}>Total</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(paidTotals.amount)}</td>
+                    <td className="py-2 px-4 text-right text-[#005b5b] whitespace-nowrap">{fmt(paidTotals.commission)}</td>
+                  </tr>
+                </tbody>
+              </table>
+              {visiblePaidInvoices.length > 200 && (
+                <div className="text-xs text-muted-foreground text-center py-2">
+                  Showing first 200 of {visiblePaidInvoices.length} — narrow the date range to see more.
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Open invoices */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Open / unpaid invoices</CardTitle>
+          <CardDescription>
+            {groupByCustomer
+              ? `${openByCustomer.length} ${openByCustomer.length === 1 ? 'customer' : 'customers'} with open invoices`
+              : `${openInvoices.length} ${openInvoices.length === 1 ? 'invoice' : 'invoices'} where this rep would be credited once paid`
+            }
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {openInvoices.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-6">No open invoices for this rep.</div>
+          ) : groupByCustomer ? (
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
+                    <th className="py-2 px-2 w-8"></th>
+                    <th className="py-2 px-4 text-left font-medium">Customer</th>
+                    <th className="py-2 px-4 text-right font-medium">Invoices</th>
+                    <th className="py-2 px-4 text-right font-medium">Amount</th>
+                    <th className="py-2 px-4 text-right font-medium">Open Balance</th>
+                    <th className="py-2 px-4 text-right font-medium">Pending Comm.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {openByCustomer.map((row) => {
+                    const isOpen = expandedOpenCustomers.has(row.customer)
+                    const invs = openInvoicesByCustomer[row.customer] || []
+                    return (
+                      <Fragment key={row.customer}>
+                        <tr
+                          onClick={() => toggleOpenCustomer(row.customer)}
+                          className="border-b last:border-0 cursor-pointer hover:bg-muted/30"
+                        >
+                          <td className="py-2 px-2 text-center text-muted-foreground">
+                            {isOpen ? <Minus className="size-3.5 inline" /> : <Plus className="size-3.5 inline" />}
+                          </td>
+                          <td className="py-2 px-4 font-medium">{row.customer}</td>
+                          <td className="py-2 px-4 text-right text-xs">{row.count}</td>
+                          <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(row.amount)}</td>
+                          <td className="py-2 px-4 text-right font-medium whitespace-nowrap">{fmt(row.openBalance)}</td>
+                          <td className="py-2 px-4 text-right text-muted-foreground whitespace-nowrap">{fmt(row.pending)}</td>
+                        </tr>
+                        {isOpen && (
+                          <tr>
+                            <td></td>
+                            <td colSpan={5} className="p-0">
+                              <div className="bg-muted/20 border-b">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-muted-foreground border-b border-border/50">
+                                      <th className="py-1.5 px-3 text-left font-medium">Invoice</th>
+                                      <th className="py-1.5 px-3 text-left font-medium">Date</th>
+                                      <th className="py-1.5 px-3 text-left font-medium">Due</th>
+                                      <th className="py-1.5 px-3 text-right font-medium">Past Due</th>
+                                      <th className="py-1.5 px-3 text-left font-medium">Brand</th>
+                                      <th className="py-1.5 px-3 text-right font-medium">Amount</th>
+                                      <th className="py-1.5 px-3 text-right font-medium">Open Balance</th>
+                                      <th className="py-1.5 px-3 text-right font-medium">Pending Comm.</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {invs.map((inv) => {
+                                      const days = daysPastDueFor(inv.dueDate)
+                                      const pending = (inv.commission || 0) - (inv.commissionAvailable || 0)
+                                      const invBrands = Array.from(new Set((inv.lines || []).map(l => l.brand).filter(Boolean)))
+                                      return (
+                                        <tr key={inv.invoiceNum} className="border-b border-border/40 last:border-0">
+                                          <td className="py-1.5 px-3 whitespace-nowrap">{inv.invoiceNum}</td>
+                                          <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">{inv.date || '—'}</td>
+                                          <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">{inv.dueDate || '—'}</td>
+                                          <td className={`py-1.5 px-3 text-right whitespace-nowrap ${days != null && days > 0 ? 'text-red-600 font-semibold' : 'text-muted-foreground'}`}>
+                                            {days != null && days > 0 ? `${days}d` : '—'}
+                                          </td>
+                                          <td className="py-1.5 px-3">
+                                            {invBrands.length === 0 ? (
+                                              <span className="text-muted-foreground">—</span>
+                                            ) : (
+                                              <div className="flex flex-wrap gap-1">
+                                                {invBrands.map(b => (
+                                                  <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-right whitespace-nowrap">{fmt(inv.amount)}</td>
+                                          <td className="py-1.5 px-3 text-right font-medium whitespace-nowrap">{fmt(inv.openBalance)}</td>
+                                          <td className="py-1.5 px-3 text-right text-muted-foreground whitespace-nowrap">{fmt(pending)}</td>
+                                        </tr>
+                                      )
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
+                  <tr className="bg-muted/40 font-semibold">
+                    <td></td>
+                    <td className="py-2 px-4">Total</td>
+                    <td className="py-2 px-4 text-right text-xs">{openTotals.count}</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(openTotals.amount)}</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(openTotals.openBalance)}</td>
+                    <td className="py-2 px-4 text-right text-muted-foreground whitespace-nowrap">{fmt(openTotals.pending)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
+                    <th className="py-2 px-4 text-left font-medium">Invoice</th>
+                    <th className="py-2 px-4 text-left font-medium">Customer</th>
+                    <th className="py-2 px-4 text-left font-medium">Date</th>
+                    <th className="py-2 px-4 text-left font-medium">Due</th>
+                    <th className="py-2 px-4 text-right font-medium">Amount</th>
+                    <th className="py-2 px-4 text-right font-medium">Open Balance</th>
+                    <th className="py-2 px-4 text-right font-medium">Pending Comm.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {openInvoices.slice(0, 200).map((inv) => {
+                    const pending = (inv.commission || 0) - (inv.commissionAvailable || 0)
+                    return (
+                      <tr key={inv.invoiceNum} className="border-b last:border-0">
+                        <td className="py-2 px-4 text-xs whitespace-nowrap">{inv.invoiceNum}</td>
+                        <td className="py-2 px-4">{inv.customer}</td>
+                        <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{inv.date || '—'}</td>
+                        <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{inv.dueDate || '—'}</td>
+                        <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(inv.amount)}</td>
+                        <td className="py-2 px-4 text-right font-medium whitespace-nowrap">{fmt(inv.openBalance)}</td>
+                        <td className="py-2 px-4 text-right text-muted-foreground whitespace-nowrap">{fmt(pending)}</td>
+                      </tr>
+                    )
+                  })}
+                  <tr className="bg-muted/40 font-semibold">
+                    <td className="py-2 px-4" colSpan={4}>Total</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(openTotals.amount)}</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(openTotals.openBalance)}</td>
+                    <td className="py-2 px-4 text-right text-muted-foreground whitespace-nowrap">{fmt(openTotals.pending)}</td>
+                  </tr>
+                </tbody>
+              </table>
+              {openInvoices.length > 200 && (
+                <div className="text-xs text-muted-foreground text-center py-2">
+                  Showing first 200 of {openInvoices.length}.
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Payout history */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <CardTitle>Commission payouts</CardTitle>
+              <CardDescription>
+                {sortedPayouts.length} {sortedPayouts.length === 1 ? 'payment' : 'payments'} recorded for this rep
+              </CardDescription>
+            </div>
+            <Button size="sm" onClick={onAddPayout} className="bg-[#005b5b] hover:bg-[#004848]">
+              <Banknote className="size-4 mr-1.5" /> Record Payout
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {sortedPayouts.length === 0 ? (
+            <div className="text-sm text-muted-foreground text-center py-6">
+              No payouts recorded yet. Click "Record Payout" to log one.
+            </div>
+          ) : (
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
+                    <th className="py-2 px-4 text-left font-medium">Date</th>
+                    <th className="py-2 px-4 text-left font-medium">Method</th>
+                    <th className="py-2 px-4 text-left font-medium">Note</th>
+                    <th className="py-2 px-4 text-right font-medium">Amount</th>
+                    <th className="py-2 px-4 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedPayouts.map((p) => (
+                    <tr key={p.id} className="border-b last:border-0">
+                      <td className="py-2 px-4 whitespace-nowrap">{p.date}</td>
+                      <td className="py-2 px-4 text-xs">{p.method || '—'}</td>
+                      <td className="py-2 px-4 text-xs text-muted-foreground">{p.note || '—'}</td>
+                      <td className="py-2 px-4 text-right font-bold">{fmt(p.amount)}</td>
+                      <td className="py-2 px-4">
+                        <button
+                          onClick={() => { if (confirm('Delete this payout entry?')) onDeletePayout(p.id) }}
+                          className="text-muted-foreground hover:text-red-600 transition-colors"
+                          aria-label="Delete payout"
+                        >
+                          <Trash2 className="size-4" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1227,9 +3387,111 @@ function SchedulePayoutModal({ open, onOpenChange, pendingCount, pendingTotal, o
 }
 
 // =====================================================================
+// RecordCommissionPayoutModal — record "Paid Rep $X on Date" entry
+// =====================================================================
+function RecordCommissionPayoutModal({ open, onOpenChange, reps, prefilledRepId, onSave }) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [repId, setRepId] = useState(prefilledRepId || (reps[0]?.id || ''))
+  const [date, setDate] = useState(today)
+  const [amountStr, setAmountStr] = useState('')
+  const [method, setMethod] = useState('ACH')
+  const [note, setNote] = useState('')
+  const [error, setError] = useState(null)
+
+  // Reset form fields whenever the modal opens.
+  useEffect(() => {
+    if (open) {
+      setRepId(prefilledRepId || (reps[0]?.id || ''))
+      setDate(today)
+      setAmountStr('')
+      setMethod('ACH')
+      setNote('')
+      setError(null)
+    }
+  }, [open, prefilledRepId, reps, today])
+
+  const submit = () => {
+    setError(null)
+    if (!repId) { setError('Choose a rep.'); return }
+    const amount = parseFloat(String(amountStr).replace(/[$,]/g, ''))
+    if (!isFinite(amount) || amount <= 0) { setError('Enter a positive dollar amount.'); return }
+    if (!date) { setError('Pick a date.'); return }
+    onSave({ repId, date, amount, method, note: note.trim() })
+    onOpenChange(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Record Commission Payout</DialogTitle>
+          <DialogDescription>
+            Log a payment you made to a rep. This subtracts from their "available to collect" total.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label>Rep</Label>
+            <select
+              value={repId}
+              onChange={(e) => setRepId(e.target.value)}
+              className="w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm"
+            >
+              {reps.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label>Date Paid</Label>
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Amount ($)</Label>
+              <Input
+                type="text"
+                inputMode="decimal"
+                placeholder="0.00"
+                value={amountStr}
+                onChange={(e) => setAmountStr(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="space-y-2">
+            <Label>Method</Label>
+            <select
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+              className="w-full h-9 px-3 rounded-md border border-input bg-transparent text-sm"
+            >
+              {METHODS.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+          <div className="space-y-2">
+            <Label>Note (optional)</Label>
+            <Input
+              type="text"
+              placeholder="e.g. Q1 commission, ref #"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
+          {error && <p className="text-sm text-red-600">{error}</p>}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={submit} className="bg-[#005b5b] hover:bg-[#004848]">
+            Save Payout
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// =====================================================================
 // TerritoryManagerModal — assign territories to reps
 // =====================================================================
-function TerritoryManagerModal({ open, onOpenChange, reps, accounts, repTerritories, onSave }) {
+function TerritoryManagerModal({ open, onOpenChange, reps, accounts, repTerritories, onSave, onReset }) {
   const allTerritories = useMemo(() => {
     const s = new Set()
     for (const a of accounts) if (a.territory) s.add(a.territory)
@@ -1243,20 +3505,15 @@ function TerritoryManagerModal({ open, onOpenChange, reps, accounts, repTerritor
     setDraft(prev => {
       const cur = prev[repId] || []
       const next = cur.includes(terr) ? cur.filter(t => t !== terr) : [...cur, terr]
-      // Remove the territory from any other rep (single-rep-per-territory rule)
-      const cleaned = {}
-      for (const id of Object.keys(prev)) {
-        cleaned[id] = id === repId ? next : (prev[id] || []).filter(t => t !== terr)
-      }
-      return cleaned
+      return { ...prev, [repId]: next }
     })
   }
 
-  const repForTerr = (terr) => {
+  const hasAnyRep = (terr) => {
     for (const id of Object.keys(draft)) {
-      if (draft[id]?.includes(terr)) return id
+      if (draft[id]?.includes(terr)) return true
     }
-    return null
+    return false
   }
 
   return (
@@ -1265,27 +3522,33 @@ function TerritoryManagerModal({ open, onOpenChange, reps, accounts, repTerritor
         <DialogHeader>
           <DialogTitle>Manage Territory Coverage</DialogTitle>
           <DialogDescription>
-            Assign each territory to one rep. Imported payments will route to the rep covering the account's territory.
+            Assign each territory to one or more reps. A territory can be covered by multiple reps.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
           {allTerritories.map((terr) => {
-            const assignedRep = repForTerr(terr)
+            const hasRep = hasAnyRep(terr)
             const accountCount = accounts.filter(a => a.territory === terr).length
             return (
-              <div key={terr} className="flex items-center justify-between gap-3 py-2 border-b last:border-0">
-                <div>
-                  <div className="text-sm font-medium">{terr}</div>
-                  <div className="text-xs text-muted-foreground">{accountCount} accounts</div>
+              <div key={terr} className="py-3 border-b last:border-0">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div>
+                    <div className="text-sm font-medium">{terr}</div>
+                    <div className="text-xs text-muted-foreground">{accountCount} accounts</div>
+                  </div>
+                  {!hasRep && (
+                    <span className="text-[10px] uppercase text-amber-600 font-semibold">Unassigned</span>
+                  )}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {reps.map(rep => {
                     const active = draft[rep.id]?.includes(terr)
                     return (
                       <button
                         key={rep.id}
+                        type="button"
                         onClick={() => toggle(rep.id, terr)}
-                        className={`px-3 py-1 text-xs rounded-full font-medium transition-colors ${
+                        className={`px-3 py-1 text-xs rounded-full font-medium transition-colors whitespace-nowrap ${
                           active
                             ? 'bg-[#005b5b] text-white'
                             : 'bg-muted text-muted-foreground hover:bg-muted/70'
@@ -1295,19 +3558,30 @@ function TerritoryManagerModal({ open, onOpenChange, reps, accounts, repTerritor
                       </button>
                     )
                   })}
-                  {!assignedRep && (
-                    <span className="text-[10px] uppercase text-amber-600 font-semibold ml-2">Unassigned</span>
-                  )}
                 </div>
               </div>
             )
           })}
         </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={() => { onSave(draft); onOpenChange(false) }} className="bg-[#005b5b] hover:bg-[#004848]">
-            Save
+        <DialogFooter className="sm:justify-between">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (confirm('Reset all territory assignments to defaults? Your local edits will be lost.')) {
+                onReset()
+                onOpenChange(false)
+              }
+            }}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            Reset to defaults
           </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={() => { onSave(draft); onOpenChange(false) }} className="bg-[#005b5b] hover:bg-[#004848]">
+              Save
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

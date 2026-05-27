@@ -3,24 +3,52 @@
 // Adam's 125 payment entries from his Excel, fuzzy-matched to master accounts
 
 export const REPS = [
-  { id: 'rep-adam', name: 'Adam Foundry', email: 'adam@foundrydist.com' },
-  { id: 'rep-mike', name: 'Mike Tracy', email: 'mike@example.com' },
-  { id: 'rep-cody', name: 'Cody Smith', email: 'cody@example.com' },
+  { id: 'rep-adam', name: 'Adam Stromwall', email: 'adam@foundrydist.com', agency: 'Stromwall Group, LLC' },
+  { id: 'rep-jason', name: 'Jason Martin', email: 'jmartin@gmail.com', agency: 'Blue Collar' },
+  { id: 'rep-rob', name: 'Rob Aragon', email: 'rob@somethingclever.com', agency: 'Something Clever' },
+  { id: 'rep-cody-prudoehl',       name: 'Cody Prudoehl',       email: 'cody.p.mw@gmail.com', agency: '' },
+  { id: 'rep-andy-wise',           name: 'Andy Wise',           email: 'nickelndiamondsales@gmail.com', agency: 'NickelandDiamond Sales' },
+  { id: 'rep-steve-clare',         name: 'Steve Clare',         email: 'dontclare@me.com', agency: "Don't Clare At Me" },
+  { id: 'rep-carter-katz',         name: 'Carter Katz',         email: 'contactcarternow@yahoo.com', agency: 'Kaleidoscope' },
+  { id: 'rep-erika-lowder',        name: 'Erika Lowder',        email: 'erika@unitedsales.agency', agency: 'United Sales Agency' },
+  { id: 'rep-kathy-karlovic',      name: 'Kathy Karlovic',      email: 'kkarlovic530@gmail.com', agency: '' },
+  { id: 'rep-bryan-kulak',         name: 'Bryan Kulak',         email: 'Kulaksales@gmail.com', agency: 'Kulak Sales' },
+  { id: 'rep-kim-kulak',           name: 'Kim Kulak',           email: 'augustsalesinc@gmail.com', agency: 'August Sales' },
+  { id: 'rep-dave-spruill',        name: 'Dave Spruill',        email: 'darkblizzardsales@gmail.com', agency: 'Dark Blizzard' },
+  { id: 'rep-chris-cooper',        name: 'Chris Cooper',        email: 'coops@sprayinggravy.com', agency: 'Spraying Gravy' },
+  { id: 'rep-jj-catlett',          name: 'JJ Catlett',          email: 'jj_catlett@mac.com', agency: '' },
+  { id: 'rep-harrison-montgomery', name: 'Harrison Montgomery', email: 'montyrepsnow@gmail.com', agency: '' },
+  { id: 'rep-trevor-stockhausen',  name: 'Trevor Stockhausen',  email: '', agency: '' },
+  { id: 'rep-evan-ricker',         name: 'Evan Ricker',         email: 'e.ricker@icloud.com', agency: '' },
 ]
 
 export const BRANDS = [
-  { id: 'brand-nitro',  name: 'Nitro Snowboards', defaultRate: 0.07 },
-  { id: 'brand-autumn', name: 'Autumn',           defaultRate: 0.07 },
-  { id: 'brand-l1',     name: 'L1 Premium Goods', defaultRate: 0.07 },
-  { id: 'brand-eivy',   name: 'Eivy',             defaultRate: 0.07 },
+  { id: 'brand-nitro',  name: 'NITRO',            defaultRate: 0.07 },
+  { id: 'brand-autumn', name: 'Autumn/Corduroy',  defaultRate: 0.07 },
+  { id: 'brand-l1',     name: 'L1',               defaultRate: 0.07 },
+  { id: 'brand-eivy',   name: 'EIVY',             defaultRate: 0.07 },
 ]
 
 // Default territory → rep coverage. Each rep can cover multiple territories.
 // Used to route imported QuickBooks payments to the right rep automatically.
 export const REP_TERRITORIES = {
-  'rep-adam': ['PNW', 'NORCAL', 'SOUTHWEST (UT, CO, NM, TX)'],
-  'rep-mike': ['NEW ENGLAND', 'EAST COAST (PA, NY, NJ, DE)'],
-  'rep-cody': ['MIDWEST PLAINS', 'SOUTHEAST', 'SOCAL / AZ'],
+  'rep-adam':                  ['PNW', 'NORCAL', 'SOUTHWEST (UT, CO, NM, TX)'],
+  'rep-rob':                   ['PNW'],
+  'rep-jason':                 ['NORCAL'],
+  'rep-andy-wise':             ['SOUTHWEST (UT, CO, NM, TX)'],
+  'rep-erika-lowder':          ['SOUTHWEST (UT, CO, NM, TX)'],
+  'rep-steve-clare':           ['SOCAL / AZ'],
+  'rep-carter-katz':           ['SOCAL / AZ'],
+  'rep-kathy-karlovic':        ['NORCAL'],
+  'rep-bryan-kulak':           ['MIDWEST PLAINS'],
+  'rep-dave-spruill':          ['EAST COAST (PA, NY, NJ, DE)'],
+  'rep-chris-cooper':          ['EAST COAST (PA, NY, NJ, DE)'],
+  'rep-trevor-stockhausen':    ['NEW ENGLAND'],
+  'rep-evan-ricker':           ['NEW ENGLAND'],
+  'rep-jj-catlett':            ['SOUTHEAST'],
+  'rep-harrison-montgomery':   ['SOUTHEAST'],
+  'rep-cody-prudoehl':         ['MIDWEST PLAINS'],
+  'rep-kim-kulak':             ['MIDWEST PLAINS'],
 }
 
 // Per-brand rental specialist — splits rental commission with the territory rep.
@@ -43,12 +71,40 @@ export const RENTAL_RATES = {
 
 // (rep, brand) pairs that exist
 export const REP_BRANDS = [
-  { repId: 'rep-adam', brandId: 'brand-nitro' },
-  { repId: 'rep-adam', brandId: 'brand-autumn' },
-  { repId: 'rep-mike', brandId: 'brand-nitro' },
-  { repId: 'rep-mike', brandId: 'brand-l1' },
-  { repId: 'rep-mike', brandId: 'brand-eivy' },
-  { repId: 'rep-cody', brandId: 'brand-nitro' },
+  { repId: 'rep-adam',  brandId: 'brand-nitro' },
+  { repId: 'rep-adam',  brandId: 'brand-autumn' },
+  { repId: 'rep-jason', brandId: 'brand-nitro' },
+  { repId: 'rep-jason', brandId: 'brand-l1' },
+  { repId: 'rep-jason', brandId: 'brand-autumn' },
+  { repId: 'rep-rob',   brandId: 'brand-nitro' },
+  { repId: 'rep-rob',   brandId: 'brand-l1' },
+  { repId: 'rep-rob',   brandId: 'brand-autumn' },
+  { repId: 'rep-rob',   brandId: 'brand-eivy' },
+  { repId: 'rep-andy-wise', brandId: 'brand-nitro' },
+  { repId: 'rep-andy-wise', brandId: 'brand-l1' },
+  { repId: 'rep-andy-wise', brandId: 'brand-autumn' },
+  { repId: 'rep-erika-lowder', brandId: 'brand-eivy' },
+  { repId: 'rep-steve-clare', brandId: 'brand-nitro' },
+  { repId: 'rep-steve-clare', brandId: 'brand-l1' },
+  { repId: 'rep-steve-clare', brandId: 'brand-eivy' },
+  { repId: 'rep-carter-katz', brandId: 'brand-autumn' },
+  { repId: 'rep-kathy-karlovic', brandId: 'brand-eivy' },
+  { repId: 'rep-bryan-kulak', brandId: 'brand-autumn' },
+  { repId: 'rep-cody-prudoehl', brandId: 'brand-nitro' },
+  { repId: 'rep-cody-prudoehl', brandId: 'brand-l1' },
+  { repId: 'rep-kim-kulak', brandId: 'brand-eivy' },
+  { repId: 'rep-dave-spruill', brandId: 'brand-nitro' },
+  { repId: 'rep-dave-spruill', brandId: 'brand-l1' },
+  { repId: 'rep-dave-spruill', brandId: 'brand-eivy' },
+  { repId: 'rep-chris-cooper', brandId: 'brand-autumn' },
+  { repId: 'rep-jj-catlett', brandId: 'brand-nitro' },
+  { repId: 'rep-jj-catlett', brandId: 'brand-l1' },
+  { repId: 'rep-jj-catlett', brandId: 'brand-eivy' },
+  { repId: 'rep-harrison-montgomery', brandId: 'brand-autumn' },
+  { repId: 'rep-evan-ricker', brandId: 'brand-autumn' },
+  { repId: 'rep-trevor-stockhausen', brandId: 'brand-nitro' },
+  { repId: 'rep-trevor-stockhausen', brandId: 'brand-l1' },
+  { repId: 'rep-trevor-stockhausen', brandId: 'brand-eivy' },
 ]
 
 // Master account list (cross-brand). Each entry references both account + brand.
@@ -632,10 +688,6 @@ export const ENTRIES = [
   {"id": "e-133", "repId": "rep-adam", "brandId": "brand-nitro", "date": "2026-02-23", "accountId": "acct-222", "accountText": "Glacier SKI Shop", "invoice": "SI-122960, SI-124184", "method": "CHECK#11242", "amountPaid": 3528.63, "shippingCost": 166.33, "actualPaid": 3362.3, "commission": 168.12, "notes": null, "payoutId": null},
   {"id": "e-134", "repId": "rep-adam", "brandId": "brand-nitro", "date": "2026-03-09", "accountId": "acct-315", "accountText": "Massive", "invoice": "SI-123811", "method": "CHECK#5947", "amountPaid": 3401.25, "shippingCost": 152.25, "actualPaid": 3249.0, "commission": 113.72, "notes": null, "payoutId": null},
   {"id": "e-135", "repId": "rep-adam", "brandId": "brand-nitro", "date": "2026-01-05", "accountId": "acct-419", "accountText": "Santa FE SKI CO", "invoice": "SI-124032", "method": "CHECK#30419", "amountPaid": 808.33, "shippingCost": 88.33, "actualPaid": 720.0, "commission": 36.0, "notes": null, "payoutId": null},
-  {"id":"m-1","repId":"rep-mike","brandId":"brand-nitro","date":"2026-04-02","accountId":"acct-6","accountText":"Big Snow American Dream","invoice":"SI-127100","method":"ACH","amountPaid":4500,"shippingCost":0,"actualPaid":4500,"commission":225,"notes":null,"payoutId":null},
-  {"id":"m-2","repId":"rep-mike","brandId":"brand-nitro","date":"2026-04-08","accountId":"acct-16","accountText":"Farias","invoice":"SI-127200","method":"CC","amountPaid":1200,"shippingCost":50,"actualPaid":1150,"commission":57.5,"notes":null,"payoutId":null},
-  {"id":"m-3","repId":"rep-mike","brandId":"brand-l1","date":"2026-04-05","accountId":"acct-26","accountText":"Mountain Creek Resort","invoice":"L1-001","method":"ACH","amountPaid":2200,"shippingCost":0,"actualPaid":2200,"commission":110,"notes":null,"payoutId":null},
-  {"id":"m-4","repId":"rep-mike","brandId":"brand-eivy","date":"2026-04-10","accountId":"acct-41","accountText":"Shatzi HAT Company","invoice":"EV-002","method":"CC","amountPaid":950,"shippingCost":25,"actualPaid":925,"commission":46.25,"notes":null,"payoutId":null},
 ]
 
 export const PAYOUTS = [
