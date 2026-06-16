@@ -18,6 +18,7 @@ export const CUSTOMER_IGNORE_LIST = {
     '00 - PayInvoice',
     'PROMO',
     'NITRO SNOWBOARDS CANADA',
+    'Jack Tordini',
   ],
   contains: [
     'Nitro AG',          // catches "Nitro AG, Customer USD" and variants

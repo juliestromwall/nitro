@@ -1,7 +1,7 @@
 {
-  "generatedAt": "2026-05-26T21:05:34.326Z",
+  "generatedAt": "2026-06-11T18:53:23.389Z",
   "season": "2025-26",
-  "totalSkus": 3943,
+  "totalSkus": 3975,
   "collisions": [],
   "skus": {
     "A26001-01": {
@@ -2380,6 +2380,166 @@
       "season": "2025-26"
     },
     "A26111-01L": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26200-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26200-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26201-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26201-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26202-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26202-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26203-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26203-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26204-01CNCLD": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26204-02CNCLD": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26205-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26205-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26206-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26206-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26207-01CNCLD": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26207-02CNCLD": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26208-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26208-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26209-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26209-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26210-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26210-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26211-01CNCLD": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26211-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26212-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26212-02": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26700-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26702-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26701-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26703-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26704-01": {
+      "brandId": "brand-autumn",
+      "brandName": "Autumn/Corduroy",
+      "season": "2025-26"
+    },
+    "A26705-01": {
       "brandId": "brand-autumn",
       "brandName": "Autumn/Corduroy",
       "season": "2025-26"

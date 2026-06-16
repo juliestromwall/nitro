@@ -24,8 +24,9 @@ const CATALOGS_DIR = path.join(__dirname, '..', 'catalogs', SEASON)
 const OUT_PATH = path.join(__dirname, '..', 'src', 'lib', 'catalogMap.json')
 
 const CATALOGS = [
-  { file: 'AUTUMN FW25.26 HEADWEAR ORDERFORM V1.3 (1).xlsx',   sheet: 'Sheet1',       headerRow: 28, skuCol: 2, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
-  { file: 'AUTUMN MTN COLLECTION FW25.26 ORDERFORM .V1.4.xlsx', sheet: 'Order Form',  headerRow: 28, skuCol: 2, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
+  { file: 'AUTUMN FW25.26 HEADWEAR ORDERFORM V1.3 (1).xlsx',   sheet: 'Sheet1',                  headerRow: 28, skuCol: 2, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
+  { file: 'AUTUMN MTN COLLECTION FW25.26 ORDERFORM .V1.4.xlsx', sheet: 'Order Form',             headerRow: 28, skuCol: 2, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
+  { file: '20252026 Autumn Spring.xlsx',                       sheet: '2025-2026 Autumn Spring', headerRow: 0,  skuCol: 8, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
   { file: 'US - Eivy 25-26 V.1.0xlsx.xlsx',                    sheet: 'Eivy',         headerRow: 0,  skuCol: 7, brandId: 'brand-eivy',   brandName: 'EIVY' },
   { file: 'US - L1 25-26 V.1.0.xlsx',                          sheet: 'L1',           headerRow: 0,  skuCol: 7, brandId: 'brand-l1',     brandName: 'L1' },
   { file: 'US - Nitro 25-26 V.1.1xlsx.xlsx',                   sheet: 'Nitro',        headerRow: 0,  skuCol: 7, brandId: 'brand-nitro',  brandName: 'NITRO' },

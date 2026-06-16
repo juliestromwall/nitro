@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
-import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet } from 'lucide-react'
+import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -474,10 +474,13 @@ function PaymentsTracker() {
     for (const p of commissionPayouts) m[p.repId] = (m[p.repId] || 0) + (p.amount || 0)
     return m
   }, [commissionPayouts])
-  // Reps-as-customers: when a rep is billed by Foundry for samples, the QB
-  // customer name on the invoice contains the rep's first AND last name (e.g.
-  // "ADAM STROMWALL - CUSTOMER", "JASON MARTIN - CUSTOMER"). Match
-  // conservatively — both name parts must be present.
+  // Reps have two QB account variants. Only the "- REP" account should hold
+  // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
+  // should not normally appear in QB data — when one shows up, it's flagged
+  // separately for QB cleanup (see customerSuffixAnomalies below).
+  // REP suffix patterns seen: "- REP", "- REP1".
+  const REP_SUFFIX_RE = /\s-\s+rep\d*\s*$/i
+  const CUSTOMER_SUFFIX_RE = /\s-\s+customer\s*$/i
   const owedByRep = useMemo(() => {
     const out = {}
     for (const rep of reps) {
@@ -488,11 +491,66 @@ function PaymentsTracker() {
       let total = 0
       for (const inv of invoices) {
         const c = (inv.customer || '').toLowerCase()
+        if (!REP_SUFFIX_RE.test(c)) continue
         if (c.includes(first) && c.includes(last)) total += inv.openBalance || 0
       }
       out[rep.id] = total
     }
     return out
+  }, [reps, invoices])
+
+  // Per-rep list of REP-account invoices (samples / personal orders billed by
+  // Foundry to the rep). Used by the Rep Ledger view to render the breakdown.
+  const repAccountInvoicesByRep = useMemo(() => {
+    const out = {}
+    for (const rep of reps) {
+      const parts = (rep.name || '').split(/\s+/).filter(Boolean)
+      if (parts.length < 2) { out[rep.id] = []; continue }
+      const first = parts[0].toLowerCase()
+      const last = parts[parts.length - 1].toLowerCase()
+      const list = []
+      for (const inv of invoices) {
+        const c = (inv.customer || '').toLowerCase()
+        if (!REP_SUFFIX_RE.test(c)) continue
+        if (c.includes(first) && c.includes(last)) list.push(inv)
+      }
+      // Sort: open first (by due date), then paid (by date desc)
+      list.sort((a, b) => {
+        const ao = (a.openBalance || 0) > 0 ? 0 : 1
+        const bo = (b.openBalance || 0) > 0 ? 0 : 1
+        if (ao !== bo) return ao - bo
+        if (ao === 0) return (a.dueDate || '').localeCompare(b.dueDate || '')
+        return (b.date || '').localeCompare(a.date || '')
+      })
+      out[rep.id] = list
+    }
+    return out
+  }, [reps, invoices])
+
+  // "- CUSTOMER" invoices that match a known rep — these shouldn't be there.
+  // Surface in a banner so Tony can fix them in QB (move to the rep's REP
+  // account or reclassify). Grouped by QB customer name.
+  const customerSuffixAnomalies = useMemo(() => {
+    const groups = new Map()
+    for (const rep of reps) {
+      const parts = (rep.name || '').split(/\s+/).filter(Boolean)
+      if (parts.length < 2) continue
+      const first = parts[0].toLowerCase()
+      const last = parts[parts.length - 1].toLowerCase()
+      for (const inv of invoices) {
+        const c = (inv.customer || '').toLowerCase()
+        if (!CUSTOMER_SUFFIX_RE.test(c)) continue
+        if (!c.includes(first) || !c.includes(last)) continue
+        const key = inv.customer
+        if (!groups.has(key)) {
+          groups.set(key, { customer: inv.customer, repName: rep.name, count: 0, openBalance: 0 })
+        }
+        const g = groups.get(key)
+        g.count += 1
+        g.openBalance += inv.openBalance || 0
+      }
+    }
+    return Array.from(groups.values()).sort((a, b) => a.customer.localeCompare(b.customer))
   }, [reps, invoices])
   // Final per-rep summary: agg + payouts → { earned, paidOut, available, openCommission }
   const repSummary = useMemo(() => {
@@ -783,6 +841,31 @@ function PaymentsTracker() {
               <Upload className="size-4 mr-1.5" /> Import Payments
             </Button>
           </div>
+          {customerSuffixAnomalies.length > 0 && (
+            <div className="mb-4 p-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="size-4 mt-0.5 text-amber-700 dark:text-amber-300 shrink-0" />
+                <div className="text-sm flex-1">
+                  <div className="font-medium text-amber-900 dark:text-amber-200">
+                    {customerSuffixAnomalies.length} rep {customerSuffixAnomalies.length === 1 ? 'account' : 'accounts'} with <code className="text-xs">- CUSTOMER</code> suffix in QB
+                  </div>
+                  <div className="text-amber-800 dark:text-amber-300/80 text-xs mt-0.5">
+                    Sample invoices should live under the rep's <code className="text-xs">- REP</code> account. These are excluded from "Owes Foundry" — clean up in QuickBooks and re-import.
+                  </div>
+                  <ul className="mt-2 space-y-0.5 text-xs text-amber-900 dark:text-amber-200">
+                    {customerSuffixAnomalies.map(a => (
+                      <li key={a.customer} className="flex justify-between gap-4">
+                        <span className="font-mono">{a.customer}</span>
+                        <span className="text-amber-800 dark:text-amber-300/80 shrink-0">
+                          {a.count} {a.count === 1 ? 'invoice' : 'invoices'} · open {fmt(a.openBalance)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {reps.map((rep) => {
               const t = repTotals[rep.id]
@@ -922,6 +1005,7 @@ function PaymentsTracker() {
           aggregate={aggregatesByRep[selectedRep.id]}
           summary={repSummary[selectedRep.id]}
           payouts={commissionPayouts.filter(p => p.repId === selectedRep.id)}
+          repAccountInvoices={repAccountInvoicesByRep[selectedRep.id] || []}
           onAddPayout={() => openRecordPayout(selectedRep.id)}
           onDeletePayout={deleteCommissionPayout}
           territories={repTerritories[selectedRep.id] || []}
@@ -2543,7 +2627,7 @@ function AccountDetailView({ account, entries, reps, brands, invoices = [], line
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, payouts, onAddPayout, onDeletePayout, territories }) {
+function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], onAddPayout, onDeletePayout, territories }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   const byInvoice = aggregate?.byInvoice || {}
 
@@ -3014,6 +3098,66 @@ function RepLedgerView({ rep, aggregate, summary, payouts, onAddPayout, onDelete
           )}
         </CardContent>
       </Card>
+
+      {/* REP-account invoices (samples owed to Foundry) */}
+      {repAccountInvoices.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Owed to Foundry (samples / personal orders)</CardTitle>
+            <CardDescription>
+              {repAccountInvoices.length} {repAccountInvoices.length === 1 ? 'invoice' : 'invoices'} on this rep's <code className="text-xs">- REP</code> account
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto -mx-4 sm:mx-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
+                    <th className="py-2 px-4 text-left font-medium">Invoice</th>
+                    <th className="py-2 px-4 text-left font-medium">Customer (QB)</th>
+                    <th className="py-2 px-4 text-left font-medium">Date</th>
+                    <th className="py-2 px-4 text-left font-medium">Due</th>
+                    <th className="py-2 px-4 text-right font-medium">Amount</th>
+                    <th className="py-2 px-4 text-right font-medium">Open Balance</th>
+                    <th className="py-2 px-4 text-left font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {repAccountInvoices.map(inv => {
+                    const open = inv.openBalance || 0
+                    const amt = inv.amount || 0
+                    const status = open <= 0.005 ? 'Paid' : (open + 0.005 < amt ? 'Partial' : 'Open')
+                    const statusClass = status === 'Paid'
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300'
+                      : status === 'Partial'
+                        ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                        : 'bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-300'
+                    return (
+                      <tr key={inv.num + '|' + inv.customer} className="border-b last:border-0">
+                        <td className="py-2 px-4 text-xs whitespace-nowrap">{inv.num}</td>
+                        <td className="py-2 px-4 text-xs">{inv.customer}</td>
+                        <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{inv.date || '—'}</td>
+                        <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{inv.dueDate || '—'}</td>
+                        <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(amt)}</td>
+                        <td className="py-2 px-4 text-right font-medium whitespace-nowrap">{fmt(open)}</td>
+                        <td className="py-2 px-4">
+                          <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full ${statusClass}`}>{status}</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  <tr className="bg-muted/40 font-semibold">
+                    <td className="py-2 px-4" colSpan={4}>Total</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(repAccountInvoices.reduce((s, i) => s + (i.amount || 0), 0))}</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(repAccountInvoices.reduce((s, i) => s + (i.openBalance || 0), 0))}</td>
+                    <td></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Payout history */}
       <Card>

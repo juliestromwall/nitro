@@ -17,6 +17,7 @@ dist-ssr
 Invoice data/
 invoice data/
 notes/
+docs/*Commission Data/
 
 # Editor directories and files
 .vscode/*
