@@ -659,6 +659,7 @@ function PaymentsTracker() {
   const [territoryModalOpen, setTerritoryModalOpen] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [salesImportOpen, setSalesImportOpen] = useState(false)
+  const [customerSuffixBannerOpen, setCustomerSuffixBannerOpen] = useState(true)
   const selectedAccount = accounts.find(a => a.id === selectedAccountId)
   const selectedAccountEntries = useMemo(
     () => remappedEntries.filter(e => e.accountId === selectedAccountId),
@@ -881,22 +882,36 @@ function PaymentsTracker() {
               <div className="flex items-start gap-2">
                 <AlertTriangle className="size-4 mt-0.5 text-amber-700 dark:text-amber-300 shrink-0" />
                 <div className="text-sm flex-1">
-                  <div className="font-medium text-amber-900 dark:text-amber-200">
-                    {customerSuffixAnomalies.length} rep {customerSuffixAnomalies.length === 1 ? 'account' : 'accounts'} with <code className="text-xs">- CUSTOMER</code> suffix in QB
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="font-medium text-amber-900 dark:text-amber-200">
+                      {customerSuffixAnomalies.length} rep {customerSuffixAnomalies.length === 1 ? 'account' : 'accounts'} with <code className="text-xs">- CUSTOMER</code> suffix in QB
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setCustomerSuffixBannerOpen(o => !o)}
+                      className="text-amber-800 dark:text-amber-300 hover:text-amber-900 text-xs underline shrink-0"
+                      aria-label={customerSuffixBannerOpen ? 'Minimize' : 'Expand'}
+                    >
+                      {customerSuffixBannerOpen ? 'Minimize' : 'Expand'}
+                    </button>
                   </div>
-                  <div className="text-amber-800 dark:text-amber-300/80 text-xs mt-0.5">
-                    Sample invoices should live under the rep's <code className="text-xs">- REP</code> account. These are excluded from "Owes Foundry" — clean up in QuickBooks and re-import.
-                  </div>
-                  <ul className="mt-2 space-y-0.5 text-xs text-amber-900 dark:text-amber-200">
-                    {customerSuffixAnomalies.map(a => (
-                      <li key={a.customer} className="flex justify-between gap-4">
-                        <span className="font-mono">{a.customer}</span>
-                        <span className="text-amber-800 dark:text-amber-300/80 shrink-0">
-                          {a.count} {a.count === 1 ? 'invoice' : 'invoices'} · open {fmt(a.openBalance)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                  {customerSuffixBannerOpen && (
+                    <>
+                      <div className="text-amber-800 dark:text-amber-300/80 text-xs mt-0.5">
+                        Sample invoices should live under the rep's <code className="text-xs">- REP</code> account. These are excluded from "Owes Foundry" — clean up in QuickBooks and re-import.
+                      </div>
+                      <ul className="mt-2 space-y-0.5 text-xs text-amber-900 dark:text-amber-200">
+                        {customerSuffixAnomalies.map(a => (
+                          <li key={a.customer} className="flex justify-between gap-4">
+                            <span className="font-mono">{a.customer}</span>
+                            <span className="text-amber-800 dark:text-amber-300/80 shrink-0">
+                              {a.count} {a.count === 1 ? 'invoice' : 'invoices'} · open {fmt(a.openBalance)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -910,14 +925,18 @@ function PaymentsTracker() {
               return (
                 <Card key={rep.id} onClick={() => goToRep(rep.id)} className="cursor-pointer hover:border-[#005b5b] transition-colors">
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <div className="w-10 h-10 rounded-full bg-[#005b5b] text-white flex items-center justify-center font-bold">
-                        {rep.name.charAt(0)}
+                    <div className="flex items-start justify-between gap-3">
+                      <CardTitle className="flex items-center gap-2 min-w-0">
+                        <div className="w-10 h-10 rounded-full bg-[#005b5b] text-white flex items-center justify-center font-bold shrink-0">
+                          {rep.name.charAt(0)}
+                        </div>
+                        <span className="truncate">{rep.name}</span>
+                      </CardTitle>
+                      <div className="text-right text-xs min-w-0 max-w-[55%]">
+                        {rep.agency && <div className="font-medium truncate">{rep.agency}</div>}
+                        {rep.email && <div className="text-muted-foreground truncate">{rep.email}</div>}
                       </div>
-                      {rep.name}
-                    </CardTitle>
-                    {rep.agency && <div className="text-sm font-medium">{rep.agency}</div>}
-                    <CardDescription>{rep.email}</CardDescription>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2 text-sm">
@@ -1774,11 +1793,17 @@ function InvoicesView({
     }
   }
 
+  // Custom Yes/No confirm dialog for destructive Clear actions.
+  const [confirmAction, setConfirmAction] = useState(null) // { message, onConfirm }
   const clearInvoices = () => {
-    if (!confirm('Clear all invoices? You can re-upload at any time.')) return
-    onClear()
-    setSearch('')
-    setPage(1)
+    setConfirmAction({
+      message: 'This action will clear all invoices, are you sure you want to proceed?',
+      onConfirm: () => {
+        onClear()
+        setSearch('')
+        setPage(1)
+      },
+    })
   }
 
   // ============ Line items CSV ("items by invoice") ============
@@ -1881,9 +1906,13 @@ function InvoicesView({
   }
 
   const clearLineItems = () => {
-    if (!confirm('Clear all line items? You can re-upload at any time.')) return
-    onClearLineItems()
-    setItemsError(null)
+    setConfirmAction({
+      message: 'This action will clear all line items, are you sure you want to proceed?',
+      onConfirm: () => {
+        onClearLineItems()
+        setItemsError(null)
+      },
+    })
   }
 
   const [groupByCustomer, setGroupByCustomer] = useState(true)
@@ -2350,6 +2379,28 @@ function InvoicesView({
       )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
+
+      <Dialog open={!!confirmAction} onOpenChange={(open) => { if (!open) setConfirmAction(null) }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm</DialogTitle>
+            <DialogDescription>{confirmAction?.message}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmAction(null)}>No</Button>
+            <Button
+              onClick={() => {
+                const action = confirmAction
+                setConfirmAction(null)
+                action?.onConfirm?.()
+              }}
+              className="bg-[#005b5b] hover:bg-[#004848]"
+            >
+              Yes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
