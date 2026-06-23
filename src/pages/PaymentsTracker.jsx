@@ -447,13 +447,23 @@ function PaymentsTracker() {
     }
     persistCommissionPayouts([...commissionPayouts, entry])
   }
+  const updateCommissionPayout = (id, updates) => {
+    persistCommissionPayouts(commissionPayouts.map(p => p.id === id ? { ...p, ...updates } : p))
+  }
   const deleteCommissionPayout = (id) => {
     persistCommissionPayouts(commissionPayouts.filter(p => p.id !== id))
   }
   const [recordPayoutOpen, setRecordPayoutOpen] = useState(false)
   const [prefilledPayoutRepId, setPrefilledPayoutRepId] = useState(null)
+  const [editingPayout, setEditingPayout] = useState(null)
   const openRecordPayout = (repId = null) => {
+    setEditingPayout(null)
     setPrefilledPayoutRepId(repId)
+    setRecordPayoutOpen(true)
+  }
+  const openEditPayout = (payout) => {
+    setEditingPayout(payout)
+    setPrefilledPayoutRepId(payout.repId)
     setRecordPayoutOpen(true)
   }
 
@@ -1033,6 +1043,7 @@ function PaymentsTracker() {
           payouts={commissionPayouts.filter(p => p.repId === selectedRep.id)}
           repAccountInvoices={repAccountInvoicesByRep[selectedRep.id] || []}
           onAddPayout={() => openRecordPayout(selectedRep.id)}
+          onEditPayout={openEditPayout}
           onDeletePayout={deleteCommissionPayout}
           territories={repTerritories[selectedRep.id] || []}
         />
@@ -1224,7 +1235,9 @@ function PaymentsTracker() {
         onOpenChange={setRecordPayoutOpen}
         reps={reps}
         prefilledRepId={prefilledPayoutRepId}
+        editingPayout={editingPayout}
         onSave={addCommissionPayout}
+        onUpdate={updateCommissionPayout}
       />
     </div>
   )
@@ -2705,7 +2718,7 @@ function AccountDetailView({ account, entries, reps, brands, invoices = [], line
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], onAddPayout, onDeletePayout, territories }) {
+function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], onAddPayout, onEditPayout, onDeletePayout, territories }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   const byInvoice = aggregate?.byInvoice || {}
 
@@ -2785,6 +2798,19 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
     for (const k of Object.keys(m)) m[k].sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''))
     return m
   }, [openInvoices])
+  // Toggle for the "Owed to Foundry" section — default hides Paid rows so
+  // Tony sees only what's still owed; click "Show paid" to reveal history.
+  const [showPaidRepInvoices, setShowPaidRepInvoices] = useState(false)
+  const paidRepInvoiceCount = useMemo(
+    () => repAccountInvoices.filter(i => (i.openBalance || 0) <= 0.005).length,
+    [repAccountInvoices]
+  )
+  const visibleRepInvoices = useMemo(
+    () => showPaidRepInvoices
+      ? repAccountInvoices
+      : repAccountInvoices.filter(i => (i.openBalance || 0) > 0.005),
+    [repAccountInvoices, showPaidRepInvoices]
+  )
   const [expandedOpenCustomers, setExpandedOpenCustomers] = useState(() => new Set())
   const toggleOpenCustomer = (customer) => {
     setExpandedOpenCustomers(prev => {
@@ -2836,6 +2862,28 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
   const sortedPayouts = useMemo(
     () => [...(payouts || [])].sort((a, b) => (b.date || '').localeCompare(a.date || '')),
     [payouts]
+  )
+  // Year filter for Commission payouts — starts at 2026 (data-model start),
+  // counts up to the later of current calendar year or latest payout year.
+  const [payoutYear, setPayoutYear] = useState(() => new Date().getFullYear())
+  const availableYears = useMemo(() => {
+    const currentYear = new Date().getFullYear()
+    const latestPayoutYear = sortedPayouts.reduce((mx, p) => {
+      const y = parseInt(String(p.date || '').slice(0, 4), 10)
+      return Number.isFinite(y) ? Math.max(mx, y) : mx
+    }, 2026)
+    const last = Math.max(currentYear, latestPayoutYear)
+    const out = []
+    for (let y = 2026; y <= last; y++) out.push(y)
+    return out
+  }, [sortedPayouts])
+  const filteredPayouts = useMemo(
+    () => sortedPayouts.filter(p => String(p.date || '').startsWith(`${payoutYear}-`)),
+    [sortedPayouts, payoutYear]
+  )
+  const filteredPayoutTotal = useMemo(
+    () => filteredPayouts.reduce((s, p) => s + (p.amount || 0), 0),
+    [filteredPayouts]
   )
 
   const exportArgs = {
@@ -3259,12 +3307,33 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       {repAccountInvoices.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>Owed to Foundry (samples / personal orders)</CardTitle>
-            <CardDescription>
-              {repAccountInvoices.length} {repAccountInvoices.length === 1 ? 'invoice' : 'invoices'} on this rep's <code className="text-xs">- REP</code> account
-            </CardDescription>
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <CardTitle>Owed to Foundry (samples / personal orders)</CardTitle>
+                <CardDescription>
+                  {visibleRepInvoices.length} {visibleRepInvoices.length === 1 ? 'invoice' : 'invoices'} on this rep's <code className="text-xs">- REP</code> account
+                  {paidRepInvoiceCount > 0 && (
+                    <> {showPaidRepInvoices ? '' : `· ${paidRepInvoiceCount} paid hidden`}</>
+                  )}
+                </CardDescription>
+              </div>
+              {paidRepInvoiceCount > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowPaidRepInvoices(v => !v)}
+                >
+                  {showPaidRepInvoices ? 'Hide paid' : `Show paid (${paidRepInvoiceCount})`}
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
+            {visibleRepInvoices.length === 0 ? (
+              <div className="text-sm text-muted-foreground text-center py-6">
+                No open invoices — all paid. Click "Show paid" above to see history.
+              </div>
+            ) : (
             <div className="overflow-x-auto -mx-4 sm:mx-0">
               <table className="w-full text-sm">
                 <thead>
@@ -3279,7 +3348,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                   </tr>
                 </thead>
                 <tbody>
-                  {repAccountInvoices.map(inv => {
+                  {visibleRepInvoices.map(inv => {
                     const open = inv.openBalance || 0
                     const amt = inv.amount || 0
                     const status = open <= 0.005 ? 'Paid' : (open + 0.005 < amt ? 'Partial' : 'Open')
@@ -3304,13 +3373,14 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                   })}
                   <tr className="bg-muted/40 font-semibold">
                     <td className="py-2 px-4" colSpan={4}>Total</td>
-                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(repAccountInvoices.reduce((s, i) => s + (i.amount || 0), 0))}</td>
-                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(repAccountInvoices.reduce((s, i) => s + (i.openBalance || 0), 0))}</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(visibleRepInvoices.reduce((s, i) => s + (i.amount || 0), 0))}</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(visibleRepInvoices.reduce((s, i) => s + (i.openBalance || 0), 0))}</td>
                     <td></td>
                   </tr>
                 </tbody>
               </table>
             </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -3318,22 +3388,40 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       {/* Payout history */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <CardTitle>Commission payouts</CardTitle>
               <CardDescription>
-                {sortedPayouts.length} {sortedPayouts.length === 1 ? 'payment' : 'payments'} recorded for this rep
+                {filteredPayouts.length} {filteredPayouts.length === 1 ? 'payment' : 'payments'} in {payoutYear}
+                {filteredPayouts.length > 0 && <> · {fmt(filteredPayoutTotal)} total</>}
+                {sortedPayouts.length !== filteredPayouts.length && (
+                  <> · {sortedPayouts.length} all-time</>
+                )}
               </CardDescription>
             </div>
-            <Button size="sm" onClick={onAddPayout} className="bg-[#005b5b] hover:bg-[#004848]">
-              <Banknote className="size-4 mr-1.5" /> Record Payout
-            </Button>
+            <div className="flex items-center gap-2">
+              <Label className="text-muted-foreground text-xs">Year</Label>
+              <select
+                value={payoutYear}
+                onChange={(e) => setPayoutYear(parseInt(e.target.value, 10))}
+                className="border rounded px-2 py-1 text-sm bg-background"
+              >
+                {availableYears.map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+              <Button size="sm" onClick={onAddPayout} className="bg-[#005b5b] hover:bg-[#004848]">
+                <Banknote className="size-4 mr-1.5" /> Record Payout
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {sortedPayouts.length === 0 ? (
+          {filteredPayouts.length === 0 ? (
             <div className="text-sm text-muted-foreground text-center py-6">
-              No payouts recorded yet. Click "Record Payout" to log one.
+              {sortedPayouts.length === 0
+                ? 'No payouts recorded yet. Click "Record Payout" to log one.'
+                : `No payouts recorded in ${payoutYear}.`}
             </div>
           ) : (
             <div className="overflow-x-auto -mx-4 sm:mx-0">
@@ -3348,23 +3436,37 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedPayouts.map((p) => (
+                  {filteredPayouts.map((p) => (
                     <tr key={p.id} className="border-b last:border-0">
                       <td className="py-2 px-4 whitespace-nowrap">{p.date}</td>
                       <td className="py-2 px-4 text-xs">{p.method || '—'}</td>
                       <td className="py-2 px-4 text-xs text-muted-foreground">{p.note || '—'}</td>
                       <td className="py-2 px-4 text-right font-bold">{fmt(p.amount)}</td>
                       <td className="py-2 px-4">
-                        <button
-                          onClick={() => { if (confirm('Delete this payout entry?')) onDeletePayout(p.id) }}
-                          className="text-muted-foreground hover:text-red-600 transition-colors"
-                          aria-label="Delete payout"
-                        >
-                          <Trash2 className="size-4" />
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => onEditPayout && onEditPayout(p)}
+                            className="text-muted-foreground hover:text-[#005b5b] transition-colors"
+                            aria-label="Edit payout"
+                          >
+                            <Pencil className="size-4" />
+                          </button>
+                          <button
+                            onClick={() => { if (confirm('Delete this payout entry?')) onDeletePayout(p.id) }}
+                            className="text-muted-foreground hover:text-red-600 transition-colors"
+                            aria-label="Delete payout"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
+                  <tr className="bg-muted/40 font-semibold">
+                    <td className="py-2 px-4" colSpan={3}>Total in {payoutYear}</td>
+                    <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(filteredPayoutTotal)}</td>
+                    <td></td>
+                  </tr>
                 </tbody>
               </table>
             </div>
@@ -3715,8 +3817,9 @@ function SchedulePayoutModal({ open, onOpenChange, pendingCount, pendingTotal, o
 // =====================================================================
 // RecordCommissionPayoutModal — record "Paid Rep $X on Date" entry
 // =====================================================================
-function RecordCommissionPayoutModal({ open, onOpenChange, reps, prefilledRepId, onSave }) {
+function RecordCommissionPayoutModal({ open, onOpenChange, reps, prefilledRepId, editingPayout, onSave, onUpdate }) {
   const today = new Date().toISOString().slice(0, 10)
+  const isEditing = Boolean(editingPayout)
   const [repId, setRepId] = useState(prefilledRepId || (reps[0]?.id || ''))
   const [date, setDate] = useState(today)
   const [amountStr, setAmountStr] = useState('')
@@ -3724,17 +3827,25 @@ function RecordCommissionPayoutModal({ open, onOpenChange, reps, prefilledRepId,
   const [note, setNote] = useState('')
   const [error, setError] = useState(null)
 
-  // Reset form fields whenever the modal opens.
+  // Reset / pre-fill form fields whenever the modal opens.
   useEffect(() => {
     if (open) {
-      setRepId(prefilledRepId || (reps[0]?.id || ''))
-      setDate(today)
-      setAmountStr('')
-      setMethod('ACH')
-      setNote('')
+      if (editingPayout) {
+        setRepId(editingPayout.repId || prefilledRepId || (reps[0]?.id || ''))
+        setDate(editingPayout.date || today)
+        setAmountStr(String(editingPayout.amount ?? ''))
+        setMethod(editingPayout.method || 'ACH')
+        setNote(editingPayout.note || '')
+      } else {
+        setRepId(prefilledRepId || (reps[0]?.id || ''))
+        setDate(today)
+        setAmountStr('')
+        setMethod('ACH')
+        setNote('')
+      }
       setError(null)
     }
-  }, [open, prefilledRepId, reps, today])
+  }, [open, prefilledRepId, reps, today, editingPayout])
 
   const submit = () => {
     setError(null)
@@ -3742,7 +3853,11 @@ function RecordCommissionPayoutModal({ open, onOpenChange, reps, prefilledRepId,
     const amount = parseFloat(String(amountStr).replace(/[$,]/g, ''))
     if (!isFinite(amount) || amount <= 0) { setError('Enter a positive dollar amount.'); return }
     if (!date) { setError('Pick a date.'); return }
-    onSave({ repId, date, amount, method, note: note.trim() })
+    if (isEditing) {
+      onUpdate(editingPayout.id, { repId, date, amount, method, note: note.trim() })
+    } else {
+      onSave({ repId, date, amount, method, note: note.trim() })
+    }
     onOpenChange(false)
   }
 
@@ -3750,9 +3865,11 @@ function RecordCommissionPayoutModal({ open, onOpenChange, reps, prefilledRepId,
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Record Commission Payout</DialogTitle>
+          <DialogTitle>{isEditing ? 'Edit Commission Payout' : 'Record Commission Payout'}</DialogTitle>
           <DialogDescription>
-            Log a payment you made to a rep. This subtracts from their "available to collect" total.
+            {isEditing
+              ? 'Update the recorded payment details.'
+              : 'Log a payment you made to a rep. This subtracts from their "available to collect" total.'}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -3806,7 +3923,7 @@ function RecordCommissionPayoutModal({ open, onOpenChange, reps, prefilledRepId,
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={submit} className="bg-[#005b5b] hover:bg-[#004848]">
-            Save Payout
+            {isEditing ? 'Update Payout' : 'Save Payout'}
           </Button>
         </DialogFooter>
       </DialogContent>
