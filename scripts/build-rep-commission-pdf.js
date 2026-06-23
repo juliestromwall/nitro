@@ -35,7 +35,7 @@ const REPS = {
   HARRISON: { repId: 'rep-harrison-montgomery',   name: 'Harrison Montgomery',  agency: '',                       email: 'montyrepsnow@gmail.com',       territories: ['SOUTHEAST'] },
   JASON:    { repId: 'rep-jason',                 name: 'Jason Martin',         agency: 'Blue Collar',           email: 'jmartin@gmail.com',            territories: ['NORCAL'] },
   JJ:       { repId: 'rep-jj-catlett',            name: 'JJ Catlett',           agency: '',                       email: 'jj_catlett@mac.com',           territories: ['SOUTHEAST'] },
-  KULAK:    { repId: 'rep-bryan-kulak',           name: 'Bryan Kulak',          agency: 'Kulak Sales',           email: 'Kulaksales@gmail.com',         territories: ['MIDWEST PLAINS'] },
+  KULAK:    { repId: 'rep-brian-kulak',           name: 'Brian Kulak',          agency: 'Kulak Sales',           email: 'Kulaksales@gmail.com',         territories: ['MIDWEST PLAINS'] },
   RICKER:   { repId: 'rep-evan-ricker',           name: 'Evan Ricker',          agency: '',                       email: 'e.ricker@icloud.com',          territories: ['NEW ENGLAND'] },
   ROB:      { repId: 'rep-rob',                   name: 'Rob Aragon',           agency: 'Something Clever',      email: 'rob@somethingclever.com',      territories: ['PNW'] },
   TREVOR:   { repId: 'rep-trevor-stockhausen',    name: 'Trevor Stockhausen',   agency: '',                       email: '',                              territories: ['NEW ENGLAND'] },
@@ -417,20 +417,39 @@ function buildPDF({ rep, positives, negatives, openRows, openBrandFilter, openUn
   // Paid invoices by customer
   doc.setFontSize(13)
   doc.setTextColor(...TEAL_RGB)
-  doc.text(`Paid invoices by customer — ${paidGrouped.length} ${paidGrouped.length === 1 ? 'customer' : 'customers'}, ${positives.length} ${positives.length === 1 ? 'entry' : 'entries'}`, 40, y)
+  doc.text(`Paid invoices by customer — ${paidGrouped.length} ${paidGrouped.length === 1 ? 'customer' : 'customers'}, ${positives.length} ${positives.length === 1 ? 'invoice' : 'invoices'}`, 40, y)
   doc.setTextColor(0)
   y += 6
+  // Build customer → invoice-rows lookup for sub-rows beneath each customer.
+  const paidByCustomerLookup = {}
+  for (const p of positives) {
+    const key = canonicalAccount(p.account)
+    if (!paidByCustomerLookup[key]) paidByCustomerLookup[key] = []
+    paidByCustomerLookup[key].push(p)
+  }
+  const groupedBody = []
+  for (const g of paidGrouped) {
+    groupedBody.push([
+      g.account,
+      g.count,
+      fmtMoney(g.amount),
+      { content: fmtMoney(g.commission), styles: { fontStyle: 'bold', textColor: TEAL_RGB } },
+    ])
+    for (const p of paidByCustomerLookup[g.account] || []) {
+      groupedBody.push([
+        { content: `    •  ${p.invoice || '—'}`, styles: { halign: 'left', textColor: 60, fontSize: 10 } },
+        { content: p.date || '—', styles: { halign: 'center', textColor: 60, fontSize: 10 } },
+        { content: fmtMoney(p.actualPaid), styles: { halign: 'center', textColor: 60, fontSize: 10 } },
+        { content: fmtMoney(p.commission), styles: { halign: 'center', textColor: 60, fontSize: 10 } },
+      ])
+    }
+  }
   autoTable(doc, {
     startY: y,
-    head: [['Customer', 'Entries', 'Amount Paid', 'Commission']],
+    head: [['Customer', 'Invoices Paid', 'Amount Paid', 'Commission']],
     body: paidGrouped.length === 0
-      ? [[{ content: 'No paid entries.', colSpan: 4, styles: { halign: 'center', textColor: 120, fontStyle: 'italic' } }]]
-      : paidGrouped.map(g => [
-          g.account,
-          g.count,
-          fmtMoney(g.amount),
-          { content: fmtMoney(g.commission), styles: { fontStyle: 'bold', textColor: TEAL_RGB } },
-        ]),
+      ? [[{ content: 'No paid invoices.', colSpan: 4, styles: { halign: 'center', textColor: 120, fontStyle: 'italic' } }]]
+      : groupedBody,
     headStyles: { fillColor: TEAL_RGB, halign: 'center' },
     columnStyles: {
       0: { halign: 'center' },
@@ -477,6 +496,7 @@ function buildPDF({ rep, positives, negatives, openRows, openBrandFilter, openUn
     styles: { fontSize: 10, cellPadding: 5 },
     theme: 'striped',
     footStyles: { halign: 'center' },
+    showFoot: 'lastPage',
     foot: negatives.length > 0 ? [[
       { content: 'Total', colSpan: 3, styles: { halign: 'center', fontStyle: 'bold' } },
       { content: fmtMoney(negatives.reduce((s, r) => s + (r.commission || 0), 0)), styles: { halign: 'center', fontStyle: 'bold', textColor: [180, 30, 30] } },

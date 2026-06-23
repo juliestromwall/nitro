@@ -3,21 +3,21 @@
 // Adam's 125 payment entries from his Excel, fuzzy-matched to master accounts
 
 export const REPS = [
-  { id: 'rep-adam', name: 'Adam Stromwall', email: 'adam@foundrydist.com', agency: 'Stromwall Group, LLC' },
-  { id: 'rep-jason', name: 'Jason Martin', email: 'jmartin@gmail.com', agency: 'Blue Collar' },
-  { id: 'rep-rob', name: 'Rob Aragon', email: 'rob@somethingclever.com', agency: 'Something Clever' },
-  { id: 'rep-cody-prudoehl',       name: 'Cody Prudoehl',       email: 'cody.p.mw@gmail.com', agency: '' },
-  { id: 'rep-andy-wise',           name: 'Andy Wise',           email: 'nickelndiamondsales@gmail.com', agency: 'NickelandDiamond Sales' },
+  { id: 'rep-adam',                name: 'Adam Stromwall',      email: 'adam@foundrydist.com', agency: 'Stromwall Group, LLC' },
+  { id: 'rep-rob',                 name: 'Rob Aragon',          email: 'rob@somethingclever.com', agency: 'Something Clever' },
+  { id: 'rep-jason',               name: 'Jason Martin',        email: 'jmartin@gmail.com', agency: 'Blue Collar' },
+  { id: 'rep-kathy-karlovic',      name: 'Kathy Karlovic',      email: 'kkarlovic530@gmail.com', agency: '' },
   { id: 'rep-steve-clare',         name: 'Steve Clare',         email: 'dontclare@me.com', agency: "Don't Clare At Me" },
   { id: 'rep-carter-katz',         name: 'Carter Katz',         email: 'contactcarternow@yahoo.com', agency: 'Kaleidoscope' },
+  { id: 'rep-andy-wise',           name: 'Andy Wise',           email: 'nickelndiamondsales@gmail.com', agency: 'NickelandDiamond Sales' },
   { id: 'rep-erika-lowder',        name: 'Erika Lowder',        email: 'erika@unitedsales.agency', agency: 'United Sales Agency' },
-  { id: 'rep-kathy-karlovic',      name: 'Kathy Karlovic',      email: 'kkarlovic530@gmail.com', agency: '' },
-  { id: 'rep-bryan-kulak',         name: 'Bryan Kulak',         email: 'Kulaksales@gmail.com', agency: 'Kulak Sales' },
+  { id: 'rep-cody-prudoehl',       name: 'Cody Prudoehl',       email: 'cody.p.mw@gmail.com', agency: '' },
+  { id: 'rep-brian-kulak',         name: 'Brian Kulak',         email: 'Kulaksales@gmail.com', agency: 'Kulak Sales' },
   { id: 'rep-kim-kulak',           name: 'Kim Kulak',           email: 'augustsalesinc@gmail.com', agency: 'August Sales' },
-  { id: 'rep-dave-spruill',        name: 'Dave Spruill',        email: 'darkblizzardsales@gmail.com', agency: 'Dark Blizzard' },
-  { id: 'rep-chris-cooper',        name: 'Chris Cooper',        email: 'coops@sprayinggravy.com', agency: 'Spraying Gravy' },
   { id: 'rep-jj-catlett',          name: 'JJ Catlett',          email: 'jj_catlett@mac.com', agency: '' },
   { id: 'rep-harrison-montgomery', name: 'Harrison Montgomery', email: 'montyrepsnow@gmail.com', agency: '' },
+  { id: 'rep-dave-spruill',        name: 'Dave Spruill',        email: 'darkblizzardsales@gmail.com', agency: 'Dark Blizzard' },
+  { id: 'rep-chris-cooper',        name: 'Chris Cooper',        email: 'coops@sprayinggravy.com', agency: 'Spraying Gravy' },
   { id: 'rep-trevor-stockhausen',  name: 'Trevor Stockhausen',  email: '', agency: '' },
   { id: 'rep-evan-ricker',         name: 'Evan Ricker',         email: 'e.ricker@icloud.com', agency: '' },
 ]
@@ -40,7 +40,7 @@ export const REP_TERRITORIES = {
   'rep-steve-clare':           ['SOCAL / AZ'],
   'rep-carter-katz':           ['SOCAL / AZ'],
   'rep-kathy-karlovic':        ['NORCAL'],
-  'rep-bryan-kulak':           ['MIDWEST PLAINS'],
+  'rep-brian-kulak':           ['MIDWEST PLAINS'],
   'rep-dave-spruill':          ['EAST COAST (PA, NY, NJ, DE)'],
   'rep-chris-cooper':          ['EAST COAST (PA, NY, NJ, DE)'],
   'rep-trevor-stockhausen':    ['NEW ENGLAND'],
@@ -89,7 +89,7 @@ export const REP_BRANDS = [
   { repId: 'rep-steve-clare', brandId: 'brand-eivy' },
   { repId: 'rep-carter-katz', brandId: 'brand-autumn' },
   { repId: 'rep-kathy-karlovic', brandId: 'brand-eivy' },
-  { repId: 'rep-bryan-kulak', brandId: 'brand-autumn' },
+  { repId: 'rep-brian-kulak', brandId: 'brand-autumn' },
   { repId: 'rep-cody-prudoehl', brandId: 'brand-nitro' },
   { repId: 'rep-cody-prudoehl', brandId: 'brand-l1' },
   { repId: 'rep-kim-kulak', brandId: 'brand-eivy' },
@@ -579,6 +579,8 @@ export const ACCOUNTS = [
   {"id": "acct-468", "name": "Tributary Driggs Acquisition, LLC", "territory": "PNW", "contactId": "2405", "firstName": null, "lastName": null, "email": "AP@tributaryidaho.com"},
   {"id": "acct-469", "name": "Fire On The Mountain Burning Boards - Bob Siener", "territory": "NEW ENGLAND", "contactId": "620", "firstName": "Christopher", "lastName": "Dupont", "email": "chrisjdupont@gmail.com"},
   {"id": "acct-470", "name": "Goldsmiths (WSR)", "territory": "SOCAL / AZ", "contactId": "3954", "firstName": "Danielle", "lastName": "Goldsmith", "email": "danielle@goldsmithssports.com"},
+  {"id": "acct-471", "name": "Donut Shoppe - Nando Alcocer", "territory": "NORCAL", "contactId": "7021", "firstName": "Nando", "lastName": "Alcocer", "email": "nando@donutshoppeculture.com"},
+  {"id": "acct-472", "name": "Topside / Satellite Outpost - Clare Dreyer", "territory": "PNW", "contactId": "6592", "firstName": "Clare", "lastName": "Dreyer", "email": "clare.dreyer@gmail.com"},
 ]
 
 // Distinct territory list (for filters / dropdowns)
@@ -720,6 +722,49 @@ export const ENTRIES = [
   {"id": "e-134", "repId": "rep-adam", "brandId": "brand-nitro", "date": "2026-03-09", "accountId": "acct-315", "accountText": "Massive", "invoice": "SI-123811", "method": "CHECK#5947", "amountPaid": 3401.25, "shippingCost": 152.25, "actualPaid": 3249.0, "commission": 113.72, "notes": null, "payoutId": null},
   {"id": "e-135", "repId": "rep-adam", "brandId": "brand-nitro", "date": "2026-01-05", "accountId": "acct-419", "accountText": "Santa FE SKI CO", "invoice": "SI-124032", "method": "CHECK#30419", "amountPaid": 808.33, "shippingCost": 88.33, "actualPaid": 720.0, "commission": 36.0, "notes": null, "payoutId": null},
 ]
+
+// Per-rep "engine-Earned snapshot" captured 2026-06-22 when Tony reset the
+// in-app Earned to zero. The displayed Earned = engineEarned - snapshot,
+// floored at zero. Net effect:
+//   - At reset moment: every rep shows Earned $0.
+//   - Going forward: new paid invoices push engineEarned past snapshot,
+//     so the delta surfaces as new Earned (and accrues into Available).
+// To reset again later (e.g. after a payout cycle), bump snapshots to the
+// current engine values.
+export const EARNED_SNAPSHOTS = {
+  'rep-adam':                  4737.70,
+  'rep-jason':                 4284.00,
+  'rep-rob':                   7784.59,
+  'rep-cody-prudoehl':          776.39,
+  'rep-andy-wise':             3526.87,
+  'rep-steve-clare':             49.86,
+  'rep-carter-katz':            900.92,
+  'rep-erika-lowder':             0.00,
+  'rep-kathy-karlovic':           0.00,
+  'rep-brian-kulak':              0.00,
+  'rep-kim-kulak':                0.00,
+  'rep-dave-spruill':           315.55,
+  'rep-chris-cooper':             0.00,
+  'rep-jj-catlett':             192.50,
+  'rep-harrison-montgomery':      0.00,
+  'rep-trevor-stockhausen':       0.00,
+  'rep-evan-ricker':              0.00,
+}
+
+// Available adjustments — the target Available at the moment of reset.
+// available = earned (delta since snapshot) - paidOut + adjustment
+export const STARTING_ADJUSTMENTS = {
+  'rep-rob':                    567.20,
+  'rep-adam':                     0.00,
+  'rep-cody-prudoehl':          260.65,
+  'rep-brian-kulak':             50.99,
+  'rep-carter-katz':            455.62,
+  'rep-jason':                   65.52,
+  'rep-dave-spruill':          8598.10,
+  'rep-chris-cooper':            81.99,
+  'rep-evan-ricker':             50.58,
+  'rep-harrison-montgomery':    856.54,
+}
 
 export const PAYOUTS = [
   {"id": "payout-1", "date": "2025-10-15", "amount": 1289.07, "method": "ACH", "repId": "rep-adam", "brandId": "brand-nitro"},

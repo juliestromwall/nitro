@@ -72,7 +72,7 @@ export const REP_RATES = {
       'brand-nitro':  0.08,
       'brand-l1':     0.08,
     },
-    // rep-bryan-kulak: Autumn-only — covered by BRAND_DEFAULTS
+    // rep-brian-kulak: Autumn-only — covered by BRAND_DEFAULTS
     'rep-kim-kulak': {
       'brand-eivy':   0.07,
     },

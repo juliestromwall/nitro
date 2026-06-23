@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { useCompanies } from '@/context/CompanyContext'
 import JSZip from 'jszip'
-import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS } from '@/lib/paymentsDemoData'
+import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, STARTING_ADJUSTMENTS, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
 import { computeCommissions, aggregateByRep } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { shouldIgnoreCustomer, isWsrPostPaymentCustomer } from '@/lib/customerIgnoreList'
@@ -557,12 +557,15 @@ function PaymentsTracker() {
     const out = {}
     for (const rep of reps) {
       const agg = aggregatesByRep[rep.id]
-      const earned = agg?.totalAvailable || 0       // commission on the paid portion of invoices
+      const engineEarned = agg?.totalAvailable || 0  // commission on paid portion of invoices
+      const snapshot = EARNED_SNAPSHOTS[rep.id] || 0
+      const earned = Math.max(0, engineEarned - snapshot)
       const paidOut = payoutsByRep[rep.id] || 0
+      const adjustment = STARTING_ADJUSTMENTS[rep.id] || 0
       out[rep.id] = {
         earned,
         paidOut,
-        available: earned - paidOut,
+        available: earned - paidOut + adjustment,
         openCommission: agg?.openCommission || 0,   // locked behind unpaid balance
         totalCommission: agg?.totalCommission || 0, // full invoice basis
         owesFoundry: owedByRep[rep.id] || 0,        // outstanding sample bills
@@ -575,7 +578,7 @@ function PaymentsTracker() {
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
   // Also returns the list of invoice customers that couldn't be matched, grouped
   // by customer name, so the Accounts page can surface them in a banner.
-  const { accountOpenBalances, unmatchedSummary } = useMemo(() => {
+  const { accountOpenBalances, unmatchedSummary, fuzzyMatchedSummary } = useMemo(() => {
     const norm = (s) => String(s || '')
       .toUpperCase()
       .replace(/['']/g, '')
@@ -593,22 +596,43 @@ function PaymentsTracker() {
 
     const balances = {}
     const unmatched = {}
+    const fuzzy = {}   // QB customer → account guessed via substring fallback
     for (const inv of invoices) {
       if (!inv?.openBalance) continue
       const n = norm(inv.customer)
       if (!n) continue
       let acct = byNorm.get(n)
+      let matchedVia = 'exact'
       if (!acct) {
         // substring fallback (both directions, min 4 chars)
         for (const [key, a] of byNorm.entries()) {
           if (Math.min(key.length, n.length) >= 4 && (key.includes(n) || n.includes(key))) {
             acct = a
+            matchedVia = 'substring'
             break
           }
         }
       }
       if (acct) {
         balances[acct.id] = (balances[acct.id] || 0) + inv.openBalance
+        if (matchedVia === 'substring') {
+          // Group by (invoice-customer + account) so the same QB name routed
+          // to the same account aggregates into one review row.
+          const key = `${inv.customer}|${acct.id}`
+          if (!fuzzy[key]) {
+            fuzzy[key] = {
+              key,
+              customer: inv.customer,
+              accountId: acct.id,
+              accountName: acct.name,
+              accountTerritory: acct.territory,
+              count: 0,
+              total: 0,
+            }
+          }
+          fuzzy[key].count += 1
+          fuzzy[key].total += inv.openBalance
+        }
       } else {
         if (!unmatched[inv.customer]) unmatched[inv.customer] = { count: 0, total: 0 }
         unmatched[inv.customer].count += 1
@@ -618,7 +642,8 @@ function PaymentsTracker() {
     const unmatchedList = Object.entries(unmatched)
       .map(([customer, v]) => ({ customer, count: v.count, total: v.total }))
       .sort((a, b) => b.total - a.total)
-    return { accountOpenBalances: balances, unmatchedSummary: unmatchedList }
+    const fuzzyList = Object.values(fuzzy).sort((a, b) => b.total - a.total)
+    return { accountOpenBalances: balances, unmatchedSummary: unmatchedList, fuzzyMatchedSummary: fuzzyList }
   }, [invoices, accounts])
 
   const [territoryModalOpen, setTerritoryModalOpen] = useState(false)
@@ -946,6 +971,7 @@ function PaymentsTracker() {
           accountTotals={accountTotals}
           accountOpenBalances={accountOpenBalances}
           unmatchedSummary={unmatchedSummary}
+          fuzzyMatchedSummary={fuzzyMatchedSummary}
           search={accountSearch}
           onSearchChange={setAccountSearch}
           territoryFilter={accountTerritoryFilter}
@@ -1207,8 +1233,13 @@ function PaymentsTracker() {
 // =====================================================================
 // AccountsView — Tony's master list of all 439 accounts
 // =====================================================================
-function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedSummary, search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
+function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedSummary, fuzzyMatchedSummary = [], search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
   const [unmatchedOpen, setUnmatchedOpen] = useState(false)
+  const [fuzzyOpen, setFuzzyOpen] = useState(false)
+  const fuzzyTotal = useMemo(
+    () => (fuzzyMatchedSummary || []).reduce((s, f) => s + (f.total || 0), 0),
+    [fuzzyMatchedSummary]
+  )
   const unmatchedTotal = useMemo(
     () => (unmatchedSummary || []).reduce((s, u) => s + (u.total || 0), 0),
     [unmatchedSummary]
@@ -1315,6 +1346,53 @@ function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedS
                     <span className="text-muted-foreground">({u.count} {u.count === 1 ? 'invoice' : 'invoices'})</span>
                   </span>
                   <span className="font-medium whitespace-nowrap">{fmt(u.total)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Fuzzy-matched invoices banner — substring-fallback matches that
+          weren't exact name hits. These can silently misroute invoices to
+          the wrong account/territory (e.g. "Topside / Satellite Outpost"
+          matching to "SATELLITE" board shop). Review each one and either
+          confirm or add a proper ACCOUNTS entry. */}
+      {fuzzyMatchedSummary?.length > 0 && (
+        <div className="rounded-lg border border-orange-300 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-900 px-3 py-2.5 text-sm">
+          <button
+            type="button"
+            onClick={() => setFuzzyOpen(o => !o)}
+            className="flex items-center justify-between gap-2 w-full text-left"
+            aria-expanded={fuzzyOpen}
+          >
+            <span className="text-orange-900 dark:text-orange-200">
+              <span className="font-semibold">Fuzzy-matched invoices (review):</span>{' '}
+              {fuzzyMatchedSummary.length} {fuzzyMatchedSummary.length === 1 ? 'customer' : 'customers'}
+              {' • '}
+              <span className="font-medium">{fmt(fuzzyTotal)}</span> open
+              {' — '}
+              <span className="underline">{fuzzyOpen ? 'Hide' : 'View'}</span>
+            </span>
+          </button>
+          {fuzzyOpen && (
+            <div className="mt-3 max-h-72 overflow-y-auto pr-1 space-y-2 border-t border-orange-200 dark:border-orange-900 pt-2">
+              <div className="text-xs text-orange-800 dark:text-orange-300/80 pb-1">
+                Matched by name-substring fallback. Confirm each, or add a proper account so the next refresh exact-matches.
+              </div>
+              {fuzzyMatchedSummary.map((f) => (
+                <div key={f.key} className="flex items-start justify-between gap-3 text-xs border-t border-orange-100 dark:border-orange-900/60 pt-1.5">
+                  <div className="min-w-0">
+                    <div className="font-mono truncate">{f.customer}</div>
+                    <div className="text-orange-700 dark:text-orange-300/70 mt-0.5">
+                      → <span className="font-medium">{f.accountName}</span>{' '}
+                      <span className="text-muted-foreground">({f.accountId}, {f.accountTerritory})</span>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="font-medium whitespace-nowrap">{fmt(f.total)}</div>
+                    <div className="text-muted-foreground text-[10px]">{f.count} {f.count === 1 ? 'invoice' : 'invoices'}</div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -2716,6 +2794,26 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       return next
     })
   }
+  // Same expand/collapse pattern for the Paid invoices section.
+  const [expandedPaidCustomers, setExpandedPaidCustomers] = useState(() => new Set())
+  const togglePaidCustomer = (customer) => {
+    setExpandedPaidCustomers(prev => {
+      const next = new Set(prev)
+      if (next.has(customer)) next.delete(customer)
+      else next.add(customer)
+      return next
+    })
+  }
+  // Lookup: customer → list of their visible paid invoices.
+  const visiblePaidInvoicesByCustomer = useMemo(() => {
+    const m = {}
+    for (const inv of visiblePaidInvoices) {
+      const key = inv.customer || '(unknown)'
+      if (!m[key]) m[key] = []
+      m[key].push(inv)
+    }
+    return m
+  }, [visiblePaidInvoices])
   // Days past due (positive = past due) from mm/dd/yyyy
   const daysPastDueFor = (s) => {
     if (!s) return null
@@ -2742,7 +2840,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
 
   const exportArgs = {
     rep, summary: safeSummary, byInvoice, payouts, paidSince, territories, groupByCustomer,
-    brandSubtotals,
+    brandSubtotals, repAccountInvoices,
   }
 
   return (
@@ -2875,6 +2973,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
+                    <th className="py-2 px-2 w-8"></th>
                     <th className="py-2 px-4 text-left font-medium">Customer</th>
                     <th className="py-2 px-4 text-right font-medium">Invoices</th>
                     <th className="py-2 px-4 text-right font-medium">Amount</th>
@@ -2882,15 +2981,72 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                   </tr>
                 </thead>
                 <tbody>
-                  {paidByCustomer.map((row) => (
-                    <tr key={row.customer} className="border-b last:border-0">
-                      <td className="py-2 px-4 font-medium">{row.customer}</td>
-                      <td className="py-2 px-4 text-right text-xs">{row.count}</td>
-                      <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(row.amount)}</td>
-                      <td className="py-2 px-4 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(row.commission)}</td>
-                    </tr>
-                  ))}
+                  {paidByCustomer.map((row) => {
+                    const isOpen = expandedPaidCustomers.has(row.customer)
+                    const invs = visiblePaidInvoicesByCustomer[row.customer] || []
+                    return (
+                      <Fragment key={row.customer}>
+                        <tr
+                          onClick={() => togglePaidCustomer(row.customer)}
+                          className="border-b last:border-0 cursor-pointer hover:bg-muted/30"
+                        >
+                          <td className="py-2 px-2 text-center text-muted-foreground">
+                            {isOpen ? <Minus className="size-3.5 inline" /> : <Plus className="size-3.5 inline" />}
+                          </td>
+                          <td className="py-2 px-4 font-medium">{row.customer}</td>
+                          <td className="py-2 px-4 text-right text-xs">{row.count}</td>
+                          <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(row.amount)}</td>
+                          <td className="py-2 px-4 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(row.commission)}</td>
+                        </tr>
+                        {isOpen && (
+                          <tr>
+                            <td></td>
+                            <td colSpan={4} className="p-0">
+                              <div className="bg-muted/20 border-b">
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-muted-foreground border-b border-border/50">
+                                      <th className="py-1.5 px-3 text-left font-medium">Invoice</th>
+                                      <th className="py-1.5 px-3 text-left font-medium">Date</th>
+                                      <th className="py-1.5 px-3 text-left font-medium">Brand</th>
+                                      <th className="py-1.5 px-3 text-right font-medium">Amount</th>
+                                      <th className="py-1.5 px-3 text-right font-medium">Commission</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {invs.map((inv) => {
+                                      const invBrands = Array.from(new Set((inv.lines || []).map(l => l.brand).filter(Boolean)))
+                                      return (
+                                        <tr key={inv.invoiceNum} className="border-b border-border/40 last:border-0">
+                                          <td className="py-1.5 px-3 whitespace-nowrap">{inv.invoiceNum}</td>
+                                          <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">{inv.date || '—'}</td>
+                                          <td className="py-1.5 px-3">
+                                            {invBrands.length === 0 ? (
+                                              <span className="text-muted-foreground">—</span>
+                                            ) : (
+                                              <div className="flex flex-wrap gap-1">
+                                                {invBrands.map(b => (
+                                                  <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
+                                                ))}
+                                              </div>
+                                            )}
+                                          </td>
+                                          <td className="py-1.5 px-3 text-right whitespace-nowrap">{fmt(inv.amount)}</td>
+                                          <td className="py-1.5 px-3 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(inv.commission)}</td>
+                                        </tr>
+                                      )
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
                   <tr className="bg-muted/40 font-semibold">
+                    <td></td>
                     <td className="py-2 px-4">Total</td>
                     <td className="py-2 px-4 text-right text-xs">{paidTotals.count}</td>
                     <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(paidTotals.amount)}</td>
