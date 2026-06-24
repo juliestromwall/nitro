@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dialog'
 import { useCompanies } from '@/context/CompanyContext'
 import JSZip from 'jszip'
-import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, STARTING_ADJUSTMENTS, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
+import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, TERRITORIES, STARTING_ADJUSTMENTS, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
 import { computeCommissions, aggregateByRep } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { shouldIgnoreCustomer, isWsrPostPaymentCustomer } from '@/lib/customerIgnoreList'
@@ -656,6 +656,105 @@ function PaymentsTracker() {
     return { accountOpenBalances: balances, unmatchedSummary: unmatchedList, fuzzyMatchedSummary: fuzzyList }
   }, [invoices, accounts])
 
+  // Per-territory dashboard stats for the Accounts page tile grid.
+  // Maps each territory → { accountCount, paidInvoiceCount, openInvoiceCount,
+  // openByBrand: { brandId → $ }, openTotal, aging: { '0-30' | '31-60' |
+  // '61-90' | '91+' → $ } }.
+  const territoryStats = useMemo(() => {
+    const norm = (s) => String(s || '')
+      .toUpperCase()
+      .replace(/['']/g, '')
+      .replace(/\([^)]*\)/g, '')
+      .replace(/\s+-\s.*$/, '')
+      .replace(/[^A-Z0-9 ]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const byNorm = new Map()
+    for (const a of accounts) {
+      const n = norm(a.name)
+      if (n && !byNorm.has(n)) byNorm.set(n, a)
+    }
+
+    // Pre-aggregate line-item amounts per invoice per brand (for pie slices).
+    const lineSums = new Map() // num → { byBrand: {}, total: 0 }
+    for (const item of lineItems) {
+      if (!item?.num) continue
+      const info = lookupBrand(item.sku)
+      const brand = info?.brandId || 'unknown'
+      const amt = item.amount || 0
+      if (!lineSums.has(item.num)) lineSums.set(item.num, { byBrand: {}, total: 0 })
+      const rec = lineSums.get(item.num)
+      rec.byBrand[brand] = (rec.byBrand[brand] || 0) + amt
+      rec.total += amt
+    }
+
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const stats = {}
+    const blank = () => ({
+      accountCount: 0,
+      paidInvoiceCount: 0,
+      openInvoiceCount: 0,
+      openByBrand: {},
+      openTotal: 0,
+      aging: { '0-30': 0, '31-60': 0, '61-90': 0, '91+': 0 },
+    })
+    for (const t of TERRITORIES) stats[t] = blank()
+
+    for (const a of accounts) {
+      if (a.territory && stats[a.territory]) stats[a.territory].accountCount += 1
+    }
+
+    for (const inv of invoices) {
+      const n = norm(inv.customer)
+      if (!n) continue
+      let acct = byNorm.get(n)
+      if (!acct) {
+        for (const [key, a] of byNorm.entries()) {
+          if (Math.min(key.length, n.length) >= 4 && (key.includes(n) || n.includes(key))) {
+            acct = a
+            break
+          }
+        }
+      }
+      const t = acct?.territory
+      if (!t || !stats[t]) continue
+      const open = inv.openBalance || 0
+      if (open <= 0.005) {
+        stats[t].paidInvoiceCount += 1
+        continue
+      }
+      stats[t].openInvoiceCount += 1
+      stats[t].openTotal += open
+
+      // Brand allocation — pro-rate the invoice's open balance across brands
+      // by line-item mix. Falls back to 'unknown' if no line items present.
+      const lines = lineSums.get(inv.num)
+      if (lines && lines.total > 0) {
+        for (const [brand, brandAmt] of Object.entries(lines.byBrand)) {
+          stats[t].openByBrand[brand] = (stats[t].openByBrand[brand] || 0) + open * (brandAmt / lines.total)
+        }
+      } else {
+        stats[t].openByBrand['unknown'] = (stats[t].openByBrand['unknown'] || 0) + open
+      }
+
+      // Aging by due date. Missing due date → 0-30 bucket.
+      let bucket = '0-30'
+      if (inv.dueDate) {
+        const due = new Date(inv.dueDate)
+        if (!isNaN(due)) {
+          due.setHours(0, 0, 0, 0)
+          const days = Math.floor((today - due) / 86400000)
+          if (days <= 30) bucket = '0-30'
+          else if (days <= 60) bucket = '31-60'
+          else if (days <= 90) bucket = '61-90'
+          else bucket = '91+'
+        }
+      }
+      stats[t].aging[bucket] += open
+    }
+    return stats
+  }, [accounts, invoices, lineItems])
+
   const [territoryModalOpen, setTerritoryModalOpen] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [salesImportOpen, setSalesImportOpen] = useState(false)
@@ -784,7 +883,7 @@ function PaymentsTracker() {
               view === 'invoices' ? 'border-[#005b5b] text-[#005b5b]' : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
-            Invoices
+            Data Uploads
           </button>
         </div>
       )}
@@ -825,7 +924,7 @@ function PaymentsTracker() {
         <h1 className="text-3xl font-bold tracking-tight">
           {view === 'reps' && 'Rep Payments'}
           {view === 'accounts' && 'Accounts'}
-          {view === 'invoices' && 'Invoices'}
+          {view === 'invoices' && 'Data Uploads'}
           {view === 'rep-ledger' && `${selectedRep?.name} — Commission Ledger`}
           {view === 'brands' && `${selectedRep?.name}`}
           {view === 'ledger' && `${selectedRep?.name} • ${selectedBrand?.name}`}
@@ -833,7 +932,7 @@ function PaymentsTracker() {
         </h1>
         {view === 'reps' && <p className="mt-2 text-muted-foreground">Track commission payments for each rep</p>}
         {view === 'accounts' && <p className="mt-2 text-muted-foreground">{accounts.length} accounts across {new Set(accounts.map(a => a.territory).filter(Boolean)).size} territories</p>}
-        {view === 'invoices' && <p className="mt-2 text-muted-foreground">Customer invoice payments</p>}
+        {view === 'invoices' && <p className="mt-2 text-muted-foreground">Upload QuickBooks invoices, line items, and AR reports</p>}
         {view === 'brands' && <p className="mt-2 text-muted-foreground">Select a brand to view payment history</p>}
         {view === 'ledger' && (
           <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
@@ -1001,6 +1100,7 @@ function PaymentsTracker() {
           accountOpenBalances={accountOpenBalances}
           unmatchedSummary={unmatchedSummary}
           fuzzyMatchedSummary={fuzzyMatchedSummary}
+          territoryStats={territoryStats}
           search={accountSearch}
           onSearchChange={setAccountSearch}
           territoryFilter={accountTerritoryFilter}
@@ -1265,7 +1365,114 @@ function PaymentsTracker() {
 // =====================================================================
 // AccountsView — Tony's master list of all 439 accounts
 // =====================================================================
-function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedSummary, fuzzyMatchedSummary = [], search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
+// Brand display + color palette for the territory tile donuts.
+const BRAND_DISPLAY = {
+  'brand-nitro':  { label: 'NITRO',  color: '#005b5b' },
+  'brand-autumn': { label: 'AUTUMN', color: '#d97706' },
+  'brand-l1':     { label: 'L1',     color: '#6366f1' },
+  'brand-eivy':   { label: 'EIVY',   color: '#db2777' },
+  'unknown':      { label: 'Other',  color: '#9ca3af' },
+}
+
+// Inline SVG donut chart. `data` = [{ key, value, color }]. Gracefully no-ops
+// when total is zero (renders a faint full ring as an empty-state).
+function DonutChart({ data, size = 110, strokeWidth = 18 }) {
+  const total = data.reduce((s, d) => s + (d.value || 0), 0)
+  const radius = (size - strokeWidth) / 2
+  const circumference = 2 * Math.PI * radius
+  const cx = size / 2
+  const cy = size / 2
+  let offset = 0
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
+      <circle cx={cx} cy={cy} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={strokeWidth} />
+      {total > 0 && data.map((d) => {
+        const v = d.value || 0
+        if (v <= 0) return null
+        const dash = (v / total) * circumference
+        const gap = circumference - dash
+        const seg = (
+          <circle
+            key={d.key}
+            cx={cx} cy={cy} r={radius}
+            fill="none" stroke={d.color} strokeWidth={strokeWidth}
+            strokeDasharray={`${dash} ${gap}`}
+            strokeDashoffset={-offset}
+            transform={`rotate(-90 ${cx} ${cy})`}
+          />
+        )
+        offset += dash
+        return seg
+      })}
+    </svg>
+  )
+}
+
+function TerritoryTile({ territory, stats, onClick }) {
+  const donutData = useMemo(() => {
+    return Object.entries(stats.openByBrand)
+      .filter(([, v]) => (v || 0) > 0.005)
+      .sort((a, b) => b[1] - a[1])
+      .map(([brand, value]) => ({
+        key: brand,
+        value,
+        color: (BRAND_DISPLAY[brand] || BRAND_DISPLAY.unknown).color,
+        label: (BRAND_DISPLAY[brand] || BRAND_DISPLAY.unknown).label,
+      }))
+  }, [stats.openByBrand])
+  return (
+    <Card onClick={onClick} className="cursor-pointer hover:border-[#005b5b] transition-colors">
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <CardTitle className="text-base text-[#005b5b] truncate">{territory}</CardTitle>
+            <CardDescription className="text-xs">
+              {stats.accountCount} {stats.accountCount === 1 ? 'account' : 'accounts'} · {stats.openInvoiceCount} open · {stats.paidInvoiceCount} paid
+            </CardDescription>
+          </div>
+          <div className="text-right shrink-0">
+            <div className="text-xs text-muted-foreground">Open total</div>
+            <div className="font-bold text-[#005b5b]">{fmt(stats.openTotal)}</div>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center gap-4">
+          <DonutChart data={donutData} size={110} strokeWidth={18} />
+          <div className="flex-1 min-w-0 space-y-1">
+            {donutData.length === 0 ? (
+              <div className="text-xs text-muted-foreground">No open invoices.</div>
+            ) : donutData.map(d => (
+              <div key={d.key} className="flex items-center gap-2 text-xs">
+                <span className="inline-block size-2.5 rounded-sm shrink-0" style={{ backgroundColor: d.color }} />
+                <span className="font-medium">{d.label}</span>
+                <span className="ml-auto text-muted-foreground whitespace-nowrap">{fmt(d.value)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Open invoice aging</div>
+          <div className="grid grid-cols-4 gap-1 text-center">
+            {[
+              { label: '0–30', key: '0-30',  bg: 'bg-emerald-50 dark:bg-emerald-950/30', text: 'text-emerald-700 dark:text-emerald-300' },
+              { label: '31–60', key: '31-60', bg: 'bg-amber-50 dark:bg-amber-950/30',     text: 'text-amber-700 dark:text-amber-300' },
+              { label: '61–90', key: '61-90', bg: 'bg-orange-50 dark:bg-orange-950/30',   text: 'text-orange-700 dark:text-orange-300' },
+              { label: '91+',  key: '91+',   bg: 'bg-red-50 dark:bg-red-950/30',         text: 'text-red-700 dark:text-red-300' },
+            ].map(b => (
+              <div key={b.key} className={`rounded ${b.bg} px-1 py-1`}>
+                <div className="text-[10px] text-muted-foreground">{b.label}</div>
+                <div className={`text-xs font-semibold whitespace-nowrap ${b.text}`}>{fmt(stats.aging[b.key])}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedSummary, fuzzyMatchedSummary = [], territoryStats = {}, search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
   const [unmatchedOpen, setUnmatchedOpen] = useState(false)
   const [fuzzyOpen, setFuzzyOpen] = useState(false)
   const fuzzyTotal = useMemo(
@@ -1281,10 +1488,15 @@ function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedS
     return Array.from(set).sort()
   }, [accounts])
 
+  // When a territory tile is clicked we narrow the grouped list to only
+  // accounts with open balances. The toggle at the top of the list resets
+  // this to show all accounts in the territory.
+  const [openBalancesOnly, setOpenBalancesOnly] = useState(false)
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim()
     return accounts.filter(a => {
       if (territoryFilter !== 'all' && a.territory !== territoryFilter) return false
+      if (openBalancesOnly && !(accountOpenBalances?.[a.id] > 0.005)) return false
       if (!q) return true
       return (
         a.name.toLowerCase().includes(q) ||
@@ -1294,7 +1506,7 @@ function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedS
         (a.territory || '').toLowerCase().includes(q)
       )
     })
-  }, [accounts, search, territoryFilter])
+  }, [accounts, search, territoryFilter, openBalancesOnly, accountOpenBalances])
 
   // Group by territory
   const grouped = useMemo(() => {
@@ -1432,12 +1644,47 @@ function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedS
         </div>
       )}
 
+      {/* Territory dashboard tiles (2 cols × 4 rows) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {TERRITORIES.map(t => (
+          <TerritoryTile
+            key={t}
+            territory={t}
+            stats={territoryStats[t] || { accountCount: 0, paidInvoiceCount: 0, openInvoiceCount: 0, openByBrand: {}, openTotal: 0, aging: { '0-30': 0, '31-60': 0, '61-90': 0, '91+': 0 } }}
+            onClick={() => {
+              onTerritoryChange(t)
+              setExpanded(new Set([t]))
+              setOpenBalancesOnly(true)
+              // Defer scroll until after the territory filter has flushed.
+              setTimeout(() => {
+                const el = document.querySelector(`[data-territory-anchor="${t}"]`)
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }, 50)
+            }}
+          />
+        ))}
+      </div>
+
       {/* Grouped list */}
       <div className="space-y-6">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-xs text-muted-foreground">
+            {openBalancesOnly
+              ? `Showing accounts with open balances only · ${filtered.length} ${filtered.length === 1 ? 'account' : 'accounts'}`
+              : `Showing all accounts · ${filtered.length} ${filtered.length === 1 ? 'account' : 'accounts'}`}
+          </div>
+          <Button
+            variant={openBalancesOnly ? 'outline' : 'secondary'}
+            size="sm"
+            onClick={() => setOpenBalancesOnly(v => !v)}
+          >
+            {openBalancesOnly ? 'All Accounts' : 'Open Balances Only'}
+          </Button>
+        </div>
         {territoryOrder.map((terr) => {
           const isCollapsed = !expanded.has(terr)
           return (
-          <div key={terr}>
+          <div key={terr} data-territory-anchor={terr}>
             <button
               type="button"
               onClick={() => toggleTerritory(terr)}
@@ -1632,6 +1879,38 @@ function InvoicesView({
   }, [invoices, lineItems, itemsInvoiceNumSet])
   const [missingItemsOpen, setMissingItemsOpen] = useState(false)
 
+  // Data-integrity check #2: line items whose SKU doesn't resolve to a brand
+  // via the catalog map. Aggregated by SKU with invoice count, total $ amount,
+  // and a few sample invoice numbers for triage. Empty / blank SKUs are
+  // grouped under "(blank)" so they're not silently dropped.
+  const unresolvedSkus = useMemo(() => {
+    if (!lineItems?.length) return []
+    const by = new Map() // sku → { sku, lineCount, invoiceSet, amount, sampleInvoices, description }
+    for (const it of lineItems) {
+      const rawSku = String(it?.sku || '').trim()
+      const info = rawSku ? lookupBrand(rawSku) : null
+      if (info?.brandName) continue
+      const key = rawSku || '(blank)'
+      if (!by.has(key)) by.set(key, { sku: key, lineCount: 0, invoiceSet: new Set(), amount: 0, sampleInvoices: [], description: '' })
+      const rec = by.get(key)
+      rec.lineCount += 1
+      rec.amount += it.amount || 0
+      // Capture the first non-empty description we see for this SKU. Older
+      // line-item exports persisted before the parser change won't have one.
+      if (!rec.description && it.description) rec.description = it.description
+      if (it.num) {
+        if (!rec.invoiceSet.has(it.num)) {
+          rec.invoiceSet.add(it.num)
+          if (rec.sampleInvoices.length < 3) rec.sampleInvoices.push(it.num)
+        }
+      }
+    }
+    return Array.from(by.values())
+      .map(r => ({ sku: r.sku, description: r.description, lineCount: r.lineCount, invoiceCount: r.invoiceSet.size, amount: r.amount, sampleInvoices: r.sampleInvoices }))
+      .sort((a, b) => b.invoiceCount - a.invoiceCount || b.amount - a.amount)
+  }, [lineItems])
+  const [unresolvedSkusOpen, setUnresolvedSkusOpen] = useState(false)
+
   const parseAmount = (v) => {
     if (v == null || v === '') return null
     const n = parseFloat(String(v).replace(/[$,]/g, ''))
@@ -1718,13 +1997,18 @@ function InvoicesView({
           if (!r || r.every(c => c == null || String(c).trim() === '')) continue
           const customer = String(r[col.customer] || '').trim()
           if (!customer) continue
+          const numCell = col.num >= 0 ? String(r[col.num] || '').trim() : ''
+          // Skip credit memos (SC* prefix). Per Tony's call 2026-06-24 they
+          // shouldn't appear in the dataset until the Data Uploads redesign
+          // gives them their own surface.
+          if (/^SC/i.test(numCell)) continue
           const amount = col.amount >= 0 ? parseAmount(r[col.amount]) : null
           const openBalance = col.openBalance >= 0 ? parseAmount(r[col.openBalance]) : null
           parsed.push({
             customer,
             date: col.date >= 0 ? cellToDateString(r[col.date]) : '',
             dueDate: col.dueDate >= 0 ? cellToDateString(r[col.dueDate]) : '',
-            num: col.num >= 0 ? String(r[col.num] || '').trim() : '',
+            num: numCell,
             amount,
             openBalance,
             status: computeStatus(amount, openBalance),
@@ -1764,6 +2048,11 @@ function InvoicesView({
             const tt = String(r[col.transactionType] || '').trim().toLowerCase()
             if (tt && tt !== 'invoice') continue
           }
+          // Belt-and-suspenders: also drop anything with an SC* prefix (QB's
+          // credit-memo convention) even if the Transaction type column is
+          // absent. Hidden everywhere per Tony 2026-06-24 until the Data
+          // Uploads redesign lands.
+          if (/^SC/i.test(numCell)) continue
 
           const amount = parseAmount(amountCell)
           const openBalance = col.openBalance >= 0 ? parseAmount(r[col.openBalance]) : null
@@ -1883,10 +2172,13 @@ function InvoicesView({
         // Persisted shape kept LEAN — line items JSON for a full year easily
         // exceeds the ~5MB localStorage quota with full per-item fields.
         // Only persist what the engine + brand attribution actually use.
+        // (description is light enough to include — helps triage unresolved
+        // SKUs without needing the original CSV handy.)
         parsed.push({
           customer: currentCustomer || '',
           num,
           sku: col.sku >= 0 ? String(row[col.sku] || '').trim() : '',
+          description: col.description >= 0 ? String(row[col.description] || '').trim() : '',
           amount: col.amount >= 0 ? parseAmount(row[col.amount]) : null,
         })
       }
@@ -2258,6 +2550,91 @@ function InvoicesView({
                     <tr>
                       <td colSpan={5} className="py-1 text-center text-muted-foreground">
                         ... and {invoicesMissingLineItems.length - 200} more.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Unresolved-SKU banner — line items whose SKU isn't in any catalog
+          xlsx, so they don't get a brand attribution. Different from the
+          banner above (which is about invoices that have zero line items
+          at all). */}
+      {unresolvedSkus.length > 0 && (
+        <div className="rounded-lg border border-orange-300 bg-orange-50 dark:bg-orange-950/30 dark:border-orange-900 px-3 py-2.5 text-sm">
+          <button
+            type="button"
+            onClick={() => setUnresolvedSkusOpen(o => !o)}
+            className="flex items-center justify-between gap-2 w-full text-left"
+            aria-expanded={unresolvedSkusOpen}
+          >
+            <span className="text-orange-900 dark:text-orange-200">
+              <span className="font-semibold">Unresolved SKUs:</span>{' '}
+              {unresolvedSkus.length} distinct {unresolvedSkus.length === 1 ? 'SKU has' : 'SKUs have'} no brand match
+              {' • '}
+              <span className="font-medium">
+                {unresolvedSkus.reduce((s, r) => s + r.invoiceCount, 0)} invoice{unresolvedSkus.reduce((s, r) => s + r.invoiceCount, 0) === 1 ? '' : 's'}
+              </span>
+              {' affected • '}
+              <span className="font-medium">{fmt(unresolvedSkus.reduce((s, r) => s + r.amount, 0))}</span>
+              {' — '}
+              <span className="underline">{unresolvedSkusOpen ? 'Hide' : 'View'}</span>
+            </span>
+          </button>
+          {unresolvedSkusOpen && (
+            <div className="mt-3 max-h-80 overflow-y-auto pr-1 border-t border-orange-200 dark:border-orange-900 pt-2">
+              <div className="flex items-start justify-between gap-3 mb-2">
+                <div className="text-xs text-orange-800 dark:text-orange-300/80">
+                  These SKUs appear on line items but aren't in any catalog xlsx (so they don't drive brand attribution). Likely causes: older-season carry-over, non-product SKUs (SHIPPING / DISCOUNT / SAMPLES), typos, or a missing catalog file in <code className="text-[10px]">catalogs/{'{'}season{'}'}/</code>.
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const today = new Date().toISOString().slice(0, 10)
+                    const header = ['SKU', 'Item Description', 'Lines', 'Invoices', 'Amount', 'Sample invoices']
+                    const rows = unresolvedSkus.map(r => [r.sku, r.description || '', r.lineCount, r.invoiceCount, r.amount || 0, r.sampleInvoices.join(', ')])
+                    const ws = XLSX.utils.aoa_to_sheet([header, ...rows])
+                    ws['!cols'] = [{ wch: 22 }, { wch: 38 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 40 }]
+                    const wb = XLSX.utils.book_new()
+                    XLSX.utils.book_append_sheet(wb, ws, 'Unresolved SKUs')
+                    XLSX.writeFile(wb, `unresolved-skus ${today}.xlsx`)
+                  }}
+                  className="shrink-0 text-xs h-7"
+                >
+                  <FileSpreadsheet className="size-3.5 mr-1" /> Export
+                </Button>
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-orange-900 dark:text-orange-200 text-left border-b border-orange-200 dark:border-orange-900">
+                    <th className="py-1 pr-3 font-medium">SKU</th>
+                    <th className="py-1 pr-3 font-medium">Item Description</th>
+                    <th className="py-1 pr-3 font-medium text-right">Lines</th>
+                    <th className="py-1 pr-3 font-medium text-right">Invoices</th>
+                    <th className="py-1 pr-3 font-medium text-right">Amount</th>
+                    <th className="py-1 font-medium">Sample invoices</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unresolvedSkus.slice(0, 200).map((r) => (
+                    <tr key={r.sku} className="border-t border-orange-100 dark:border-orange-900/60">
+                      <td className="py-1 pr-3 font-mono whitespace-nowrap">{r.sku}</td>
+                      <td className="py-1 pr-3 truncate max-w-[20rem]">{r.description || <span className="text-muted-foreground">—</span>}</td>
+                      <td className="py-1 pr-3 text-right whitespace-nowrap">{r.lineCount}</td>
+                      <td className="py-1 pr-3 text-right whitespace-nowrap">{r.invoiceCount}</td>
+                      <td className="py-1 pr-3 text-right whitespace-nowrap">{fmt(r.amount)}</td>
+                      <td className="py-1 text-muted-foreground truncate max-w-[16rem]">{r.sampleInvoices.join(', ')}</td>
+                    </tr>
+                  ))}
+                  {unresolvedSkus.length > 200 && (
+                    <tr>
+                      <td colSpan={6} className="py-1 text-center text-muted-foreground">
+                        ... and {unresolvedSkus.length - 200} more.
                       </td>
                     </tr>
                   )}

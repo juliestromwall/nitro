@@ -584,15 +584,17 @@ export const ACCOUNTS = [
 ]
 
 // Distinct territory list (for filters / dropdowns)
+// Display order — geographic west-to-east per Tony's preference (2026-06-24).
+// Used directly by the Accounts page tile grid and the territoryStats memo.
 export const TERRITORIES = [
-  "EAST COAST (PA, NY, NJ, DE)",
-  "MIDWEST PLAINS",
-  "NEW ENGLAND",
-  "NORCAL",
   "PNW",
+  "NORCAL",
   "SOCAL / AZ",
-  "SOUTHEAST",
   "SOUTHWEST (UT, CO, NM, TX)",
+  "MIDWEST PLAINS",
+  "SOUTHEAST",
+  "EAST COAST (PA, NY, NJ, DE)",
+  "NEW ENGLAND",
 ]
 
 export const ENTRIES = [

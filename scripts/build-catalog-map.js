@@ -27,10 +27,33 @@ const CATALOGS = [
   { file: 'AUTUMN FW25.26 HEADWEAR ORDERFORM V1.3 (1).xlsx',   sheet: 'Sheet1',                  headerRow: 28, skuCol: 2, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
   { file: 'AUTUMN MTN COLLECTION FW25.26 ORDERFORM .V1.4.xlsx', sheet: 'Order Form',             headerRow: 28, skuCol: 2, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
   { file: '20252026 Autumn Spring.xlsx',                       sheet: '2025-2026 Autumn Spring', headerRow: 0,  skuCol: 8, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
+  // Corduroy is a separate brand at the product level but rolls up under
+  // Autumn for commission purposes per Tony's instruction (2026-06-24).
+  { file: 'CORDUROY FW25 ORDERFORM V1.1.xlsx',                 sheet: 'FW25 Orderform',          headerRow: 9,  skuCol: 4, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
+  // Older-season Autumn catalog (carry-over coverage)
+  { file: 'AUTUMN FW24.25 ORDERFORM V1.4.xlsx',                sheet: 'Order Form',              headerRow: 27, skuCol: 2, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
+  { file: 'AUTUMN FW22 ORDER FORM .xlsx',                      sheet: 'Order Form',              headerRow: 25, skuCol: 1, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
   { file: 'US - Eivy 25-26 V.1.0xlsx.xlsx',                    sheet: 'Eivy',         headerRow: 0,  skuCol: 7, brandId: 'brand-eivy',   brandName: 'EIVY' },
+  // Older-season Eivy catalogs (carry-over coverage)
+  { file: 'US - Eivy 24-25 v1.0.xls',                          sheet: 'FALL -  WINTER',   headerRow: 5, skuCol: 5, brandId: 'brand-eivy', brandName: 'EIVY' },
+  { file: 'US - Eivy 24-25 v1.0.xls',                          sheet: 'SPRING -  SUMMER', headerRow: 5, skuCol: 5, brandId: 'brand-eivy', brandName: 'EIVY' },
+  { file: '2023 Eivy USA v1.2.xlsx',                           sheet: 'Eivy 22-23 Drop One', headerRow: 0, skuCol: 1, brandId: 'brand-eivy', brandName: 'EIVY' },
+  { file: '2023 Eivy USA v1.2.xlsx',                           sheet: 'Eivy 22-23 Drop Two', headerRow: 0, skuCol: 1, brandId: 'brand-eivy', brandName: 'EIVY' },
   { file: 'US - L1 25-26 V.1.0.xlsx',                          sheet: 'L1',           headerRow: 0,  skuCol: 7, brandId: 'brand-l1',     brandName: 'L1' },
+  // Older-season L1 catalogs (carry-over coverage)
+  { file: 'US - L1 24-25 V.1.xls',                             sheet: 'L1',           headerRow: 3,  skuCol: 4, brandId: 'brand-l1',     brandName: 'L1' },
+  { file: '2023 L1 USA v1.3.xlsx',                             sheet: 'L1',           headerRow: 0,  skuCol: 1, brandId: 'brand-l1',     brandName: 'L1' },
   { file: 'US - Nitro 25-26 V.1.1xlsx.xlsx',                   sheet: 'Nitro',        headerRow: 0,  skuCol: 7, brandId: 'brand-nitro',  brandName: 'NITRO' },
   { file: 'US - Nitro Rental 25-26 V.1.0.xlsx',                sheet: 'Nitro Rental', headerRow: 0,  skuCol: 7, brandId: 'brand-nitro',  brandName: 'NITRO', isRental: true },
+  // Older-season Nitro catalog covers carry-over SKUs (e.g. N832*) that
+  // appear on current-season invoices but aren't in the 25-26 catalog.
+  { file: 'US - Nitro 24-25 V.4.xlsx',                         sheet: 'Nitro',        headerRow: 4,  skuCol: 4, brandId: 'brand-nitro',  brandName: 'NITRO' },
+  { file: 'USA - Nitro Rental 23.24.xls',                      sheet: 'USA RENTAL ORDER',         headerRow: 4, skuCol: 4, brandId: 'brand-nitro', brandName: 'NITRO', isRental: true },
+  // Next-season (26-27) Nitro catalogs covering carry-over SKUs already
+  // appearing on current invoices.
+  { file: 'US - Nitro 2627 V1.1 (1).xlsx',                     sheet: '2026-2027 Nitro Snowboards', headerRow: 0, skuCol: 5, brandId: 'brand-nitro', brandName: 'NITRO' },
+  { file: 'US - Nitro Rental 2627 V1.1 .xlsx',                 sheet: '2026-2027 Nitro Rental',     headerRow: 0, skuCol: 5, brandId: 'brand-nitro', brandName: 'NITRO', isRental: true },
+  { file: 'US - Nitro Packages 2627 V1.1 .xlsx',               sheet: '2026-2027 Nitro Packages',   headerRow: 0, skuCol: 6, brandId: 'brand-nitro', brandName: 'NITRO' },
 ]
 
 // Heuristic for "is this string a SKU?" — must have at least one letter and
