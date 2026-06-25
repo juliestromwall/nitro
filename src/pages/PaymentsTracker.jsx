@@ -4072,13 +4072,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       </Card>
 
       {/* Summary cards: the three pieces of info Tony's monthly report needs */}
-      <div className={`grid grid-cols-1 sm:grid-cols-2 ${safeSummary.owesFoundry > 0 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardDescription>Earned YTD</CardDescription>
-            <CardTitle className="text-2xl">{fmt(safeSummary.earned)}</CardTitle>
-          </CardHeader>
-        </Card>
+      <div className={`grid grid-cols-1 sm:grid-cols-2 ${safeSummary.owesFoundry > 0 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
         <Card>
           <CardHeader className="pb-2">
             <CardDescription>Paid out YTD</CardDescription>
