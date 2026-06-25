@@ -15,6 +15,9 @@ import { computeCommissions, aggregateByRep } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { shouldIgnoreCustomer, isWsrPostPaymentCustomer } from '@/lib/customerIgnoreList'
 import { loadLineItems, saveLineItems as idbSaveLineItems, clearLineItems as idbClearLineItems } from '@/lib/lineItemsStore'
+import { loadPaymentsTx, savePaymentsTx as idbSavePaymentsTx, clearPaymentsTx as idbClearPaymentsTx } from '@/lib/paymentsStore'
+import { loadBpOverrides, mergeBpOverrides as idbMergeBpOverrides, clearBpOverrides as idbClearBpOverrides } from '@/lib/bpOverridesStore'
+import { loadWsrRemittances, addWsrRemittance as idbAddWsrRemittance, clearWsrRemittances as idbClearWsrRemittances } from '@/lib/wsrRemittanceStore'
 import { exportRepReportPDF, exportRepReportXLSX } from '@/lib/repReport'
 
 // Loose column-name matcher for QuickBooks-style payment report imports.
@@ -283,7 +286,7 @@ function PaymentsTracker() {
   const [invoiceDrillHighlight, setInvoiceDrillHighlight] = useState(null)
 
   // Invoices (lifted from InvoicesView so AccountsView can derive Open Balance)
-  const [invoices, setInvoicesState] = useState(() => {
+  const [invoicesRaw, setInvoicesState] = useState(() => {
     try {
       const raw = localStorage.getItem(INVOICES_LS_KEY)
       if (raw) return JSON.parse(raw)
@@ -318,7 +321,7 @@ function PaymentsTracker() {
   // Returns { added, updated, total } so the UI can show a summary.
   const [lastInvoicesImport, setLastInvoicesImport] = useState(null)
   const appendInvoices = (rows, meta) => {
-    const map = new Map(invoices.map(r => [r.num, r]))
+    const map = new Map(invoicesRaw.map(r => [r.num, r]))
     let added = 0, updated = 0, wsrPreserved = 0
     for (const r of rows) {
       if (!r?.num) continue
@@ -427,6 +430,138 @@ function PaymentsTracker() {
     idbClearLineItems().catch(() => {})
   }
 
+  // QB Payments transaction CSV — single-file replace semantics.
+  const [paymentsTx, setPaymentsTxState] = useState([])
+  const [paymentsTxMeta, setPaymentsTxMetaState] = useState(null)
+  useEffect(() => {
+    loadPaymentsTx().then(({ transactions, meta }) => {
+      setPaymentsTxState(transactions)
+      setPaymentsTxMetaState(meta)
+    }).catch(() => {})
+  }, [])
+  const savePaymentsTxState = (transactions, meta) => {
+    setPaymentsTxState(transactions)
+    setPaymentsTxMetaState(meta)
+    idbSavePaymentsTx(transactions, meta).catch(() => {})
+  }
+  const clearPaymentsTxState = () => {
+    setPaymentsTxState([])
+    setPaymentsTxMetaState(null)
+    idbClearPaymentsTx().catch(() => {})
+  }
+
+  // Brightpearl invoice → original customer name overrides. Merge semantics.
+  const [bpOverrides, setBpOverridesState] = useState({})
+  const [bpOverridesMeta, setBpOverridesMetaState] = useState(null)
+  useEffect(() => {
+    loadBpOverrides().then(({ overrides, meta }) => {
+      setBpOverridesState(overrides)
+      setBpOverridesMetaState(meta)
+    }).catch(() => {})
+  }, [])
+  const mergeBpOverridesState = async (newOverrides, meta) => {
+    const merged = await idbMergeBpOverrides(newOverrides, meta)
+    setBpOverridesState(merged)
+    setBpOverridesMetaState(meta)
+  }
+  const clearBpOverridesState = () => {
+    setBpOverridesState({})
+    setBpOverridesMetaState(null)
+    idbClearBpOverrides().catch(() => {})
+  }
+
+  // WSR ACH payment remittances — one upload per check. Dedupe by checkNumber.
+  const [wsrRemittances, setWsrRemittancesState] = useState([])
+  useEffect(() => {
+    loadWsrRemittances().then(setWsrRemittancesState).catch(() => {})
+  }, [])
+  const addWsrRemittanceState = async (rec) => {
+    const next = await idbAddWsrRemittance(rec)
+    setWsrRemittancesState(next)
+  }
+  const clearWsrRemittancesState = () => {
+    setWsrRemittancesState([])
+    idbClearWsrRemittances().catch(() => {})
+  }
+
+  // ───────────────────────────────────────────────────────────────────
+  // Derived: WSR remittance → per-invoice payment events + memberId chain
+  // ───────────────────────────────────────────────────────────────────
+  // Map<invoiceNum, Array<{checkDate, checkNumber, amountPaid, memberId}>>.
+  // SC-prefix entries (credit memos) are excluded.
+  const wsrInvoicePayments = useMemo(() => {
+    const m = new Map()
+    for (const r of wsrRemittances || []) {
+      for (const inv of r.invoices || []) {
+        if (!inv.invoiceNum) continue
+        if (/^SC/i.test(inv.invoiceNum)) continue
+        if (!m.has(inv.invoiceNum)) m.set(inv.invoiceNum, [])
+        m.get(inv.invoiceNum).push({
+          checkDate: r.checkDate,
+          checkNumber: r.checkNumber,
+          amountPaid: inv.amountPaid || 0,
+          memberId: inv.memberId || '',
+        })
+      }
+    }
+    for (const arr of m.values()) arr.sort((a, b) => (a.checkDate || '').localeCompare(b.checkDate || ''))
+    return m
+  }, [wsrRemittances])
+
+  // Chain: WSR remittance gives invoiceNum→memberId; BP overrides give
+  // invoiceNum→customerName. Where both exist we learn memberId→customer,
+  // letting us backfill the customer for WSR invoices that aren't in BP.
+  const wsrMemberToCustomer = useMemo(() => {
+    const m = new Map()
+    for (const [invNum, events] of wsrInvoicePayments.entries()) {
+      const bpName = bpOverrides?.[invNum]
+      if (!bpName) continue
+      for (const ev of events) {
+        if (ev.memberId && !m.has(ev.memberId)) m.set(ev.memberId, bpName)
+      }
+    }
+    return m
+  }, [wsrInvoicePayments, bpOverrides])
+
+  // Apply BP overrides FIRST, then WSR member chain. Only swaps the
+  // customer when the current value reads as a WSR-renamed token. Every
+  // downstream consumer (engine, account balances, unmatched banner, etc.)
+  // sees the recovered name.
+  const invoices = useMemo(() => {
+    const bpEmpty = !bpOverrides || Object.keys(bpOverrides).length === 0
+    const chainEmpty = wsrMemberToCustomer.size === 0
+    if (bpEmpty && chainEmpty) return invoicesRaw
+    return invoicesRaw.map(inv => {
+      if (!isWsrPostPaymentCustomer(inv.customer)) return inv
+      const bpName = bpOverrides?.[inv.num]
+      if (bpName) return { ...inv, customer: bpName }
+      const events = wsrInvoicePayments.get(inv.num)
+      if (events?.length) {
+        const chained = wsrMemberToCustomer.get(events[0].memberId)
+        if (chained) return { ...inv, customer: chained }
+      }
+      return inv
+    })
+  }, [invoicesRaw, bpOverrides, wsrInvoicePayments, wsrMemberToCustomer])
+  const bpOverridesAppliedCount = useMemo(() => {
+    if (!bpOverrides || Object.keys(bpOverrides).length === 0) return 0
+    let count = 0
+    for (const inv of invoicesRaw) {
+      if (isWsrPostPaymentCustomer(inv.customer) && bpOverrides[inv.num]) count++
+    }
+    return count
+  }, [invoicesRaw, bpOverrides])
+  const wsrRemittanceAppliedCount = useMemo(() => {
+    let count = 0
+    for (const inv of invoicesRaw) {
+      if (!isWsrPostPaymentCustomer(inv.customer)) continue
+      if (bpOverrides?.[inv.num]) continue
+      const events = wsrInvoicePayments.get(inv.num)
+      if (events?.length && wsrMemberToCustomer.get(events[0].memberId)) count++
+    }
+    return count
+  }, [invoicesRaw, bpOverrides, wsrInvoicePayments, wsrMemberToCustomer])
+
   // Commission payouts (Tony paid Rep $X on date Y)
   const [commissionPayouts, setCommissionPayoutsState] = useState(() => {
     try {
@@ -478,12 +613,196 @@ function PaymentsTracker() {
     () => aggregateByRep(commissionResult.entries),
     [commissionResult]
   )
-  // Sum recorded payouts per rep (for "available to collect" math).
+
+  // ───────────────────────────────────────────────────────────────────
+  // Per-invoice payment EVENTS: Map<invoiceNum, Array<{date, amount, source}>>.
+  // Priority:
+  //   1. WSR remittance (authoritative — per-check allocation)
+  //   2. Auto-matcher with 3-phase matching:
+  //      Phase A — single payment matches invoice paid portion (within $5)
+  //      Phase B — N identical installments sum to paid portion (Valians)
+  //      Phase C — small subset of distinct payments sums to paid portion
+  // Anything we can't resolve stays absent (strict no-manual-data policy).
+  // ───────────────────────────────────────────────────────────────────
+  const paymentEventsByInvoiceNum = useMemo(() => {
+    const result = new Map()
+    const add = (num, ev) => {
+      if (!result.has(num)) result.set(num, [])
+      result.get(num).push(ev)
+    }
+    // 1. WSR remittance — push each line as an event.
+    for (const [num, events] of wsrInvoicePayments.entries()) {
+      for (const ev of events) add(num, { date: ev.checkDate, amount: ev.amountPaid || 0, source: 'wsr' })
+    }
+    if (!paymentsTx?.length || !invoices?.length) {
+      for (const arr of result.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+      return result
+    }
+    const norm = (s) => String(s || '')
+      .toUpperCase()
+      .replace(/['']/g, '')
+      .replace(/\([^)]*\)/g, '')
+      .replace(/\s+-\s.*$/, '')
+      .replace(/[^A-Z0-9 ]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    const paymentsByCust = new Map()
+    for (const tx of paymentsTx) {
+      if (tx.type !== 'Payment') continue
+      if (!tx.customer || !tx.date) continue
+      const k = norm(tx.customer)
+      if (!paymentsByCust.has(k)) paymentsByCust.set(k, [])
+      paymentsByCust.get(k).push(tx)
+    }
+    for (const arr of paymentsByCust.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+    const invoicesByCust = new Map()
+    for (const inv of invoices) {
+      if (!inv.customer || !inv.num || !inv.amount) continue
+      const paidPortion = (inv.amount || 0) - (inv.openBalance || 0)
+      if (paidPortion <= 0.005) continue
+      if (result.has(inv.num)) continue   // WSR already covers this invoice
+      const k = norm(inv.customer)
+      if (!invoicesByCust.has(k)) invoicesByCust.set(k, [])
+      invoicesByCust.get(k).push({ ...inv, paidPortion })
+    }
+    for (const [custKey, invs] of invoicesByCust.entries()) {
+      const payments = paymentsByCust.get(custKey) || []
+      if (!payments.length) continue
+      invs.sort((a, b) => b.paidPortion - a.paidPortion)
+      const used = new Set()
+      // Phase A: single-payment match.
+      for (const inv of invs) {
+        const target = inv.paidPortion
+        let bestIdx = -1, bestDiff = Infinity
+        for (let i = 0; i < payments.length; i++) {
+          if (used.has(i)) continue
+          const diff = Math.abs((payments[i].amount || 0) - target)
+          if (diff <= 5 && diff < bestDiff) { bestIdx = i; bestDiff = diff }
+        }
+        if (bestIdx >= 0) {
+          const p = payments[bestIdx]
+          add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-single' })
+          used.add(bestIdx)
+        }
+      }
+      // Phase B: N identical installments sum to paid portion.
+      for (const inv of invs) {
+        if (result.has(inv.num)) continue
+        const target = inv.paidPortion
+        const byAmt = new Map()
+        for (let i = 0; i < payments.length; i++) {
+          if (used.has(i)) continue
+          const cents = Math.round((payments[i].amount || 0) * 100)
+          if (!byAmt.has(cents)) byAmt.set(cents, [])
+          byAmt.get(cents).push(i)
+        }
+        for (const [cents, indices] of byAmt) {
+          const amt = cents / 100
+          if (amt <= 0) continue
+          const n = Math.round(target / amt)
+          if (n < 2 || n > indices.length) continue
+          if (Math.abs(n * amt - target) > 5) continue
+          for (let j = 0; j < n; j++) {
+            const p = payments[indices[j]]
+            add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-installments' })
+            used.add(indices[j])
+          }
+          break
+        }
+      }
+      // Phase C: small subset of distinct payments summing to paid portion.
+      for (const inv of invs) {
+        if (result.has(inv.num)) continue
+        const target = inv.paidPortion
+        const available = []
+        for (let i = 0; i < payments.length; i++) if (!used.has(i)) available.push(i)
+        if (available.length === 0 || available.length > 12) continue
+        const n = available.length
+        let bestMask = 0, bestDiff = Infinity, bestCount = Infinity
+        for (let mask = 1; mask < (1 << n); mask++) {
+          let sum = 0, count = 0
+          for (let i = 0; i < n; i++) {
+            if (mask & (1 << i)) { sum += payments[available[i]].amount || 0; count++ }
+          }
+          const diff = Math.abs(sum - target)
+          if (diff <= 5 && (diff < bestDiff || (diff === bestDiff && count < bestCount))) {
+            bestMask = mask
+            bestDiff = diff
+            bestCount = count
+          }
+        }
+        if (bestMask) {
+          for (let i = 0; i < n; i++) {
+            if (bestMask & (1 << i)) {
+              const idx = available[i]
+              const p = payments[idx]
+              add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-subset' })
+              used.add(idx)
+            }
+          }
+        }
+      }
+    }
+    for (const arr of result.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+    return result
+  }, [paymentsTx, invoices, wsrInvoicePayments])
+
+  // Backwards-compatible single-date lookup — uses the LATEST event date.
+  const paymentDatesByInvoiceNum = useMemo(() => {
+    const m = new Map()
+    for (const [num, events] of paymentEventsByInvoiceNum.entries()) {
+      if (events.length > 0) m.set(num, events[events.length - 1].date)
+    }
+    return m
+  }, [paymentEventsByInvoiceNum])
+
+  // Helper for YTD math: normalize any date string to YYYY-MM-DD.
+  const toIsoDateAtParent = (s) => {
+    if (!s) return ''
+    const str = String(s)
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10)
+    const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+    if (!m) return ''
+    const yyyy = m[3].length === 2 ? `20${m[3]}` : m[3]
+    return `${yyyy}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`
+  }
+  const ytdStart = `${new Date().getFullYear()}-01-01`
+
+  // YTD payouts per rep — only payouts dated in the current calendar year.
   const payoutsByRep = useMemo(() => {
     const m = {}
-    for (const p of commissionPayouts) m[p.repId] = (m[p.repId] || 0) + (p.amount || 0)
+    for (const p of commissionPayouts) {
+      const iso = toIsoDateAtParent(p.date)
+      if (!iso || iso < ytdStart) continue
+      m[p.repId] = (m[p.repId] || 0) + (p.amount || 0)
+    }
     return m
-  }, [commissionPayouts])
+  }, [commissionPayouts, ytdStart])
+
+  // YTD earned per rep — pro-rated commission across payment events whose
+  // payment date is in the current calendar year.
+  const earnedYtdByRep = useMemo(() => {
+    const out = {}
+    for (const rep of reps) {
+      const agg = aggregatesByRep[rep.id]
+      if (!agg?.byInvoice) { out[rep.id] = 0; continue }
+      let earned = 0
+      for (const [invNum, inv] of Object.entries(agg.byInvoice)) {
+        const events = paymentEventsByInvoiceNum.get(invNum) || []
+        if (!events.length) continue
+        const fullAmount = inv.amount || 0
+        const fullCommission = inv.commission || 0
+        for (const ev of events) {
+          const pIso = toIsoDateAtParent(ev.date)
+          if (!pIso || pIso < ytdStart) continue
+          const fraction = fullAmount > 0 ? (ev.amount || 0) / fullAmount : 0
+          earned += fullCommission * fraction
+        }
+      }
+      out[rep.id] = earned
+    }
+    return out
+  }, [reps, aggregatesByRep, paymentEventsByInvoiceNum, ytdStart])
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
   // should not normally appear in QB data — when one shows up, it's flagged
@@ -562,27 +881,26 @@ function PaymentsTracker() {
     }
     return Array.from(groups.values()).sort((a, b) => a.customer.localeCompare(b.customer))
   }, [reps, invoices])
-  // Final per-rep summary: agg + payouts → { earned, paidOut, available, openCommission }
+  // Year-to-date per-rep summary. Earned = sum of pro-rated event
+  // commissions in this calendar year. Paid Out = sum of payouts dated in
+  // this calendar year. Available = Earned YTD − Paid Out YTD.
   const repSummary = useMemo(() => {
     const out = {}
     for (const rep of reps) {
       const agg = aggregatesByRep[rep.id]
-      const engineEarned = agg?.totalAvailable || 0  // commission on paid portion of invoices
-      const snapshot = EARNED_SNAPSHOTS[rep.id] || 0
-      const earned = Math.max(0, engineEarned - snapshot)
+      const earned = earnedYtdByRep[rep.id] || 0
       const paidOut = payoutsByRep[rep.id] || 0
-      const adjustment = STARTING_ADJUSTMENTS[rep.id] || 0
       out[rep.id] = {
         earned,
         paidOut,
-        available: earned - paidOut + adjustment,
-        openCommission: agg?.openCommission || 0,   // locked behind unpaid balance
-        totalCommission: agg?.totalCommission || 0, // full invoice basis
-        owesFoundry: owedByRep[rep.id] || 0,        // outstanding sample bills
+        available: earned - paidOut,
+        openCommission: agg?.openCommission || 0,
+        totalCommission: agg?.totalCommission || 0,
+        owesFoundry: owedByRep[rep.id] || 0,
       }
     }
     return out
-  }, [reps, aggregatesByRep, payoutsByRep, owedByRep])
+  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, owedByRep])
 
   // Match invoice customer names to account names, sum open balances per account.
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
@@ -1125,6 +1443,19 @@ function PaymentsTracker() {
           onClearLineItems={clearLineItemsState}
           lineItemsStorageError={lineItemsStorageError}
           lastLineItemsImport={lastLineItemsImport}
+          paymentsTx={paymentsTx}
+          paymentsTxMeta={paymentsTxMeta}
+          onSavePaymentsTx={savePaymentsTxState}
+          onClearPaymentsTx={clearPaymentsTxState}
+          bpOverrides={bpOverrides}
+          bpOverridesMeta={bpOverridesMeta}
+          bpOverridesAppliedCount={bpOverridesAppliedCount}
+          onMergeBpOverrides={mergeBpOverridesState}
+          onClearBpOverrides={clearBpOverridesState}
+          wsrRemittances={wsrRemittances}
+          wsrAttributedCount={wsrRemittanceAppliedCount}
+          onAddWsrRemittance={addWsrRemittanceState}
+          onClearWsrRemittances={clearWsrRemittancesState}
           selectedCustomer={invoiceDrillCustomer}
           setSelectedCustomer={(c) => {
             setInvoiceDrillCustomer(c)
@@ -1161,6 +1492,8 @@ function PaymentsTracker() {
           summary={repSummary[selectedRep.id]}
           payouts={commissionPayouts.filter(p => p.repId === selectedRep.id)}
           repAccountInvoices={repAccountInvoicesByRep[selectedRep.id] || []}
+          paymentDatesByInvoiceNum={paymentDatesByInvoiceNum}
+          paymentEventsByInvoiceNum={paymentEventsByInvoiceNum}
           onAddPayout={() => openRecordPayout(selectedRep.id)}
           onEditPayout={openEditPayout}
           onDeletePayout={deleteCommissionPayout}
@@ -1846,12 +2179,164 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
   )
 }
 
+function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, error, lastImport }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const hasData = (transactions?.length || 0) > 0
+  const TYPE_ORDER = ['Payment', 'Credit Memo', 'Invoice', 'Expense', 'Check']
+  const ordered = TYPE_ORDER.filter(t => byType?.[t]).concat(Object.keys(byType || {}).filter(t => !TYPE_ORDER.includes(t)))
+  if (hasData) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground">Payments:</span>
+        <span className="font-medium">{transactions.length.toLocaleString()}</span>
+        <span className="text-muted-foreground">transactions</span>
+        {ordered.length > 0 && (
+          <span className="flex items-center gap-1.5 flex-wrap">
+            {ordered.map(t => (
+              <span key={t} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+                {t} <span className="text-muted-foreground">{byType[t]}</span>
+              </span>
+            ))}
+          </span>
+        )}
+        {meta && <span className="text-xs text-muted-foreground">• {meta.fileName}</span>}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+        </span>
+        {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Loaded {lastImport.total.toLocaleString()} transactions from {lastImport.fileName}.</p>}
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1">Step 4 — QB Payments CSV (Invoices & Received Payments)</p>
+      <p className="text-sm text-muted-foreground mb-4">Captures every payment event + credit memo over a date range. Used for commission-timing audits and three-way reconciliation against invoices + AR.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> Choose Payments CSV
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected columns: Date, Transaction type, Memo/Description, Transaction number, Amount</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
+function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClear, error, lastImport }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const total = overrides ? Object.keys(overrides).length : 0
+  if (total > 0) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground">BP overrides:</span>
+        <span className="font-medium">{total.toLocaleString()}</span>
+        <span className="text-muted-foreground">invoice mappings</span>
+        <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+          {appliedCount} applied to current WSR invoices
+        </span>
+        {meta && <span className="text-xs text-muted-foreground">• {meta.fileName}</span>}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">
+              <Upload className="size-3.5" /> Merge another file
+            </span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+        </span>
+        {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Merged {lastImport.added.toLocaleString()} mappings from {lastImport.fileName} ({total} total stored).</p>}
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1">Step 5 — BP invoice overrides (one-off backfill)</p>
+      <p className="text-sm text-muted-foreground mb-4">Brightpearl export with original customer names per invoice. Recovers WSR-renamed invoices so they route to the right rep. Upload one file per territory; mappings accumulate.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> Choose BP Overrides CSV
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected columns: Invoice, Customer (other columns ignored)</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
+function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, wsrAttributedCount = 0, onPickFile, onClear, error, lastImport }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  if (remittances.length > 0) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground">WSR remittances:</span>
+        <span className="font-medium">{remittances.length}</span>
+        <span className="text-muted-foreground">checks ·</span>
+        <span className="font-medium">{totalInvoices.toLocaleString()}</span>
+        <span className="text-muted-foreground">invoices allocated · paid</span>
+        <span className="font-bold text-[#005b5b]">{fmt(totalPaid)}</span>
+        {wsrAttributedCount > 0 && (
+          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+            {wsrAttributedCount} WSR invoices member-attributed via remittance chain
+          </span>
+        )}
+        {latest && <span className="text-xs text-muted-foreground">• latest {latest.checkNumber} on {latest.checkDate}</span>}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">
+              <Upload className="size-3.5" /> Add another remittance
+            </span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+        </span>
+        {lastImport && (
+          <p className="basis-full text-xs text-muted-foreground mt-1">
+            Loaded {lastImport.checkNumber} ({lastImport.checkDate}) — {lastImport.invoiceCount} invoices · {fmt(lastImport.sumPaid)} net paid from {lastImport.fileName}.
+          </p>
+        )}
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1">Step 6 — WSR ACH payments (per-check remittance)</p>
+      <p className="text-sm text-muted-foreground mb-4">Upload each WSR Additional Remittance Form xlsx. Gives us per-invoice attribution (member, gross, admin fee, net) within a lump WSR ACH payment so individual WSR-member invoices get correct payment dates and amounts.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".xlsx,.xls" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> Choose WSR Remittance XLSX
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected: Check Date, Check Number, Payment Amount header; Invoice Number / Member ID / Amount Paid columns in the detail table.</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
 // =====================================================================
 // InvoicesView — upload a CSV of open invoices and browse the table
 // =====================================================================
 function InvoicesView({
   invoices, invoicesMeta, onSave, onAppend, onClear, lastInvoicesImport,
   lineItems, lineItemsMeta, onSaveLineItems, onAppendLineItems, onClearLineItems, lineItemsStorageError, lastLineItemsImport,
+  paymentsTx = [], paymentsTxMeta, onSavePaymentsTx, onClearPaymentsTx,
+  bpOverrides = {}, bpOverridesMeta, bpOverridesAppliedCount = 0, onMergeBpOverrides, onClearBpOverrides,
+  wsrRemittances = [], wsrAttributedCount = 0, onAddWsrRemittance, onClearWsrRemittances,
   selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
 }) {
   const rows = invoices
@@ -2206,6 +2691,208 @@ function InvoicesView({
       },
     })
   }
+
+  // ===== QB Payments transaction CSV =====
+  const [paymentsError, setPaymentsError] = useState(null)
+  const [lastPaymentsImport, setLastPaymentsImport] = useState(null)
+  const handlePaymentsFile = async (file) => {
+    setPaymentsError(null); setLastPaymentsImport(null)
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+      const headerIdx = matrix.findIndex(r => r && r.some(c => /transaction type/i.test(String(c || ''))) && r.some(c => /amount/i.test(String(c || ''))))
+      if (headerIdx < 0) throw new Error('Could not find header row (expected Date / Transaction type / Amount).')
+      const headers = matrix[headerIdx].map(c => String(c || '').toLowerCase().trim())
+      const col = {
+        date: headers.indexOf('date'),
+        type: headers.indexOf('transaction type'),
+        memo: headers.findIndex(h => h.includes('memo')),
+        num: headers.findIndex(h => h.includes('transaction number') || h === 'num'),
+        amount: headers.indexOf('amount'),
+      }
+      const transactions = []
+      let currentCustomer = null, skipped = false
+      for (let i = headerIdx + 1; i < matrix.length; i++) {
+        const r = matrix[i]
+        if (!r || r.every(c => c == null || String(c).trim() === '')) continue
+        const firstCell = String(r[0] || '').trim()
+        const typeCell = col.type >= 0 ? String(r[col.type] || '').trim() : ''
+        const amountCell = col.amount >= 0 ? r[col.amount] : null
+        if (firstCell && !typeCell && (amountCell == null || amountCell === '')) {
+          if (/^total /i.test(firstCell)) { currentCustomer = null; skipped = false; continue }
+          currentCustomer = firstCell
+          skipped = shouldIgnoreCustomer(firstCell)
+          continue
+        }
+        if (skipped) continue
+        if (!typeCell) continue
+        transactions.push({
+          customer: currentCustomer || '',
+          date: col.date >= 0 ? cellToDateString(r[col.date]) : '',
+          type: typeCell,
+          memo: col.memo >= 0 ? String(r[col.memo] || '').trim() : '',
+          num: col.num >= 0 ? String(r[col.num] || '').trim() : '',
+          amount: parseAmount(amountCell),
+        })
+      }
+      if (transactions.length === 0) throw new Error('No transactions found.')
+      const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), count: transactions.length }
+      onSavePaymentsTx(transactions, meta)
+      const byType = {}
+      for (const t of transactions) byType[t.type] = (byType[t.type] || 0) + 1
+      setLastPaymentsImport({ fileName: file.name, total: transactions.length, byType })
+    } catch (e) { setPaymentsError(e.message || 'Failed to parse payments file') }
+  }
+  const clearPaymentsTxConfirm = () => {
+    setConfirmAction({
+      message: 'This action will clear all uploaded payments data, are you sure you want to proceed?',
+      onConfirm: () => { onClearPaymentsTx(); setPaymentsError(null); setLastPaymentsImport(null) },
+    })
+  }
+  const paymentsByType = useMemo(() => {
+    const m = {}
+    for (const t of paymentsTx) m[t.type] = (m[t.type] || 0) + 1
+    return m
+  }, [paymentsTx])
+
+  // ===== BP invoice override CSV =====
+  const [bpError, setBpError] = useState(null)
+  const [lastBpImport, setLastBpImport] = useState(null)
+  const handleBpFile = async (file) => {
+    setBpError(null); setLastBpImport(null)
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null })
+      const headerIdx = matrix.findIndex(r => r && r.some(c => /^invoice$/i.test(String(c || '').trim())) && r.some(c => /^customer$/i.test(String(c || '').trim())))
+      if (headerIdx < 0) throw new Error('Could not find header row with "Invoice" and "Customer" columns.')
+      const headers = matrix[headerIdx].map(c => String(c || '').toLowerCase().trim())
+      const invCol = headers.indexOf('invoice')
+      const custCol = headers.indexOf('customer')
+      const newOverrides = {}
+      for (let i = headerIdx + 1; i < matrix.length; i++) {
+        const r = matrix[i]; if (!r) continue
+        const num = String(r[invCol] || '').trim()
+        const cust = String(r[custCol] || '').trim()
+        if (!num || !cust) continue
+        newOverrides[num] = cust
+      }
+      const count = Object.keys(newOverrides).length
+      if (count === 0) throw new Error('No invoice/customer pairs found.')
+      const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), count }
+      await onMergeBpOverrides(newOverrides, meta)
+      setLastBpImport({ fileName: file.name, added: count, totalAfter: Object.keys({ ...bpOverrides, ...newOverrides }).length })
+    } catch (e) { setBpError(e.message || 'Failed to parse BP overrides file') }
+  }
+  const clearBpOverridesConfirm = () => {
+    setConfirmAction({
+      message: 'This action will clear all uploaded BP invoice overrides, are you sure you want to proceed?',
+      onConfirm: () => { onClearBpOverrides(); setBpError(null); setLastBpImport(null) },
+    })
+  }
+
+  // ===== WSR ACH remittance XLSX =====
+  const [wsrError, setWsrError] = useState(null)
+  const [lastWsrImport, setLastWsrImport] = useState(null)
+  const handleWsrFile = async (file) => {
+    setWsrError(null); setLastWsrImport(null)
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array', cellDates: true })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false })
+      const findLabel = (re) => {
+        for (let i = 0; i < Math.min(10, matrix.length); i++) {
+          const r = matrix[i] || []
+          for (let j = 0; j < r.length; j++) {
+            if (re.test(String(r[j] || ''))) {
+              for (let k = j + 1; k < r.length; k++) if (r[k] != null && String(r[k]).trim() !== '') return r[k]
+            }
+          }
+        }
+        return null
+      }
+      const fmtDate = (v) => {
+        if (v == null || v === '') return ''
+        if (v instanceof Date) return v.toISOString().slice(0, 10)
+        const s = String(v).trim()
+        const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+        if (m) return `${m[1]}-${m[2]}-${m[3]}`
+        return s
+      }
+      const moneyToNum = (v) => {
+        if (v == null || v === '') return 0
+        if (typeof v === 'number') return v
+        const s = String(v).trim()
+        const isP = /^\(.*\)$/.test(s)
+        const n = parseFloat(s.replace(/[$,()\s]/g, ''))
+        return isNaN(n) ? 0 : (isP ? -n : n)
+      }
+      const checkDateRaw = findLabel(/check\s*date/i)
+      const checkNumber = String(findLabel(/check\s*number/i) || '').trim()
+      const paymentAmount = moneyToNum(findLabel(/payment\s*amount/i))
+      const checkDate = fmtDate(checkDateRaw)
+      if (!checkNumber) throw new Error('Could not find Check Number in the remittance header.')
+      if (!checkDate) throw new Error('Could not find Check Date in the remittance header.')
+      const detailHeaderIdx = matrix.findIndex(r => r && r.some(c => /^invoice\s*number$/i.test(String(c || '').trim())))
+      if (detailHeaderIdx < 0) throw new Error('Could not find detail table header (expected "Invoice Number" column).')
+      const dh = matrix[detailHeaderIdx].map(c => String(c || '').toLowerCase().trim())
+      const col = {
+        type: dh.findIndex(h => h === 'type'),
+        invoiceNumber: dh.findIndex(h => h === 'invoice number'),
+        invoiceDate: dh.findIndex(h => h === 'invoice date'),
+        memberId: dh.findIndex(h => h === 'member id'),
+        invoiceAmount: dh.findIndex(h => h === 'invoice amount'),
+        vendorAdminFee: dh.findIndex(h => h === 'vendor admin fee'),
+        amountPaid: dh.findIndex(h => h === 'amount paid'),
+      }
+      const invoices = []
+      for (let i = detailHeaderIdx + 1; i < matrix.length; i++) {
+        const r = matrix[i]
+        if (!r) continue
+        const num = col.invoiceNumber >= 0 ? String(r[col.invoiceNumber] || '').trim() : ''
+        if (!num) continue
+        if (/payment\s*total/i.test(String(r.join(' ') || ''))) break
+        invoices.push({
+          type: col.type >= 0 ? String(r[col.type] || '').trim() : '',
+          invoiceNum: num,
+          invoiceDate: col.invoiceDate >= 0 ? fmtDate(r[col.invoiceDate]) : '',
+          memberId: col.memberId >= 0 ? String(r[col.memberId] || '').trim() : '',
+          invoiceAmount: col.invoiceAmount >= 0 ? moneyToNum(r[col.invoiceAmount]) : 0,
+          vendorAdminFee: col.vendorAdminFee >= 0 ? moneyToNum(r[col.vendorAdminFee]) : 0,
+          amountPaid: col.amountPaid >= 0 ? moneyToNum(r[col.amountPaid]) : 0,
+        })
+      }
+      if (invoices.length === 0) throw new Error('No invoice rows found in this remittance.')
+      const rec = {
+        id: `wsr-${checkNumber}`,
+        uploadedAt: new Date().toISOString(),
+        fileName: file.name,
+        checkDate, checkNumber, paymentAmount, invoices,
+      }
+      await onAddWsrRemittance(rec)
+      const sumPaid = invoices.reduce((s, i) => s + (i.amountPaid || 0), 0)
+      setLastWsrImport({ fileName: file.name, checkNumber, checkDate, paymentAmount, invoiceCount: invoices.length, sumPaid })
+    } catch (e) { setWsrError(e.message || 'Failed to parse WSR remittance file') }
+  }
+  const clearWsrRemittancesConfirm = () => {
+    setConfirmAction({
+      message: 'This action will clear all uploaded WSR remittance records, are you sure you want to proceed?',
+      onConfirm: () => { onClearWsrRemittances(); setWsrError(null); setLastWsrImport(null) },
+    })
+  }
+  const wsrInvoiceCount = useMemo(
+    () => wsrRemittances.reduce((s, r) => s + (r.invoices?.length || 0), 0),
+    [wsrRemittances]
+  )
+  const wsrTotalPaid = useMemo(
+    () => wsrRemittances.reduce((s, r) => s + (r.paymentAmount || 0), 0),
+    [wsrRemittances]
+  )
+  const latestWsrRemittance = wsrRemittances[0] || null
 
   const [groupByCustomer, setGroupByCustomer] = useState(true)
 
@@ -2655,6 +3342,38 @@ function InvoicesView({
         onPickFile={handleItemsFile}
         onClear={clearLineItems}
         compact
+      />
+
+      <PaymentsTxUploader
+        transactions={paymentsTx}
+        meta={paymentsTxMeta}
+        byType={paymentsByType}
+        onPickFile={handlePaymentsFile}
+        onClear={clearPaymentsTxConfirm}
+        error={paymentsError}
+        lastImport={lastPaymentsImport}
+      />
+
+      <BpOverridesUploader
+        overrides={bpOverrides}
+        meta={bpOverridesMeta}
+        appliedCount={bpOverridesAppliedCount}
+        onPickFile={handleBpFile}
+        onClear={clearBpOverridesConfirm}
+        error={bpError}
+        lastImport={lastBpImport}
+      />
+
+      <WsrRemittanceUploader
+        remittances={wsrRemittances}
+        latest={latestWsrRemittance}
+        totalInvoices={wsrInvoiceCount}
+        totalPaid={wsrTotalPaid}
+        wsrAttributedCount={wsrAttributedCount}
+        onPickFile={handleWsrFile}
+        onClear={clearWsrRemittancesConfirm}
+        error={wsrError}
+        lastImport={lastWsrImport}
       />
 
       {/* Table */}
