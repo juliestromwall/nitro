@@ -3880,20 +3880,35 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
   }, [lastPayoutDate, hasPaidSinceTouched])
   const [groupByCustomer, setGroupByCustomer] = useState(true)
 
-  // Payment EVENTS instead of invoices — each row in the section is one
-  // payment event (a single installment, lump payment, or full settlement).
-  // Multi-installment invoices like Valians produce multiple rows.
-  // Commission per event is pro-rated by event.amount / invoice.amount so
-  // the cycle math is correct.
+  // Payment EVENTS instead of invoices — each row is one payment event
+  // (a single installment, lump payment, or full settlement). Multi-
+  // installment invoices like Valians produce multiple rows. Commission
+  // per event is pro-rated by event.amount / invoice.amount so the cycle
+  // math is correct.
+  //
+  // For paid invoices the matcher couldn't pair, we still emit ONE
+  // synthetic fallback row so Tony sees the commission exists. These have
+  // no payment date — they bypass the "Since" filter (we can't tell which
+  // side they're on) and carry an 'unmatched' source so the UI can
+  // distinguish them with a status pill.
   const visiblePaymentEvents = useMemo(() => {
     const out = []
-    const invByNum = new Map()
-    for (const inv of paidInvoices) invByNum.set(inv.invoiceNum, inv)
-    for (const [invoiceNum, events] of (paymentEventsByInvoiceNum || new Map()).entries()) {
-      const inv = invByNum.get(invoiceNum)
-      if (!inv) continue
+    for (const inv of paidInvoices) {
       const fullAmount = inv.amount || 0
       const fullCommission = inv.commission || 0
+      const events = paymentEventsByInvoiceNum?.get(inv.invoiceNum) || []
+      if (events.length === 0) {
+        const paidPortion = fullAmount - (inv.openBalance || 0)
+        const fraction = fullAmount > 0 ? paidPortion / fullAmount : 0
+        out.push({
+          ...inv,
+          paymentDate: '',
+          paymentAmount: paidPortion,
+          eventSource: 'unmatched',
+          commissionForEvent: fullCommission * fraction,
+        })
+        continue
+      }
       for (const ev of events) {
         if (paidSince) {
           const pIso = toIsoDate(ev.date)
@@ -3909,7 +3924,12 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
         })
       }
     }
-    out.sort((a, b) => (b.paymentDate || '').localeCompare(a.paymentDate || ''))
+    // Sort newest-paid first; unmatched (no date) sink to the bottom.
+    out.sort((a, b) => {
+      if (!a.paymentDate && b.paymentDate) return 1
+      if (a.paymentDate && !b.paymentDate) return -1
+      return (b.paymentDate || '').localeCompare(a.paymentDate || '')
+    })
     return out
   }, [paidInvoices, paymentEventsByInvoiceNum, paidSince])
   // Alias for existing downstream consumers (brand subtotals, totals).
@@ -4289,7 +4309,14 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                                   <tbody>
                                     {events.map((ev, i) => {
                                       const evBrands = Array.from(new Set((ev.lines || []).map(l => l.brand).filter(Boolean)))
+                                      const isUnmatched = ev.eventSource === 'unmatched'
                                       const isPartial = ev.status === 'Partial' || (ev.paymentAmount || 0) < (ev.amount || 0) - 0.01
+                                      const pillClass = isUnmatched
+                                        ? 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700'
+                                        : isPartial
+                                          ? 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800'
+                                          : 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800'
+                                      const pillLabel = isUnmatched ? 'Unmatched' : (isPartial ? 'Partial' : 'Paid')
                                       return (
                                         <tr key={`${ev.invoiceNum}-${i}`} className="border-b border-border/40 last:border-0">
                                           <td className="py-1.5 px-3 whitespace-nowrap">{ev.invoiceNum}</td>
@@ -4308,13 +4335,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                                           <td className="py-1.5 px-3 text-right whitespace-nowrap">{fmt(ev.paymentAmount)}</td>
                                           <td className="py-1.5 px-3 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(ev.commissionForEvent)}</td>
                                           <td className="py-1.5 px-3">
-                                            <span className={
-                                              isPartial
-                                                ? 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800'
-                                                : 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800'
-                                            }>
-                                              {isPartial ? 'Partial' : 'Paid'}
-                                            </span>
+                                            <span className={pillClass}>{pillLabel}</span>
                                           </td>
                                         </tr>
                                       )
@@ -4355,7 +4376,14 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                 <tbody>
                   {visiblePaymentEvents.slice(0, 200).map((ev, i) => {
                     const evBrands = Array.from(new Set((ev.lines || []).map(l => l.brand).filter(Boolean)))
+                    const isUnmatched = ev.eventSource === 'unmatched'
                     const isPartial = ev.status === 'Partial' || (ev.paymentAmount || 0) < (ev.amount || 0) - 0.01
+                    const pillClass = isUnmatched
+                      ? 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700'
+                      : isPartial
+                        ? 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800'
+                        : 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800'
+                    const pillLabel = isUnmatched ? 'Unmatched' : (isPartial ? 'Partial' : 'Paid')
                     return (
                       <tr key={`${ev.invoiceNum}-${i}`} className="border-b last:border-0">
                         <td className="py-2 px-4 text-xs whitespace-nowrap">{ev.invoiceNum}</td>
@@ -4375,13 +4403,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                         <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(ev.paymentAmount)}</td>
                         <td className="py-2 px-4 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(ev.commissionForEvent)}</td>
                         <td className="py-2 px-4">
-                          <span className={
-                            isPartial
-                              ? 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800'
-                              : 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800'
-                          }>
-                            {isPartial ? 'Partial' : 'Paid'}
-                          </span>
+                          <span className={pillClass}>{pillLabel}</span>
                         </td>
                       </tr>
                     )
