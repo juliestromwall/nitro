@@ -3886,11 +3886,11 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
   // per event is pro-rated by event.amount / invoice.amount so the cycle
   // math is correct.
   //
-  // For paid invoices the matcher couldn't pair, we still emit ONE
-  // synthetic fallback row so Tony sees the commission exists. These have
-  // no payment date — they bypass the "Since" filter (we can't tell which
-  // side they're on) and carry an 'unmatched' source so the UI can
-  // distinguish them with a status pill.
+  // For paid invoices the matcher couldn't pair, we emit ONE synthetic
+  // fallback row with no date and an 'unmatched' source — but ONLY when
+  // the "Since" filter is cleared. With a filter active the user is
+  // asking "what's owed since X" and we can't honestly place an undated
+  // row on either side of X, so we hide them and surface a count below.
   const visiblePaymentEvents = useMemo(() => {
     const out = []
     for (const inv of paidInvoices) {
@@ -3898,6 +3898,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       const fullCommission = inv.commission || 0
       const events = paymentEventsByInvoiceNum?.get(inv.invoiceNum) || []
       if (events.length === 0) {
+        if (paidSince) continue
         const paidPortion = fullAmount - (inv.openBalance || 0)
         const fraction = fullAmount > 0 ? paidPortion / fullAmount : 0
         out.push({
@@ -3931,6 +3932,17 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       return (b.paymentDate || '').localeCompare(a.paymentDate || '')
     })
     return out
+  }, [paidInvoices, paymentEventsByInvoiceNum, paidSince])
+  // Count of paid invoices with no matched events, so we can show a nudge
+  // when the Since filter is hiding them.
+  const unmatchedHiddenCount = useMemo(() => {
+    if (!paidSince) return 0
+    let n = 0
+    for (const inv of paidInvoices) {
+      const events = paymentEventsByInvoiceNum?.get(inv.invoiceNum) || []
+      if (events.length === 0) n++
+    }
+    return n
   }, [paidInvoices, paymentEventsByInvoiceNum, paidSince])
   // Alias for existing downstream consumers (brand subtotals, totals).
   const visiblePaidInvoices = visiblePaymentEvents
@@ -4236,6 +4248,18 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
           </div>
         </CardHeader>
         <CardContent>
+          {unmatchedHiddenCount > 0 && (
+            <div className="mb-3 text-xs text-muted-foreground bg-muted/30 border rounded-md px-3 py-2 flex items-center justify-between gap-3">
+              <span>
+                <span className="font-medium text-foreground">{unmatchedHiddenCount}</span> paid {unmatchedHiddenCount === 1 ? 'invoice has' : 'invoices have'} no matched payment date and {unmatchedHiddenCount === 1 ? 'is' : 'are'} hidden by the Since filter.
+              </span>
+              <button
+                type="button"
+                onClick={() => { setHasPaidSinceTouched(true); setPaidSince('') }}
+                className="text-[#005b5b] hover:underline shrink-0"
+              >Show all</button>
+            </div>
+          )}
           {visiblePaymentEvents.length === 0 ? (
             <div className="text-sm text-muted-foreground text-center py-6">
               {paidInvoices.length === 0 ? 'No payments received yet.' : 'No payments received in this date range.'}
