@@ -84,7 +84,6 @@ const REP_TERRITORIES_LS_KEY = 'rc_tony_rep_territories_v1'
 // PaymentsTracker and InvoicesView reference the same source-of-truth strings).
 const INVOICES_LS_KEY = 'rc_tony_invoices_v1'
 const INVOICES_META_LS_KEY = 'rc_tony_invoices_meta_v1'
-const INVOICES_PAGE_SIZE = 100
 
 // Line items CSV ("items by invoice"): joined to invoices by `num`.
 // Each item: { customer, num, date, sku, description, qty, salesPrice, amount }
@@ -2341,8 +2340,6 @@ function InvoicesView({
 }) {
   const rows = invoices
   const meta = invoicesMeta
-  const [search, setSearch] = useState('')
-  const [page, setPage] = useState(1)
   const [error, setError] = useState(null)
   const [isDragging, setIsDragging] = useState(false)
   const [itemsError, setItemsError] = useState(null)
@@ -2572,11 +2569,7 @@ function InvoicesView({
   const clearInvoices = () => {
     setConfirmAction({
       message: 'This action will clear all invoices, are you sure you want to proceed?',
-      onConfirm: () => {
-        onClear()
-        setSearch('')
-        setPage(1)
-      },
+      onConfirm: () => { onClear() },
     })
   }
 
@@ -2894,50 +2887,6 @@ function InvoicesView({
   )
   const latestWsrRemittance = wsrRemittances[0] || null
 
-  const [groupByCustomer, setGroupByCustomer] = useState(true)
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return rows
-    return rows.filter(r =>
-      r.customer.toLowerCase().includes(q) ||
-      r.num.toLowerCase().includes(q) ||
-      r.date.toLowerCase().includes(q) ||
-      r.dueDate.toLowerCase().includes(q)
-    )
-  }, [rows, search])
-
-  // Customer-grouped view: aggregates invoice counts + totals per customer.
-  // Status breakdown (Paid / Open / Partial counts) helps Tony spot accounts
-  // with mixed payment states.
-  const filteredByCustomer = useMemo(() => {
-    const m = {}
-    for (const r of filtered) {
-      const key = r.customer || '(unknown)'
-      if (!m[key]) m[key] = {
-        customer: key, count: 0, paid: 0, open: 0, partial: 0,
-        amount: 0, openBalance: 0,
-      }
-      const g = m[key]
-      g.count += 1
-      if (r.status === 'Paid') g.paid += 1
-      else if (r.status === 'Partial') g.partial += 1
-      else if (r.status === 'Open') g.open += 1
-      g.amount += r.amount || 0
-      g.openBalance += r.openBalance || 0
-    }
-    return Object.values(m).sort((a, b) => b.openBalance - a.openBalance || b.amount - a.amount)
-  }, [filtered])
-
-  const totalAmount = useMemo(() => filtered.reduce((s, r) => s + (r.amount || 0), 0), [filtered])
-  const totalOpen = useMemo(() => filtered.reduce((s, r) => s + (r.openBalance || 0), 0), [filtered])
-  const totalPages = groupByCustomer
-    ? Math.max(1, Math.ceil(filteredByCustomer.length / INVOICES_PAGE_SIZE))
-    : Math.max(1, Math.ceil(filtered.length / INVOICES_PAGE_SIZE))
-  const safePage = Math.min(page, totalPages)
-  const paged = filtered.slice((safePage - 1) * INVOICES_PAGE_SIZE, safePage * INVOICES_PAGE_SIZE)
-  const pagedGrouped = filteredByCustomer.slice((safePage - 1) * INVOICES_PAGE_SIZE, safePage * INVOICES_PAGE_SIZE)
-
   // Sort controls for the customer drill-in view.
   // Convert "mm/dd/yyyy" strings to "yyyy-mm-dd" for lex-comparable date sorting.
   const dateKey = (s) => {
@@ -3122,75 +3071,53 @@ function InvoicesView({
 
   return (
     <div className="space-y-4">
-      {/* Toolbar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
-          <Input
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1) }}
-            placeholder="Search by customer, invoice #, or date..."
-            className="pl-9"
-          />
+      {/* Invoices uploader */}
+      <div className="rounded-lg border border-input bg-background p-4">
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <div>
+            <h3 className="font-semibold">Invoices CSV</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              QuickBooks invoices export. {rows.length > 0 ? `${rows.length.toLocaleString()} invoices loaded.` : 'No invoices loaded yet.'}
+              {meta && <> • <span className="text-muted-foreground">Source: {meta.fileName} • {new Date(meta.uploadedAt).toLocaleString()}</span></>}
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <label className="inline-flex">
+              <input
+                type="file" accept=".csv" className="hidden"
+                onChange={(e) => { if (e.target.files?.[0]) { handleFile(e.target.files[0], 'append'); e.target.value = '' } }}
+              />
+              <span className="inline-flex items-center px-3 py-1.5 text-sm rounded-md bg-[#005b5b] text-white hover:bg-[#004848] cursor-pointer gap-1.5">
+                <Upload className="size-4" /> Append CSV
+              </span>
+            </label>
+            <label className="inline-flex">
+              <input
+                type="file" accept=".csv" className="hidden"
+                onChange={(e) => { if (e.target.files?.[0]) { handleFile(e.target.files[0], 'replace'); e.target.value = '' } }}
+              />
+              <span className="inline-flex items-center px-3 py-1.5 text-sm rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+                Replace
+              </span>
+            </label>
+            <Button variant="ghost" size="sm" onClick={clearInvoices} className="text-muted-foreground">Clear</Button>
+          </div>
         </div>
-        <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer select-none whitespace-nowrap">
-          <input
-            type="checkbox"
-            checked={groupByCustomer}
-            onChange={(e) => { setGroupByCustomer(e.target.checked); setPage(1) }}
-            className="size-3.5"
-          />
-          Group by customer
-        </label>
-        <div className="flex gap-2">
-          <label className="inline-flex">
-            <input
-              type="file" accept=".csv" className="hidden"
-              onChange={(e) => { if (e.target.files?.[0]) { handleFile(e.target.files[0], 'append'); e.target.value = '' } }}
-            />
-            <span className="inline-flex items-center px-3 py-1.5 text-sm rounded-md bg-[#005b5b] text-white hover:bg-[#004848] cursor-pointer gap-1.5">
-              <Upload className="size-4" /> Append CSV
-            </span>
-          </label>
-          <label className="inline-flex">
-            <input
-              type="file" accept=".csv" className="hidden"
-              onChange={(e) => { if (e.target.files?.[0]) { handleFile(e.target.files[0], 'replace'); e.target.value = '' } }}
-            />
-            <span className="inline-flex items-center px-3 py-1.5 text-sm rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
-              Replace
-            </span>
-          </label>
-          <Button variant="ghost" size="sm" onClick={clearInvoices} className="text-muted-foreground">Clear</Button>
-        </div>
-      </div>
-
-      {/* Last import result */}
-      {lastInvoicesImport && (
-        <div className="text-xs text-[#005b5b] bg-[#005b5b]/5 border border-[#005b5b]/20 rounded-md px-3 py-2">
-          {lastInvoicesImport.mode === 'append'
-            ? (
-                <>
-                  Merged: {lastInvoicesImport.added} new invoices, {lastInvoicesImport.updated} updated, total now {lastInvoicesImport.total.toLocaleString()}.
-                  {lastInvoicesImport.wsrPreserved > 0 && (
-                    <> <span className="font-medium">{lastInvoicesImport.wsrPreserved} WSR rename{lastInvoicesImport.wsrPreserved === 1 ? '' : 's'} preserved</span> (original member names kept on paid invoices).</>
-                  )}
-                </>
-              )
-            : `Loaded ${lastInvoicesImport.total.toLocaleString()} invoices (replaced).`
-          }
-        </div>
-      )}
-
-      {/* Summary */}
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm items-baseline">
-        {groupByCustomer && (
-          <div><span className="text-muted-foreground">Customers:</span> <span className="font-medium">{filteredByCustomer.length.toLocaleString()}</span></div>
+        {lastInvoicesImport && (
+          <div className="text-xs text-[#005b5b] bg-[#005b5b]/5 border border-[#005b5b]/20 rounded-md px-3 py-2 mt-2">
+            {lastInvoicesImport.mode === 'append'
+              ? (
+                  <>
+                    Merged: {lastInvoicesImport.added} new invoices, {lastInvoicesImport.updated} updated, total now {lastInvoicesImport.total.toLocaleString()}.
+                    {lastInvoicesImport.wsrPreserved > 0 && (
+                      <> <span className="font-medium">{lastInvoicesImport.wsrPreserved} WSR rename{lastInvoicesImport.wsrPreserved === 1 ? '' : 's'} preserved</span> (original member names kept on paid invoices).</>
+                    )}
+                  </>
+                )
+              : `Loaded ${lastInvoicesImport.total.toLocaleString()} invoices (replaced).`
+            }
+          </div>
         )}
-        <div><span className="text-muted-foreground">Invoices:</span> <span className="font-medium">{filtered.length.toLocaleString()}</span></div>
-        <div><span className="text-muted-foreground">Total Amount:</span> <span className="font-medium">{fmt(totalAmount)}</span></div>
-        <div><span className="text-muted-foreground">Total Open:</span> <span className="font-bold text-[#005b5b]">{fmt(totalOpen)}</span></div>
-        {meta && <div className="text-xs text-muted-foreground ml-auto">Source: {meta.fileName} • {new Date(meta.uploadedAt).toLocaleString()}</div>}
       </div>
 
       {/* Invoices-without-line-items data-integrity banner */}
@@ -3375,104 +3302,6 @@ function InvoicesView({
         error={wsrError}
         lastImport={lastWsrImport}
       />
-
-      {/* Table */}
-      {groupByCustomer ? (
-        <div className="rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/30 text-xs uppercase text-muted-foreground border-b">
-                <th className="py-2 px-4 text-left font-medium">Customer</th>
-                <th className="py-2 px-4 text-right font-medium">Invoices</th>
-                <th className="py-2 px-4 text-right font-medium">Paid</th>
-                <th className="py-2 px-4 text-right font-medium">Open</th>
-                <th className="py-2 px-4 text-right font-medium">Partial</th>
-                <th className="py-2 px-4 text-right font-medium">Amount</th>
-                <th className="py-2 px-4 text-right font-medium">Open Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {pagedGrouped.map((g) => (
-                <tr
-                  key={g.customer}
-                  onClick={() => setSelectedCustomer(g.customer)}
-                  className="border-b last:border-0 hover:bg-muted/30 cursor-pointer"
-                >
-                  <td className="py-2.5 px-4 font-medium">{g.customer}</td>
-                  <td className="py-2.5 px-4 text-right text-xs">{g.count}</td>
-                  <td className="py-2.5 px-4 text-right text-xs text-emerald-700 dark:text-emerald-300">{g.paid || '—'}</td>
-                  <td className="py-2.5 px-4 text-right text-xs text-[#005b5b]">{g.open || '—'}</td>
-                  <td className="py-2.5 px-4 text-right text-xs text-amber-700 dark:text-amber-300">{g.partial || '—'}</td>
-                  <td className="py-2.5 px-4 text-right whitespace-nowrap">{fmt(g.amount)}</td>
-                  <td className={`py-2.5 px-4 text-right font-bold whitespace-nowrap ${g.openBalance ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
-                    {g.openBalance ? fmt(g.openBalance) : '—'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-muted/30 text-xs uppercase text-muted-foreground border-b">
-                <th className="py-2 px-4 text-left font-medium">Customer</th>
-                <th className="py-2 px-4 text-left font-medium">Date</th>
-                <th className="py-2 px-4 text-left font-medium">Due Date</th>
-                <th className="py-2 px-4 text-right font-medium">Past Due</th>
-                <th className="py-2 px-4 text-left font-medium">Num</th>
-                <th className="py-2 px-4 text-left font-medium">Status</th>
-                <th className="py-2 px-4 text-right font-medium">Amount</th>
-                <th className="py-2 px-4 text-right font-medium">Open Balance</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paged.map((r, idx) => {
-                const days = daysPastDue(r.dueDate)
-                return (
-                <tr key={`${r.num}-${idx}`} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="py-2.5 px-4 font-medium">{r.customer}</td>
-                  <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">{r.date || '—'}</td>
-                  <td className="py-2.5 px-4 text-xs text-muted-foreground whitespace-nowrap">{r.dueDate || '—'}</td>
-                  <td className={`py-2.5 px-4 text-right text-xs whitespace-nowrap ${days != null && days > 0 ? 'text-red-600 font-semibold' : 'text-muted-foreground'}`}>
-                    {days != null && days > 0 ? `${days} ${days === 1 ? 'day' : 'days'}` : '—'}
-                  </td>
-                  <td className="py-2.5 px-4 text-xs whitespace-nowrap">{r.num || '—'}</td>
-                  <td className="py-2.5 px-4 whitespace-nowrap">
-                    {r.status === 'Paid' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">Paid</span>}
-                    {r.status === 'Partial' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">Partial</span>}
-                    {r.status === 'Open' && <span className="text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">Open</span>}
-                    {!r.status && <span className="text-xs text-muted-foreground">—</span>}
-                  </td>
-                  <td className="py-2.5 px-4 text-right whitespace-nowrap">{r.amount != null ? fmt(r.amount) : '—'}</td>
-                  <td className={`py-2.5 px-4 text-right font-bold whitespace-nowrap ${r.openBalance ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
-                    {r.openBalance != null ? fmt(r.openBalance) : '—'}
-                  </td>
-                </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-muted-foreground">
-            {groupByCustomer
-              ? `Showing ${((safePage - 1) * INVOICES_PAGE_SIZE) + 1}–${Math.min(safePage * INVOICES_PAGE_SIZE, filteredByCustomer.length)} of ${filteredByCustomer.length.toLocaleString()} customers`
-              : `Showing ${((safePage - 1) * INVOICES_PAGE_SIZE) + 1}–${Math.min(safePage * INVOICES_PAGE_SIZE, filtered.length)} of ${filtered.length.toLocaleString()} invoices`
-            }
-          </span>
-          <div className="flex items-center gap-1">
-            <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}>Prev</Button>
-            <span className="px-3 text-muted-foreground">Page {safePage} of {totalPages}</span>
-            <Button variant="outline" size="sm" disabled={safePage >= totalPages} onClick={() => setPage(p => Math.min(totalPages, p + 1))}>Next</Button>
-          </div>
-        </div>
-      )}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
