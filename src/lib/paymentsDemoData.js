@@ -778,10 +778,7 @@ export const STARTING_ADJUSTMENTS = {
   'rep-brian-kulak':              89.18,
   'rep-kim-kulak':                 0.00,
   'rep-carter-katz':               0.00,
-  // rep-cody-prudoehl — HOLD until SI-122072 payment-matcher gap is
-  // resolved. Leaving the old value in place would understate; setting to
-  // 0 may overstate. Tony to provide once the SI-122072 issue is fixed and
-  // his Available number can be sanity-checked.
+  'rep-cody-prudoehl':           353.83,
 }
 
 export const PAYOUTS = [
