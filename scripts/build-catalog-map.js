@@ -39,6 +39,9 @@ const CATALOGS = [
   { file: 'US - Eivy 24-25 v1.0.xls',                          sheet: 'SPRING -  SUMMER', headerRow: 5, skuCol: 5, brandId: 'brand-eivy', brandName: 'EIVY' },
   { file: '2023 Eivy USA v1.2.xlsx',                           sheet: 'Eivy 22-23 Drop One', headerRow: 0, skuCol: 1, brandId: 'brand-eivy', brandName: 'EIVY' },
   { file: '2023 Eivy USA v1.2.xlsx',                           sheet: 'Eivy 22-23 Drop Two', headerRow: 0, skuCol: 1, brandId: 'brand-eivy', brandName: 'EIVY' },
+  { file: 'US - Eivy 23.24.xls',                               sheet: 'Eivy 22-23 Drop One',   headerRow: 4, skuCol: 3, brandId: 'brand-eivy', brandName: 'EIVY' },
+  { file: 'US - Eivy 23.24.xls',                               sheet: 'Eivy 22-23 Drop Two',   headerRow: 4, skuCol: 3, brandId: 'brand-eivy', brandName: 'EIVY' },
+  { file: 'US - Eivy 23.24.xls',                               sheet: 'Eivy 22-23 Drop Three', headerRow: 4, skuCol: 3, brandId: 'brand-eivy', brandName: 'EIVY' },
   { file: 'US - L1 25-26 V.1.0.xlsx',                          sheet: 'L1',           headerRow: 0,  skuCol: 7, brandId: 'brand-l1',     brandName: 'L1' },
   // Older-season L1 catalogs (carry-over coverage)
   { file: 'US - L1 24-25 V.1.xls',                             sheet: 'L1',           headerRow: 3,  skuCol: 4, brandId: 'brand-l1',     brandName: 'L1' },
@@ -49,6 +52,8 @@ const CATALOGS = [
   // appear on current-season invoices but aren't in the 25-26 catalog.
   { file: 'US - Nitro 24-25 V.4.xlsx',                         sheet: 'Nitro',        headerRow: 4,  skuCol: 4, brandId: 'brand-nitro',  brandName: 'NITRO' },
   { file: 'USA - Nitro Rental 23.24.xls',                      sheet: 'USA RENTAL ORDER',         headerRow: 4, skuCol: 4, brandId: 'brand-nitro', brandName: 'NITRO', isRental: true },
+  { file: 'US - Nitro Rental 24-25 V1.xls',                    sheet: 'Rental',                   headerRow: 4, skuCol: 4, brandId: 'brand-nitro', brandName: 'NITRO', isRental: true },
+  { file: 'US - Nitro 2023 USA v1.1.xlsx',                     sheet: 'Nitro',                    headerRow: 0, skuCol: 1, brandId: 'brand-nitro', brandName: 'NITRO' },
   // Next-season (26-27) Nitro catalogs covering carry-over SKUs already
   // appearing on current invoices.
   { file: 'US - Nitro 2627 V1.1 (1).xlsx',                     sheet: '2026-2027 Nitro Snowboards', headerRow: 0, skuCol: 5, brandId: 'brand-nitro', brandName: 'NITRO' },
