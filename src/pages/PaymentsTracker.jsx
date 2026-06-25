@@ -779,6 +779,16 @@ function PaymentsTracker() {
     return m
   }, [commissionPayouts, ytdStart])
 
+  // Lifetime payouts per rep — every payout ever recorded. Used for the
+  // Available calculation so prior-year balances carry over correctly.
+  const payoutsLifetimeByRep = useMemo(() => {
+    const m = {}
+    for (const p of commissionPayouts) {
+      m[p.repId] = (m[p.repId] || 0) + (p.amount || 0)
+    }
+    return m
+  }, [commissionPayouts])
+
   // YTD earned per rep — pro-rated commission across payment events whose
   // payment date is in the current calendar year.
   const earnedYtdByRep = useMemo(() => {
@@ -803,6 +813,31 @@ function PaymentsTracker() {
     }
     return out
   }, [reps, aggregatesByRep, paymentEventsByInvoiceNum, ytdStart])
+
+  // Lifetime earned per rep — same pro-rated event math without the date
+  // filter. Sums commission across every payment event we've ingested.
+  // Available = this − lifetime payouts so balances roll forward across
+  // calendar-year boundaries.
+  const earnedLifetimeByRep = useMemo(() => {
+    const out = {}
+    for (const rep of reps) {
+      const agg = aggregatesByRep[rep.id]
+      if (!agg?.byInvoice) { out[rep.id] = 0; continue }
+      let earned = 0
+      for (const [invNum, inv] of Object.entries(agg.byInvoice)) {
+        const events = paymentEventsByInvoiceNum.get(invNum) || []
+        if (!events.length) continue
+        const fullAmount = inv.amount || 0
+        const fullCommission = inv.commission || 0
+        for (const ev of events) {
+          const fraction = fullAmount > 0 ? (ev.amount || 0) / fullAmount : 0
+          earned += fullCommission * fraction
+        }
+      }
+      out[rep.id] = earned
+    }
+    return out
+  }, [reps, aggregatesByRep, paymentEventsByInvoiceNum])
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
   // should not normally appear in QB data — when one shows up, it's flagged
@@ -881,26 +916,29 @@ function PaymentsTracker() {
     }
     return Array.from(groups.values()).sort((a, b) => a.customer.localeCompare(b.customer))
   }, [reps, invoices])
-  // Year-to-date per-rep summary. Earned = sum of pro-rated event
-  // commissions in this calendar year. Paid Out = sum of payouts dated in
-  // this calendar year. Available = Earned YTD − Paid Out YTD.
+  // Per-rep summary. Earned + Paid Out are YTD figures (current calendar
+  // year only). Available uses LIFETIME math — lifetime earned minus
+  // lifetime paid out — so a rep's prior-year unpaid balance carries
+  // forward correctly across January 1st.
   const repSummary = useMemo(() => {
     const out = {}
     for (const rep of reps) {
       const agg = aggregatesByRep[rep.id]
       const earned = earnedYtdByRep[rep.id] || 0
       const paidOut = payoutsByRep[rep.id] || 0
+      const earnedLifetime = earnedLifetimeByRep[rep.id] || 0
+      const paidOutLifetime = payoutsLifetimeByRep[rep.id] || 0
       out[rep.id] = {
         earned,
         paidOut,
-        available: earned - paidOut,
+        available: earnedLifetime - paidOutLifetime,
         openCommission: agg?.openCommission || 0,
         totalCommission: agg?.totalCommission || 0,
         owesFoundry: owedByRep[rep.id] || 0,
       }
     }
     return out
-  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, owedByRep])
+  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, earnedLifetimeByRep, payoutsLifetimeByRep, owedByRep])
 
   // Match invoice customer names to account names, sum open balances per account.
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
