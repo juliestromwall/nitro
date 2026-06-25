@@ -814,30 +814,27 @@ function PaymentsTracker() {
     return out
   }, [reps, aggregatesByRep, paymentEventsByInvoiceNum, ytdStart])
 
-  // Lifetime earned per rep — same pro-rated event math without the date
-  // filter. Sums commission across every payment event we've ingested.
-  // Available = this − lifetime payouts so balances roll forward across
-  // calendar-year boundaries.
+  // Lifetime earned per rep — sums the engine's per-invoice
+  // commissionAvailable (= commission × paidFraction, derived directly
+  // from invoice.amount and invoice.openBalance in the QB invoices CSV).
+  // This is MATCHER-INDEPENDENT on purpose: an invoice marked Paid in QB
+  // has earned its commission regardless of whether our 3-phase matcher
+  // could pair the payment event. The matcher is only needed to know
+  // WHEN the payment landed (for date-scoped views and the "since last
+  // payout" filter) — not WHETHER commission was earned.
   const earnedLifetimeByRep = useMemo(() => {
     const out = {}
     for (const rep of reps) {
       const agg = aggregatesByRep[rep.id]
       if (!agg?.byInvoice) { out[rep.id] = 0; continue }
       let earned = 0
-      for (const [invNum, inv] of Object.entries(agg.byInvoice)) {
-        const events = paymentEventsByInvoiceNum.get(invNum) || []
-        if (!events.length) continue
-        const fullAmount = inv.amount || 0
-        const fullCommission = inv.commission || 0
-        for (const ev of events) {
-          const fraction = fullAmount > 0 ? (ev.amount || 0) / fullAmount : 0
-          earned += fullCommission * fraction
-        }
+      for (const inv of Object.values(agg.byInvoice)) {
+        earned += inv.commissionAvailable || 0
       }
       out[rep.id] = earned
     }
     return out
-  }, [reps, aggregatesByRep, paymentEventsByInvoiceNum])
+  }, [reps, aggregatesByRep])
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
   // should not normally appear in QB data — when one shows up, it's flagged
@@ -917,9 +914,15 @@ function PaymentsTracker() {
     return Array.from(groups.values()).sort((a, b) => a.customer.localeCompare(b.customer))
   }, [reps, invoices])
   // Per-rep summary. Earned + Paid Out are YTD figures (current calendar
-  // year only). Available uses LIFETIME math — lifetime earned minus
-  // lifetime paid out — so a rep's prior-year unpaid balance carries
-  // forward correctly across January 1st.
+  // year only). Available is the live amount Tony owes the rep right now:
+  //
+  //   available = startingAdjustment + lifetime_earned − lifetime_paidOut
+  //
+  // startingAdjustment is Tony's per-rep baseline — prior unpaid commission
+  // not captured by the events/payouts our system has ingested. Anything
+  // earned since the last payout flows in via lifetime_earned; anything
+  // already taken flows out via lifetime_paidOut. Set adjustments in
+  // src/lib/paymentsDemoData.js → STARTING_ADJUSTMENTS.
   const repSummary = useMemo(() => {
     const out = {}
     for (const rep of reps) {
@@ -928,10 +931,11 @@ function PaymentsTracker() {
       const paidOut = payoutsByRep[rep.id] || 0
       const earnedLifetime = earnedLifetimeByRep[rep.id] || 0
       const paidOutLifetime = payoutsLifetimeByRep[rep.id] || 0
+      const startingAdjustment = STARTING_ADJUSTMENTS[rep.id] || 0
       out[rep.id] = {
         earned,
         paidOut,
-        available: earnedLifetime - paidOutLifetime,
+        available: startingAdjustment + earnedLifetime - paidOutLifetime,
         openCommission: agg?.openCommission || 0,
         totalCommission: agg?.totalCommission || 0,
         owesFoundry: owedByRep[rep.id] || 0,
