@@ -753,19 +753,35 @@ export const EARNED_SNAPSHOTS = {
   'rep-evan-ricker':              0.00,
 }
 
-// Available adjustments — the target Available at the moment of reset.
-// available = earned (delta since snapshot) - paidOut + adjustment
+// Per-rep starting adjustments — the prior unpaid commission balance not
+// captured by the events/payouts our system has ingested. Plugged into
+// Available math as:
+//
+//   available = startingAdjustment + lifetime_earned − lifetime_paidOut
+//
+// Tony-confirmed values (2026-06-25). A zero means "no carryover — the
+// system's lifetime math is the full picture for this rep."
 export const STARTING_ADJUSTMENTS = {
-  'rep-rob':                    567.20,
-  'rep-adam':                     0.00,
-  'rep-cody-prudoehl':          260.65,
-  'rep-brian-kulak':             50.99,
-  'rep-carter-katz':            455.62,
-  'rep-jason':                   65.52,
-  'rep-dave-spruill':          8598.10,
-  'rep-chris-cooper':            81.99,
-  'rep-evan-ricker':             50.58,
-  'rep-harrison-montgomery':    856.54,
+  'rep-adam':                      0.00,
+  'rep-rob':                       0.00,
+  'rep-jason':                     0.00,
+  'rep-kathy-karlovic':            0.00,
+  'rep-andy-wise':                 0.00,
+  'rep-erika-lowder':              0.00,
+  'rep-dave-spruill':           8569.91,
+  'rep-chris-cooper':              4.71,
+  'rep-evan-ricker':               0.00,
+  'rep-jj-catlett':                0.00,
+  'rep-harrison-montgomery':     856.54,
+  'rep-trevor-stockhausen':        0.00,
+  'rep-steve-clare':               0.00,
+  'rep-brian-kulak':              89.18,
+  'rep-kim-kulak':                 0.00,
+  'rep-carter-katz':               0.00,
+  // rep-cody-prudoehl — HOLD until SI-122072 payment-matcher gap is
+  // resolved. Leaving the old value in place would understate; setting to
+  // 0 may overstate. Tony to provide once the SI-122072 issue is fixed and
+  // his Available number can be sanity-checked.
 }
 
 export const PAYOUTS = [
