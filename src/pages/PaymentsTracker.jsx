@@ -1378,11 +1378,11 @@ function PaymentsTracker() {
                         <span className="font-medium text-right">{territories.length ? territories.join(', ') : '—'}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Earned</span>
+                        <span className="text-muted-foreground">Earned YTD</span>
                         <span className="font-medium">{fmt(summary.earned)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Paid out</span>
+                        <span className="text-muted-foreground">Paid out YTD</span>
                         <span className="font-medium">{fmt(summary.paidOut)}</span>
                       </div>
                       <div className="flex justify-between">
@@ -3865,60 +3865,144 @@ function AccountDetailView({ account, entries, reps, brands, invoices = [], line
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], onAddPayout, onEditPayout, onDeletePayout, territories }) {
+function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   const byInvoice = aggregate?.byInvoice || {}
 
-  // Split rep's invoices by status
+  // Split rep's invoices by status. Partials qualify as "paid" for this
+  // section because the received portion is real earned commission; they
+  // also stay in openInvoices below so the rep sees what's still coming.
   const paidInvoices = []
   const openInvoices = []
   for (const k of Object.keys(byInvoice)) {
     const inv = byInvoice[k]
     if (inv.status === 'Paid') paidInvoices.push(inv)
-    else if (inv.status === 'Open' || inv.status === 'Partial') openInvoices.push(inv)
+    else if (inv.status === 'Partial') { paidInvoices.push(inv); openInvoices.push(inv) }
+    else if (inv.status === 'Open') openInvoices.push(inv)
   }
-  // Sort: paid by date desc (most recent first), open by due date asc (most urgent first)
   paidInvoices.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
   openInvoices.sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''))
 
-  // Optional date filter for the Paid section (defaults to "all paid invoices")
-  const [paidSince, setPaidSince] = useState('')
+  // Helpers — display MM/DD/YYYY, comparison YYYY-MM-DD.
+  const formatPaidOn = (s) => {
+    if (!s) return ''
+    const str = String(s)
+    const iso = str.match(/^(\d{4})-(\d{2})-(\d{2})/)
+    if (iso) return `${iso[2]}/${iso[3]}/${iso[1]}`
+    const us = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+    if (us) {
+      const yyyy = us[3].length === 2 ? `20${us[3]}` : us[3]
+      return `${us[1].padStart(2, '0')}/${us[2].padStart(2, '0')}/${yyyy}`
+    }
+    return str
+  }
+  const toIsoDate = (s) => {
+    if (!s) return ''
+    const str = String(s)
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10)
+    const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+    if (!m) return ''
+    const yyyy = m[3].length === 2 ? `20${m[3]}` : m[3]
+    return `${yyyy}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`
+  }
+  // Default the cycle filter to the rep's most recent recorded payout. The
+  // section then opens to "what's accrued since I last paid you".
+  const lastPayoutDate = useMemo(() => {
+    let best = ''
+    for (const p of payouts || []) {
+      const iso = toIsoDate(p.date)
+      if (iso && iso > best) best = iso
+    }
+    return best
+  }, [payouts])
+  const [paidSince, setPaidSince] = useState(() => lastPayoutDate)
+  const [hasPaidSinceTouched, setHasPaidSinceTouched] = useState(false)
+  useEffect(() => {
+    if (!hasPaidSinceTouched) setPaidSince(lastPayoutDate)
+  }, [lastPayoutDate, hasPaidSinceTouched])
   const [groupByCustomer, setGroupByCustomer] = useState(true)
-  const visiblePaidInvoices = paidSince
-    ? paidInvoices.filter(i => (i.date || '') >= paidSince)
-    : paidInvoices
 
-  // Customer-grouped paid invoices: one row per customer, totals only.
+  // Payment EVENTS instead of invoices — each row in the section is one
+  // payment event (a single installment, lump payment, or full settlement).
+  // Multi-installment invoices like Valians produce multiple rows.
+  // Commission per event is pro-rated by event.amount / invoice.amount so
+  // the cycle math is correct.
+  const visiblePaymentEvents = useMemo(() => {
+    const out = []
+    const invByNum = new Map()
+    for (const inv of paidInvoices) invByNum.set(inv.invoiceNum, inv)
+    for (const [invoiceNum, events] of (paymentEventsByInvoiceNum || new Map()).entries()) {
+      const inv = invByNum.get(invoiceNum)
+      if (!inv) continue
+      const fullAmount = inv.amount || 0
+      const fullCommission = inv.commission || 0
+      for (const ev of events) {
+        if (paidSince) {
+          const pIso = toIsoDate(ev.date)
+          if (!pIso || pIso < paidSince) continue
+        }
+        const fraction = fullAmount > 0 ? (ev.amount || 0) / fullAmount : 0
+        out.push({
+          ...inv,
+          paymentDate: ev.date,
+          paymentAmount: ev.amount || 0,
+          eventSource: ev.source,
+          commissionForEvent: fullCommission * fraction,
+        })
+      }
+    }
+    out.sort((a, b) => (b.paymentDate || '').localeCompare(a.paymentDate || ''))
+    return out
+  }, [paidInvoices, paymentEventsByInvoiceNum, paidSince])
+  // Alias for existing downstream consumers (brand subtotals, totals).
+  const visiblePaidInvoices = visiblePaymentEvents
+
+  // Sortable customer-grouped view. Defaults to commission desc; click any
+  // header to re-sort.
+  const [paidSortBy, setPaidSortBy] = useState('commission')
+  const [paidSortDir, setPaidSortDir] = useState('desc')
+  const togglePaidSort = (key) => {
+    if (paidSortBy === key) setPaidSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setPaidSortBy(key); setPaidSortDir(key === 'customer' ? 'asc' : 'desc') }
+  }
   const paidByCustomer = useMemo(() => {
     const m = {}
-    for (const inv of visiblePaidInvoices) {
-      const key = inv.customer || '(unknown)'
+    for (const ev of visiblePaymentEvents) {
+      const key = ev.customer || '(unknown)'
       if (!m[key]) m[key] = { customer: key, count: 0, amount: 0, commission: 0 }
       m[key].count += 1
-      m[key].amount += inv.amount || 0
-      m[key].commission += inv.commission || 0
+      m[key].amount += ev.paymentAmount || 0
+      m[key].commission += ev.commissionForEvent || 0
     }
-    return Object.values(m).sort((a, b) => b.commission - a.commission)
-  }, [visiblePaidInvoices])
+    const rows = Object.values(m)
+    const sign = paidSortDir === 'asc' ? 1 : -1
+    rows.sort((a, b) => {
+      if (paidSortBy === 'customer') return sign * a.customer.localeCompare(b.customer)
+      return sign * ((a[paidSortBy] ?? 0) - (b[paidSortBy] ?? 0))
+    })
+    return rows
+  }, [visiblePaymentEvents, paidSortBy, paidSortDir])
   const paidTotals = useMemo(() => ({
-    count: visiblePaidInvoices.length,
-    amount: visiblePaidInvoices.reduce((s, i) => s + (i.amount || 0), 0),
-    commission: visiblePaidInvoices.reduce((s, i) => s + (i.commission || 0), 0),
-  }), [visiblePaidInvoices])
+    count: visiblePaymentEvents.length,
+    amount: visiblePaymentEvents.reduce((s, ev) => s + (ev.paymentAmount || 0), 0),
+    commission: visiblePaymentEvents.reduce((s, ev) => s + (ev.commissionForEvent || 0), 0),
+  }), [visiblePaymentEvents])
 
-  // Brand subtotal: per-brand commission across all paid invoice line items
-  // for this rep, in the visible date window. Sorted by commission desc.
+  // Brand subtotal: pro-rated per event, summed by brand. Multi-installment
+  // invoices contribute proportionally.
   const brandSubtotals = useMemo(() => {
     const m = {}
-    for (const inv of visiblePaidInvoices) {
-      for (const line of inv.lines || []) {
+    for (const ev of visiblePaymentEvents) {
+      const fullAmount = ev.amount || 0
+      const fraction = fullAmount > 0 ? (ev.paymentAmount || 0) / fullAmount : 0
+      for (const line of ev.lines || []) {
         const brand = line.brand || '—'
         if (!m[brand]) m[brand] = { brand, commission: 0 }
-        m[brand].commission += line.commission || 0
+        m[brand].commission += (line.commission || 0) * fraction
       }
     }
     return Object.values(m).sort((a, b) => b.commission - a.commission)
-  }, [visiblePaidInvoices])
+  }, [visiblePaymentEvents])
 
   // Customer-grouped OPEN invoices
   const openByCustomer = useMemo(() => {
@@ -4075,13 +4159,13 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       <div className={`grid grid-cols-1 sm:grid-cols-2 ${safeSummary.owesFoundry > 0 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4`}>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Earned (on paid invoices)</CardDescription>
+            <CardDescription>Earned YTD</CardDescription>
             <CardTitle className="text-2xl">{fmt(safeSummary.earned)}</CardTitle>
           </CardHeader>
         </Card>
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Paid out to date</CardDescription>
+            <CardDescription>Paid out YTD</CardDescription>
             <CardTitle className="text-2xl">{fmt(safeSummary.paidOut)}</CardTitle>
           </CardHeader>
         </Card>
@@ -4111,7 +4195,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       {brandSubtotals.length > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardDescription>Earned by brand{paidSince ? ` (since ${paidSince})` : ''}</CardDescription>
+            <CardDescription>Earned by brand{paidSince ? ` (since ${formatPaidOn(paidSince)})` : ''}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="flex flex-wrap gap-3 text-sm">
@@ -4126,18 +4210,21 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
         </Card>
       )}
 
-      {/* Paid invoices */}
+      {/* Payments received on invoices */}
       <Card>
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <CardTitle>Paid invoices</CardTitle>
+              <CardTitle>Payments received on invoices</CardTitle>
               <CardDescription>
                 {groupByCustomer
                   ? `${paidByCustomer.length} ${paidByCustomer.length === 1 ? 'customer' : 'customers'}`
-                  : `${visiblePaidInvoices.length} ${visiblePaidInvoices.length === 1 ? 'invoice' : 'invoices'}`
+                  : `${visiblePaymentEvents.length} ${visiblePaymentEvents.length === 1 ? 'payment' : 'payments'}`
                 }
-                {paidSince ? ` paid on or after ${paidSince}` : ' — all paid for this rep'}
+                {paidSince
+                  ? ` received on or after ${formatPaidOn(paidSince)}`
+                  : ' — all payments received for this rep'}
+                {paidSince && paidSince === lastPayoutDate ? ' (since last payout)' : ''}
               </CardDescription>
             </div>
             <div className="flex items-center gap-2 text-sm flex-wrap">
@@ -4151,17 +4238,35 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                 Group by customer
               </label>
               <Label className="text-muted-foreground">Since</Label>
-              <Input type="date" value={paidSince} onChange={(e) => setPaidSince(e.target.value)} className="w-40" />
+              <Input
+                type="date"
+                value={paidSince}
+                onChange={(e) => { setHasPaidSinceTouched(true); setPaidSince(e.target.value) }}
+                className="w-40"
+              />
+              {lastPayoutDate && paidSince !== lastPayoutDate && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setHasPaidSinceTouched(false); setPaidSince(lastPayoutDate) }}
+                  className="text-muted-foreground"
+                >Since last payout</Button>
+              )}
               {paidSince && (
-                <Button variant="ghost" size="sm" onClick={() => setPaidSince('')} className="text-muted-foreground">Clear</Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setHasPaidSinceTouched(true); setPaidSince('') }}
+                  className="text-muted-foreground"
+                >Clear</Button>
               )}
             </div>
           </div>
         </CardHeader>
         <CardContent>
-          {visiblePaidInvoices.length === 0 ? (
+          {visiblePaymentEvents.length === 0 ? (
             <div className="text-sm text-muted-foreground text-center py-6">
-              {paidInvoices.length === 0 ? 'No paid invoices yet.' : 'No paid invoices in this date range.'}
+              {paidInvoices.length === 0 ? 'No payments received yet.' : 'No payments received in this date range.'}
             </div>
           ) : groupByCustomer ? (
             <div className="overflow-x-auto -mx-4 sm:mx-0">
@@ -4169,16 +4274,36 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                 <thead>
                   <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
                     <th className="py-2 px-2 w-8"></th>
-                    <th className="py-2 px-4 text-left font-medium">Customer</th>
-                    <th className="py-2 px-4 text-right font-medium">Invoices</th>
-                    <th className="py-2 px-4 text-right font-medium">Amount</th>
-                    <th className="py-2 px-4 text-right font-medium">Commission</th>
+                    <th
+                      className="py-2 px-4 text-left font-medium cursor-pointer select-none hover:text-foreground"
+                      onClick={() => togglePaidSort('customer')}
+                    >
+                      Customer{paidSortBy === 'customer' ? (paidSortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                    </th>
+                    <th
+                      className="py-2 px-4 text-right font-medium cursor-pointer select-none hover:text-foreground"
+                      onClick={() => togglePaidSort('count')}
+                    >
+                      Payments{paidSortBy === 'count' ? (paidSortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                    </th>
+                    <th
+                      className="py-2 px-4 text-right font-medium cursor-pointer select-none hover:text-foreground"
+                      onClick={() => togglePaidSort('amount')}
+                    >
+                      Amount{paidSortBy === 'amount' ? (paidSortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                    </th>
+                    <th
+                      className="py-2 px-4 text-right font-medium cursor-pointer select-none hover:text-foreground"
+                      onClick={() => togglePaidSort('commission')}
+                    >
+                      Commission{paidSortBy === 'commission' ? (paidSortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {paidByCustomer.map((row) => {
                     const isOpen = expandedPaidCustomers.has(row.customer)
-                    const invs = visiblePaidInvoicesByCustomer[row.customer] || []
+                    const events = visiblePaidInvoicesByCustomer[row.customer] || []
                     return (
                       <Fragment key={row.customer}>
                         <tr
@@ -4202,32 +4327,43 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                                   <thead>
                                     <tr className="text-muted-foreground border-b border-border/50">
                                       <th className="py-1.5 px-3 text-left font-medium">Invoice</th>
-                                      <th className="py-1.5 px-3 text-left font-medium">Date</th>
+                                      <th className="py-1.5 px-3 text-left font-medium">Paid On</th>
                                       <th className="py-1.5 px-3 text-left font-medium">Brand</th>
                                       <th className="py-1.5 px-3 text-right font-medium">Amount</th>
                                       <th className="py-1.5 px-3 text-right font-medium">Commission</th>
+                                      <th className="py-1.5 px-3 text-left font-medium">Status</th>
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {invs.map((inv) => {
-                                      const invBrands = Array.from(new Set((inv.lines || []).map(l => l.brand).filter(Boolean)))
+                                    {events.map((ev, i) => {
+                                      const evBrands = Array.from(new Set((ev.lines || []).map(l => l.brand).filter(Boolean)))
+                                      const isPartial = ev.status === 'Partial' || (ev.paymentAmount || 0) < (ev.amount || 0) - 0.01
                                       return (
-                                        <tr key={inv.invoiceNum} className="border-b border-border/40 last:border-0">
-                                          <td className="py-1.5 px-3 whitespace-nowrap">{inv.invoiceNum}</td>
-                                          <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">{inv.date || '—'}</td>
+                                        <tr key={`${ev.invoiceNum}-${i}`} className="border-b border-border/40 last:border-0">
+                                          <td className="py-1.5 px-3 whitespace-nowrap">{ev.invoiceNum}</td>
+                                          <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">{formatPaidOn(ev.paymentDate) || '—'}</td>
                                           <td className="py-1.5 px-3">
-                                            {invBrands.length === 0 ? (
+                                            {evBrands.length === 0 ? (
                                               <span className="text-muted-foreground">—</span>
                                             ) : (
                                               <div className="flex flex-wrap gap-1">
-                                                {invBrands.map(b => (
+                                                {evBrands.map(b => (
                                                   <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
                                                 ))}
                                               </div>
                                             )}
                                           </td>
-                                          <td className="py-1.5 px-3 text-right whitespace-nowrap">{fmt(inv.amount)}</td>
-                                          <td className="py-1.5 px-3 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(inv.commission)}</td>
+                                          <td className="py-1.5 px-3 text-right whitespace-nowrap">{fmt(ev.paymentAmount)}</td>
+                                          <td className="py-1.5 px-3 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(ev.commissionForEvent)}</td>
+                                          <td className="py-1.5 px-3">
+                                            <span className={
+                                              isPartial
+                                                ? 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800'
+                                                : 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800'
+                                            }>
+                                              {isPartial ? 'Partial' : 'Paid'}
+                                            </span>
+                                          </td>
                                         </tr>
                                       )
                                     })}
@@ -4257,31 +4393,58 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                   <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
                     <th className="py-2 px-4 text-left font-medium">Invoice</th>
                     <th className="py-2 px-4 text-left font-medium">Customer</th>
-                    <th className="py-2 px-4 text-left font-medium">Date</th>
+                    <th className="py-2 px-4 text-left font-medium">Paid On</th>
+                    <th className="py-2 px-4 text-left font-medium">Brand</th>
                     <th className="py-2 px-4 text-right font-medium">Amount</th>
                     <th className="py-2 px-4 text-right font-medium">Commission</th>
+                    <th className="py-2 px-4 text-left font-medium">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {visiblePaidInvoices.slice(0, 200).map((inv) => (
-                    <tr key={inv.invoiceNum} className="border-b last:border-0">
-                      <td className="py-2 px-4 text-xs whitespace-nowrap">{inv.invoiceNum}</td>
-                      <td className="py-2 px-4">{inv.customer}</td>
-                      <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{inv.date || '—'}</td>
-                      <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(inv.amount)}</td>
-                      <td className="py-2 px-4 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(inv.commission)}</td>
-                    </tr>
-                  ))}
+                  {visiblePaymentEvents.slice(0, 200).map((ev, i) => {
+                    const evBrands = Array.from(new Set((ev.lines || []).map(l => l.brand).filter(Boolean)))
+                    const isPartial = ev.status === 'Partial' || (ev.paymentAmount || 0) < (ev.amount || 0) - 0.01
+                    return (
+                      <tr key={`${ev.invoiceNum}-${i}`} className="border-b last:border-0">
+                        <td className="py-2 px-4 text-xs whitespace-nowrap">{ev.invoiceNum}</td>
+                        <td className="py-2 px-4">{ev.customer}</td>
+                        <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{formatPaidOn(ev.paymentDate) || '—'}</td>
+                        <td className="py-2 px-4">
+                          {evBrands.length === 0 ? (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          ) : (
+                            <div className="flex flex-wrap gap-1">
+                              {evBrands.map(b => (
+                                <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
+                              ))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(ev.paymentAmount)}</td>
+                        <td className="py-2 px-4 text-right font-bold text-[#005b5b] whitespace-nowrap">{fmt(ev.commissionForEvent)}</td>
+                        <td className="py-2 px-4">
+                          <span className={
+                            isPartial
+                              ? 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800'
+                              : 'text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800'
+                          }>
+                            {isPartial ? 'Partial' : 'Paid'}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
                   <tr className="bg-muted/40 font-semibold">
-                    <td className="py-2 px-4" colSpan={3}>Total</td>
+                    <td className="py-2 px-4" colSpan={4}>Total</td>
                     <td className="py-2 px-4 text-right whitespace-nowrap">{fmt(paidTotals.amount)}</td>
                     <td className="py-2 px-4 text-right text-[#005b5b] whitespace-nowrap">{fmt(paidTotals.commission)}</td>
+                    <td></td>
                   </tr>
                 </tbody>
               </table>
-              {visiblePaidInvoices.length > 200 && (
+              {visiblePaymentEvents.length > 200 && (
                 <div className="text-xs text-muted-foreground text-center py-2">
-                  Showing first 200 of {visiblePaidInvoices.length} — narrow the date range to see more.
+                  Showing first 200 of {visiblePaymentEvents.length} — narrow the date range to see more.
                 </div>
               )}
             </div>
