@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
-import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle } from 'lucide-react'
+import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { useCompanies } from '@/context/CompanyContext'
 import JSZip from 'jszip'
 import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, TERRITORIES, STARTING_ADJUSTMENTS, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
@@ -2099,6 +2100,29 @@ function SortableTh({ col, label, align = 'left', sortBy, sortDir, onClick }) {
   )
 }
 
+// Inline info icon with hover tooltip — shared across the uploader rows
+// so each ingestion surface can carry a one-sentence "what is this file
+// for" description without bloating the visible row.
+function InfoTip({ children }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label="More info"
+          className="inline-flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors p-0.5 cursor-help"
+          onClick={(e) => e.preventDefault()}
+        >
+          <Info className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-sm leading-snug">
+        {children}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 // LineItemsUploader — dual mode:
 //   - default (empty state): full dashed card, "Step 2 — Line Items CSV"
 //   - compact (post-upload): single-line status with a Replace/Clear strip
@@ -2113,7 +2137,14 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
         <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
         {hasItems ? (
           <>
-            <span className="text-muted-foreground">Line items:</span>
+            <span className="text-muted-foreground inline-flex items-center gap-1">
+              Line items:
+              <InfoTip>
+                <p className="font-medium mb-1">Line items CSV</p>
+                <p>Per-invoice product detail (one row per SKU). Required for brand attribution — without it the engine can only credit commission at the invoice level, not split it across brands.</p>
+                <p className="mt-1 text-muted-foreground">Source: QuickBooks "Sales by Customer Type Detail" report.</p>
+              </InfoTip>
+            </span>
             <span className="font-medium">{lineItems.length.toLocaleString()}</span>
             <span className="text-muted-foreground">across</span>
             <span className="font-medium">{itemsInvoiceCount.toLocaleString()}</span>
@@ -2159,7 +2190,14 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
   return (
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
-      <p className="text-sm font-medium mb-1">Step 2 — Line Items CSV (optional)</p>
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Step 2 — Line Items CSV (optional)
+        <InfoTip>
+          <p className="font-medium mb-1">Line items CSV</p>
+          <p>Per-invoice product detail (one row per SKU). Required for brand attribution — without it the engine can only credit commission at the invoice level, not split it across brands.</p>
+          <p className="mt-1 text-muted-foreground">Source: QuickBooks "Sales by Customer Type Detail" report.</p>
+        </InfoTip>
+      </p>
       <p className="text-sm text-muted-foreground mb-4">Enables brand attribution per invoice. Drop later if you only have the invoices file now.</p>
       <label className="inline-flex">
         <input type="file" accept=".csv" className="hidden" onChange={pickHandler('replace')} />
@@ -2187,7 +2225,14 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
     return (
       <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
         <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
-        <span className="text-muted-foreground">Payments:</span>
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          Payments:
+          <InfoTip>
+            <p className="font-medium mb-1">QB Payments &amp; Credit Memos</p>
+            <p>Every payment event and credit memo over the export's date range. Drives the 3-phase auto-matcher that assigns payment dates to invoices, and powers credit-memo claw-back logic.</p>
+            <p className="mt-1 text-muted-foreground">Source: QuickBooks "Invoices &amp; Received Payments" report.</p>
+          </InfoTip>
+        </span>
         <span className="font-medium">{transactions.length.toLocaleString()}</span>
         <span className="text-muted-foreground">transactions</span>
         {ordered.length > 0 && (
@@ -2215,7 +2260,14 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
   return (
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
-      <p className="text-sm font-medium mb-1">Step 4 — QB Payments CSV (Invoices & Received Payments)</p>
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Step 4 — QB Payments CSV (Invoices &amp; Received Payments)
+        <InfoTip>
+          <p className="font-medium mb-1">QB Payments &amp; Credit Memos</p>
+          <p>Every payment event and credit memo over the export's date range. Drives the 3-phase auto-matcher that assigns payment dates to invoices, and powers credit-memo claw-back logic.</p>
+          <p className="mt-1 text-muted-foreground">Source: QuickBooks "Invoices &amp; Received Payments" report.</p>
+        </InfoTip>
+      </p>
       <p className="text-sm text-muted-foreground mb-4">Captures every payment event + credit memo over a date range. Used for commission-timing audits and three-way reconciliation against invoices + AR.</p>
       <label className="inline-flex">
         <input type="file" accept=".csv" className="hidden" onChange={pick} />
@@ -2236,7 +2288,14 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
     return (
       <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
         <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
-        <span className="text-muted-foreground">BP overrides:</span>
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          BP overrides:
+          <InfoTip>
+            <p className="font-medium mb-1">Brightpearl invoice→customer mapping</p>
+            <p>Recovers the original customer name on invoices that QuickBooks renamed to bare "WSR" when a clearing-house payment hit. Without this, WSR-member invoices can't route to the right rep.</p>
+            <p className="mt-1 text-muted-foreground">Upload one file per territory — mappings merge, they don't replace.</p>
+          </InfoTip>
+        </span>
         <span className="font-medium">{total.toLocaleString()}</span>
         <span className="text-muted-foreground">invoice mappings</span>
         <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
@@ -2260,7 +2319,14 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
   return (
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
-      <p className="text-sm font-medium mb-1">Step 5 — BP invoice overrides (one-off backfill)</p>
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Step 5 — BP invoice overrides (one-off backfill)
+        <InfoTip>
+          <p className="font-medium mb-1">Brightpearl invoice→customer mapping</p>
+          <p>Recovers the original customer name on invoices that QuickBooks renamed to bare "WSR" when a clearing-house payment hit. Without this, WSR-member invoices can't route to the right rep.</p>
+          <p className="mt-1 text-muted-foreground">Upload one file per territory — mappings merge, they don't replace.</p>
+        </InfoTip>
+      </p>
       <p className="text-sm text-muted-foreground mb-4">Brightpearl export with original customer names per invoice. Recovers WSR-renamed invoices so they route to the right rep. Upload one file per territory; mappings accumulate.</p>
       <label className="inline-flex">
         <input type="file" accept=".csv" className="hidden" onChange={pick} />
@@ -2280,7 +2346,14 @@ function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, 
     return (
       <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
         <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
-        <span className="text-muted-foreground">WSR remittances:</span>
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          WSR remittances:
+          <InfoTip>
+            <p className="font-medium mb-1">WSR ACH remittance forms</p>
+            <p>Each xlsx breaks a single WSR ACH payment down by member: invoice number, member ID, gross, admin fee, and net paid. Gives WSR-member invoices their correct paid date and amount.</p>
+            <p className="mt-1 text-muted-foreground">One file per check — re-uploading a check number replaces the prior copy.</p>
+          </InfoTip>
+        </span>
         <span className="font-medium">{remittances.length}</span>
         <span className="text-muted-foreground">checks ·</span>
         <span className="font-medium">{totalInvoices.toLocaleString()}</span>
@@ -2313,7 +2386,14 @@ function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, 
   return (
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
-      <p className="text-sm font-medium mb-1">Step 6 — WSR ACH payments (per-check remittance)</p>
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Step 6 — WSR ACH payments (per-check remittance)
+        <InfoTip>
+          <p className="font-medium mb-1">WSR ACH remittance forms</p>
+          <p>Each xlsx breaks a single WSR ACH payment down by member: invoice number, member ID, gross, admin fee, and net paid. Gives WSR-member invoices their correct paid date and amount.</p>
+          <p className="mt-1 text-muted-foreground">One file per check — re-uploading a check number replaces the prior copy.</p>
+        </InfoTip>
+      </p>
       <p className="text-sm text-muted-foreground mb-4">Upload each WSR Additional Remittance Form xlsx. Gives us per-invoice attribution (member, gross, admin fee, net) within a lump WSR ACH payment so individual WSR-member invoices get correct payment dates and amounts.</p>
       <label className="inline-flex">
         <input type="file" accept=".xlsx,.xls" className="hidden" onChange={pick} />
@@ -3075,7 +3155,14 @@ function InvoicesView({
       <div className="rounded-lg border border-input bg-background p-4">
         <div className="flex items-start justify-between gap-3 mb-2">
           <div>
-            <h3 className="font-semibold">Invoices CSV</h3>
+            <h3 className="font-semibold inline-flex items-center gap-1.5">
+              Invoices CSV
+              <InfoTip>
+                <p className="font-medium mb-1">Invoices CSV</p>
+                <p>The core data source — every QuickBooks invoice (SI) and credit memo (SC) we track for commission attribution.</p>
+                <p className="mt-1 text-muted-foreground">Append merges new invoices into what's already loaded; Replace wipes and reloads from scratch.</p>
+              </InfoTip>
+            </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
               QuickBooks invoices export. {rows.length > 0 ? `${rows.length.toLocaleString()} invoices loaded.` : 'No invoices loaded yet.'}
               {meta && <> • <span className="text-muted-foreground">Source: {meta.fileName} • {new Date(meta.uploadedAt).toLocaleString()}</span></>}
