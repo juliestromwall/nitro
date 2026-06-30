@@ -754,16 +754,18 @@ export const EARNED_SNAPSHOTS = {
 }
 
 // Per-rep starting adjustments — the prior unpaid commission balance not
-// captured by the events/payouts our system has ingested. Plugged into
-// Available math as:
+// captured by the events/payouts our system has ingested, measured as of
+// ADJUSTMENT_ANCHOR. Plugged into Available math as:
 //
-//   available = startingAdjustment + lifetime_earned − lifetime_paidOut
+//   available = startingAdjustment
+//             + earned (matched events after the anchor)
+//             − paidOut (payouts recorded on/after the anchor)
 //
 // Tony-confirmed values (2026-06-25). A zero means "no carryover — the
-// system's lifetime math is the full picture for this rep."
+// system's math from the anchor forward is the full picture for this rep."
 export const STARTING_ADJUSTMENTS = {
   'rep-adam':                      0.00,
-  'rep-rob':                       0.00,
+  'rep-rob':                    -139.08,
   'rep-jason':                     0.00,
   'rep-kathy-karlovic':            0.00,
   'rep-andy-wise':                 0.00,
@@ -779,6 +781,21 @@ export const STARTING_ADJUSTMENTS = {
   'rep-kim-kulak':                 0.00,
   'rep-carter-katz':               0.00,
   'rep-cody-prudoehl':           353.83,
+}
+
+// The default date STARTING_ADJUSTMENTS were measured. The anchor is the date
+// the baseline is "as of": Available counts earnings and payouts dated STRICTLY
+// AFTER it, and anything on or before it (earned OR paid) is already baked into
+// the starting adjustment. Used for any rep not overridden below.
+export const ADJUSTMENT_ANCHOR = '2026-06-25'
+
+// Per-rep anchor overrides. Set a rep here when their baseline was confirmed
+// on a different day than the default launch date (e.g. onboarded later).
+// Their Available counts earnings/payouts only AFTER this date; everything
+// before it is assumed captured in their STARTING_ADJUSTMENTS figure. Reps not
+// listed fall back to ADJUSTMENT_ANCHOR.
+export const ADJUSTMENT_ANCHORS = {
+  'rep-rob': '2026-04-21',
 }
 
 export const PAYOUTS = [

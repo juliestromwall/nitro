@@ -11,7 +11,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { useCompanies } from '@/context/CompanyContext'
 import JSZip from 'jszip'
-import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, TERRITORIES, STARTING_ADJUSTMENTS, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
+import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, TERRITORIES, STARTING_ADJUSTMENTS, ADJUSTMENT_ANCHOR, ADJUSTMENT_ANCHORS, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
 import { computeCommissions, aggregateByRep } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { shouldIgnoreCustomer, isWsrPostPaymentCustomer } from '@/lib/customerIgnoreList'
@@ -742,6 +742,38 @@ function PaymentsTracker() {
           }
         }
       }
+      // Phase D: one payment settles a GROUP of invoices (a single lump-sum
+      // check covering several invoices at once — the inverse of Phase C).
+      // Match an unused payment to a subset of still-unmatched invoices whose
+      // paid portions sum to the payment amount, then date each of those
+      // invoices to that payment. Without this, a customer who clears several
+      // invoices with one check leaves them all unmatched (no payment date),
+      // and their commission never flows into the rep's earned/available.
+      for (let pi = 0; pi < payments.length; pi++) {
+        if (used.has(pi)) continue
+        const payAmt = payments[pi].amount || 0
+        if (payAmt <= 0) continue
+        const open = invs.filter(inv => !result.has(inv.num))
+        if (open.length < 2 || open.length > 14) continue   // single-invoice case is Phase A's job
+        const m = open.length
+        let bestMask = 0, bestDiff = Infinity, bestCount = -1
+        for (let mask = 1; mask < (1 << m); mask++) {
+          let sum = 0, count = 0
+          for (let i = 0; i < m; i++) if (mask & (1 << i)) { sum += open[i].paidPortion; count++ }
+          if (count < 2) continue   // need 2+ invoices to be a "group"
+          const diff = Math.abs(sum - payAmt)
+          // Prefer the closest sum; break ties toward covering MORE invoices.
+          if (diff <= 5 && (diff < bestDiff || (diff === bestDiff && count > bestCount))) {
+            bestMask = mask; bestDiff = diff; bestCount = count
+          }
+        }
+        if (bestMask) {
+          for (let i = 0; i < m; i++) {
+            if (bestMask & (1 << i)) add(open[i].num, { date: payments[pi].date, amount: open[i].paidPortion, source: 'auto-group' })
+          }
+          used.add(pi)
+        }
+      }
     }
     for (const arr of result.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
     return result
@@ -779,18 +811,6 @@ function PaymentsTracker() {
     return m
   }, [commissionPayouts, ytdStart])
 
-  // Each rep's most recent payout date (ISO). Anchors the "since last
-  // payout" math for Available + the Payments received section.
-  const lastPayoutByRep = useMemo(() => {
-    const m = {}
-    for (const p of commissionPayouts) {
-      const iso = toIsoDateAtParent(p.date)
-      if (!iso) continue
-      if (!m[p.repId] || iso > m[p.repId]) m[p.repId] = iso
-    }
-    return m
-  }, [commissionPayouts])
-
   // YTD earned per rep — pro-rated commission across payment events whose
   // payment date is in the current calendar year.
   const earnedYtdByRep = useMemo(() => {
@@ -816,18 +836,20 @@ function PaymentsTracker() {
     return out
   }, [reps, aggregatesByRep, paymentEventsByInvoiceNum, ytdStart])
 
-  // Per-rep commission earned from matched payment events dated AFTER
-  // the rep's last payout. This is the "what's accrued this cycle"
-  // number that feeds Available. Only matched events count — unmatched
-  // paid invoices (matcher gap) are not included here because we don't
-  // know which side of the payout date they fall on. Tony bakes those
-  // into the per-rep starting adjustment instead.
-  const earnedSinceLastPayoutByRep = useMemo(() => {
+  // Per-rep commission earned from matched payment events dated AFTER the
+  // rep's adjustment anchor. This is the earned half of Available: the starting
+  // adjustment captures everything up to the anchor, and this captures what
+  // has accrued since. The anchor is per-rep (ADJUSTMENT_ANCHORS override, else
+  // the global ADJUSTMENT_ANCHOR) so reps baselined on different dates calculate
+  // forward from their own date. Fixed cutoff (unlike a moving last-payout
+  // date) so recording a payout doesn't erase earned commission — payouts
+  // subtract via paidOutSinceAnchorByRep instead.
+  const earnedSinceAnchorByRep = useMemo(() => {
     const out = {}
     for (const rep of reps) {
+      const anchor = ADJUSTMENT_ANCHORS[rep.id] || ADJUSTMENT_ANCHOR
       const agg = aggregatesByRep[rep.id]
       if (!agg?.byInvoice) { out[rep.id] = 0; continue }
-      const cutoff = lastPayoutByRep[rep.id] || ''
       let earned = 0
       for (const [invNum, inv] of Object.entries(agg.byInvoice)) {
         const events = paymentEventsByInvoiceNum.get(invNum) || []
@@ -835,10 +857,8 @@ function PaymentsTracker() {
         const fullAmount = inv.amount || 0
         const fullCommission = inv.commission || 0
         for (const ev of events) {
-          if (cutoff) {
-            const pIso = toIsoDateAtParent(ev.date)
-            if (!pIso || pIso <= cutoff) continue
-          }
+          const pIso = toIsoDateAtParent(ev.date)
+          if (!pIso || pIso <= anchor) continue
           const fraction = fullAmount > 0 ? (ev.amount || 0) / fullAmount : 0
           earned += fullCommission * fraction
         }
@@ -846,7 +866,24 @@ function PaymentsTracker() {
       out[rep.id] = earned
     }
     return out
-  }, [reps, aggregatesByRep, paymentEventsByInvoiceNum, lastPayoutByRep])
+  }, [reps, aggregatesByRep, paymentEventsByInvoiceNum])
+
+  // Per-rep payouts recorded strictly AFTER the adjustment anchor. These
+  // subtract from Available, so a payout Tony logs lowers what he still owes
+  // the rep — including paying down a starting-adjustment carryover. The
+  // boundary must match earnedSinceAnchorByRep (both exclude the anchor day):
+  // the anchor is the date the baseline is "as of", so anything on or before
+  // it — earned OR paid — is already reflected in STARTING_ADJUSTMENTS.
+  const paidOutSinceAnchorByRep = useMemo(() => {
+    const m = {}
+    for (const p of commissionPayouts) {
+      const anchor = ADJUSTMENT_ANCHORS[p.repId] || ADJUSTMENT_ANCHOR
+      const iso = toIsoDateAtParent(p.date)
+      if (!iso || iso <= anchor) continue
+      m[p.repId] = (m[p.repId] || 0) + (p.amount || 0)
+    }
+    return m
+  }, [commissionPayouts])
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
   // should not normally appear in QB data — when one shows up, it's flagged
@@ -926,17 +963,19 @@ function PaymentsTracker() {
     return Array.from(groups.values()).sort((a, b) => a.customer.localeCompare(b.customer))
   }, [reps, invoices])
   // Per-rep summary. Earned + Paid Out are YTD figures (current calendar
-  // year only). Available is the live amount Tony owes the rep right now:
+  // year only). Available is the live amount Tony owes the rep right now,
+  // anchored to ADJUSTMENT_ANCHOR (the date starting adjustments were set):
   //
-  //   available = startingAdjustment + earnedSinceLastPayout
+  //   available = startingAdjustment + earnedSinceAnchor − paidOutSinceAnchor
   //
-  // startingAdjustment is Tony's hand-set ground truth at the moment of
-  // the rep's last payout (any "prior commissions not taken"), and
-  // earnedSinceLastPayout is the sum of matched-event commission dated
-  // after that payout — i.e. what's accrued in the current cycle.
-  // Lifetime earned + lifetime paid out are intentionally NOT used here.
-  // Update starting adjustments in
-  // src/lib/paymentsDemoData.js → STARTING_ADJUSTMENTS.
+  // startingAdjustment is Tony's hand-set ground truth as of the anchor
+  // (any "prior commissions not taken"), earnedSinceAnchor is matched-event
+  // commission dated after the anchor, and paidOutSinceAnchor is payouts
+  // logged on/after the anchor. Recording a payout subtracts directly, so it
+  // lowers Available — including paying down a starting-adjustment carryover.
+  // Update starting adjustments + anchors in src/lib/paymentsDemoData.js →
+  // STARTING_ADJUSTMENTS / ADJUSTMENT_ANCHOR (default) / ADJUSTMENT_ANCHORS
+  // (per-rep override).
   const repSummary = useMemo(() => {
     const out = {}
     for (const rep of reps) {
@@ -944,18 +983,19 @@ function PaymentsTracker() {
       const earned = earnedYtdByRep[rep.id] || 0
       const paidOut = payoutsByRep[rep.id] || 0
       const startingAdjustment = STARTING_ADJUSTMENTS[rep.id] || 0
-      const earnedSinceLastPayout = earnedSinceLastPayoutByRep[rep.id] || 0
+      const earnedSinceAnchor = earnedSinceAnchorByRep[rep.id] || 0
+      const paidOutSinceAnchor = paidOutSinceAnchorByRep[rep.id] || 0
       out[rep.id] = {
         earned,
         paidOut,
-        available: startingAdjustment + earnedSinceLastPayout,
+        available: startingAdjustment + earnedSinceAnchor - paidOutSinceAnchor,
         openCommission: agg?.openCommission || 0,
         totalCommission: agg?.totalCommission || 0,
         owesFoundry: owedByRep[rep.id] || 0,
       }
     }
     return out
-  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, earnedSinceLastPayoutByRep, owedByRep])
+  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, earnedSinceAnchorByRep, paidOutSinceAnchorByRep, owedByRep])
 
   // Match invoice customer names to account names, sum open balances per account.
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
@@ -987,12 +1027,15 @@ function PaymentsTracker() {
       let acct = byNorm.get(n)
       let matchedVia = 'exact'
       if (!acct) {
-        // substring fallback (both directions, min 4 chars)
+        // Substring fallback (both directions, min 4 chars). Prefer the most
+        // specific candidate (longest account name) over the first encountered,
+        // so a generic short name ("SATELLITE") doesn't beat the correct
+        // specific one ("TOPSIDE SATELLITE OUTPOST") by list order. Keep in
+        // sync with findAccount() in commissionEngine.js.
+        let bestLen = -1
         for (const [key, a] of byNorm.entries()) {
           if (Math.min(key.length, n.length) >= 4 && (key.includes(n) || n.includes(key))) {
-            acct = a
-            matchedVia = 'substring'
-            break
+            if (key.length > bestLen) { acct = a; bestLen = key.length; matchedVia = 'substring' }
           }
         }
       }
@@ -2272,7 +2315,9 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
 }
 
 function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, error, lastImport }) {
-  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const pickHandler = (mode) => (e) => {
+    if (e.target.files?.[0]) { onPickFile(e.target.files[0], mode); e.target.value = '' }
+  }
   const hasData = (transactions?.length || 0) > 0
   const TYPE_ORDER = ['Payment', 'Credit Memo', 'Invoice', 'Expense', 'Check']
   const ordered = TYPE_ORDER.filter(t => byType?.[t]).concat(Object.keys(byType || {}).filter(t => !TYPE_ORDER.includes(t)))
@@ -2302,12 +2347,22 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
         {meta && <span className="text-xs text-muted-foreground">• {meta.fileName}</span>}
         <span className="ml-auto flex items-center gap-2">
           <label className="inline-flex">
-            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <input type="file" accept=".csv" className="hidden" onChange={pickHandler('append')} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md bg-[#005b5b] text-white hover:bg-[#004848] cursor-pointer gap-1"><Upload className="size-3.5" /> Append</span>
+          </label>
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pickHandler('replace')} />
             <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
         </span>
-        {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Loaded {lastImport.total.toLocaleString()} transactions from {lastImport.fileName}.</p>}
+        {lastImport && (
+          <p className={`basis-full text-xs mt-1 ${lastImport.mode === 'append' ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
+            {lastImport.mode === 'append'
+              ? `Appended ${lastImport.added.toLocaleString()} new transaction${lastImport.added === 1 ? '' : 's'}${lastImport.duplicates ? `, skipped ${lastImport.duplicates.toLocaleString()} duplicate${lastImport.duplicates === 1 ? '' : 's'}` : ''} — ${lastImport.total.toLocaleString()} total.`
+              : `Loaded ${lastImport.total.toLocaleString()} transactions from ${lastImport.fileName}.`}
+          </p>
+        )}
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
       </div>
     )
@@ -2325,7 +2380,7 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
       </p>
       <p className="text-sm text-muted-foreground mb-4">Captures every payment event + credit memo over a date range. Used for commission-timing audits and three-way reconciliation against invoices + AR.</p>
       <label className="inline-flex">
-        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <input type="file" accept=".csv" className="hidden" onChange={pickHandler('replace')} />
         <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
           <Upload className="size-4" /> Choose Payments CSV
         </span>
@@ -2823,7 +2878,7 @@ function InvoicesView({
   // ===== QB Payments transaction CSV =====
   const [paymentsError, setPaymentsError] = useState(null)
   const [lastPaymentsImport, setLastPaymentsImport] = useState(null)
-  const handlePaymentsFile = async (file) => {
+  const handlePaymentsFile = async (file, mode = 'replace') => {
     setPaymentsError(null); setLastPaymentsImport(null)
     try {
       const buf = await file.arrayBuffer()
@@ -2866,11 +2921,31 @@ function InvoicesView({
         })
       }
       if (transactions.length === 0) throw new Error('No transactions found.')
-      const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), count: transactions.length }
-      onSavePaymentsTx(transactions, meta)
-      const byType = {}
-      for (const t of transactions) byType[t.type] = (byType[t.type] || 0) + 1
-      setLastPaymentsImport({ fileName: file.name, total: transactions.length, byType })
+      if (mode === 'append') {
+        // Append/merge against the existing dataset. Payment rows have no single
+        // unique key, so dedupe on the full parsed row identity: the same
+        // transaction re-exported in an overlapping date range is field-for-field
+        // identical, so only exact duplicates are dropped — distinct rows that
+        // happen to share a customer/date/amount are kept.
+        const keyOf = (t) => [t.customer, t.date, t.type, t.num, t.amount, t.memo].join('|')
+        const seen = new Set(paymentsTx.map(keyOf))
+        let added = 0, duplicates = 0
+        const fresh = []
+        for (const t of transactions) {
+          const k = keyOf(t)
+          if (seen.has(k)) { duplicates++; continue }
+          seen.add(k); fresh.push(t)
+          added++
+        }
+        const merged = [...paymentsTx, ...fresh]
+        const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), count: merged.length, lastAppendCount: added, lastAppendFile: file.name }
+        onSavePaymentsTx(merged, meta)
+        setLastPaymentsImport({ mode: 'append', fileName: file.name, added, duplicates, total: merged.length })
+      } else {
+        const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), count: transactions.length }
+        onSavePaymentsTx(transactions, meta)
+        setLastPaymentsImport({ mode: 'replace', fileName: file.name, total: transactions.length })
+      }
     } catch (e) { setPaymentsError(e.message || 'Failed to parse payments file') }
   }
   const clearPaymentsTxConfirm = () => {
