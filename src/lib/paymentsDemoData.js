@@ -777,7 +777,7 @@ export const STARTING_ADJUSTMENTS = {
   'rep-harrison-montgomery':     856.54,
   'rep-trevor-stockhausen':        0.00,
   'rep-steve-clare':               0.00,
-  'rep-brian-kulak':              89.18,
+  'rep-brian-kulak':              24.64,
   'rep-kim-kulak':                 0.00,
   'rep-carter-katz':               0.00,
   'rep-cody-prudoehl':           353.83,
@@ -795,7 +795,9 @@ export const ADJUSTMENT_ANCHOR = '2026-06-25'
 // before it is assumed captured in their STARTING_ADJUSTMENTS figure. Reps not
 // listed fall back to ADJUSTMENT_ANCHOR.
 export const ADJUSTMENT_ANCHORS = {
-  'rep-rob': '2026-04-21',
+  'rep-rob':           '2026-04-21',
+  'rep-cody-prudoehl': '2026-06-21',
+  'rep-brian-kulak':   '2026-03-27',
 }
 
 export const PAYOUTS = [
