@@ -87,12 +87,18 @@ function findAccount(invoiceCustomer, accountsByName) {
   if (exact) return exact
   // Substring fallback (min 4 chars, both directions). Catches cases like
   // an account named "Sundown Ski" matching invoice "Sundown Ski (WSR)".
+  // Prefer the MOST SPECIFIC candidate (longest account name), not the first
+  // encountered — otherwise a short, generic account name ("SATELLITE",
+  // territory SOUTHWEST) wins over the correct specific one ("TOPSIDE
+  // SATELLITE OUTPOST", territory PNW) purely by list order, misrouting the
+  // commission to the wrong territory/rep.
+  let best = null, bestLen = -1
   for (const [key, a] of accountsByName.entries()) {
     if (Math.min(key.length, n.length) >= 4 && (key.includes(n) || n.includes(key))) {
-      return a
+      if (key.length > bestLen) { best = a; bestLen = key.length }
     }
   }
-  return null
+  return best
 }
 
 function getCustomerOverride(invoiceCustomer, brandId, season) {

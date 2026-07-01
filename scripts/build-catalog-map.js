@@ -32,6 +32,7 @@ const CATALOGS = [
   { file: 'CORDUROY FW25 ORDERFORM V1.1.xlsx',                 sheet: 'FW25 Orderform',          headerRow: 9,  skuCol: 4, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
   // Older-season Autumn catalog (carry-over coverage)
   { file: 'AUTUMN FW24.25 ORDERFORM V1.4.xlsx',                sheet: 'Order Form',              headerRow: 27, skuCol: 2, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
+  { file: 'AUTUMN FW23 ORDERFORM V1.4.xlsx',                   sheet: 'Order Form',              headerRow: 27, skuCol: 1, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
   { file: 'AUTUMN FW22 ORDER FORM .xlsx',                      sheet: 'Order Form',              headerRow: 25, skuCol: 1, brandId: 'brand-autumn', brandName: 'Autumn/Corduroy' },
   { file: 'US - Eivy 25-26 V.1.0xlsx.xlsx',                    sheet: 'Eivy',         headerRow: 0,  skuCol: 7, brandId: 'brand-eivy',   brandName: 'EIVY' },
   // Older-season Eivy catalogs (carry-over coverage)

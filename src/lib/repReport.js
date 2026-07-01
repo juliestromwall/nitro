@@ -1,7 +1,8 @@
 // Per-rep commission report exporter (PDF + XLSX).
 // Produces a multi-section report matching the in-app ledger view:
 //   1. Header (rep info + report metadata)
-//   2. Summary KPIs (earned / paid out / available / pending)
+//   2. Summary KPIs (paid out YTD / available / pending) — anchor-based,
+//      mirrors the live ledger tiles
 //   3. Paid invoices (filterable by "since" date)
 //   4. Open / unpaid invoices
 //   5. Recorded commission payouts
@@ -38,9 +39,47 @@ function splitInvoices(byInvoice = {}) {
   return { paid, open }
 }
 
+// Normalize a date string (MM/DD/YYYY as stored, or already-ISO) to YYYY-MM-DD
+// so comparisons are chronological, not lexicographic on mixed formats.
+function toIsoDay(s) {
+  if (!s) return ''
+  const str = String(s)
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) return str.slice(0, 10)
+  const m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/)
+  if (!m) return ''
+  const y = m[3].length === 2 ? `20${m[3]}` : m[3]
+  return `${y}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`
+}
+
+// Display a date as MM/DD/YYYY regardless of the stored format.
+function fmtDay(s) {
+  const iso = toIsoDay(s)
+  if (!iso) return s || ''
+  const [y, mm, dd] = iso.split('-')
+  return `${mm}/${dd}/${y}`
+}
+
+// Latest matched payment date for an invoice (Map or plain object input).
+function paymentDateFor(paymentDates, num) {
+  if (!paymentDates || num == null) return ''
+  const v = typeof paymentDates.get === 'function' ? paymentDates.get(num) : paymentDates[num]
+  return v || ''
+}
+
+// Attach each paid invoice's matched payment date (`paidOn`) so the section can
+// filter and display by when it was PAID, matching the live ledger's
+// payments-received view (which is keyed on payment date, not invoice date).
+function withPaidDates(paidInvoices, paymentDates) {
+  return paidInvoices.map(i => ({ ...i, paidOn: paymentDateFor(paymentDates, i.invoiceNum) }))
+}
+
 function applyPaidSince(paidInvoices, paidSince) {
   if (!paidSince) return paidInvoices
-  return paidInvoices.filter(i => (i.date || '') >= paidSince)
+  const since = toIsoDay(paidSince)
+  return paidInvoices.filter(i => {
+    const pd = toIsoDay(i.paidOn)
+    return pd && pd >= since
+  })
 }
 
 function groupPaidByCustomer(paidInvoices) {
@@ -70,10 +109,11 @@ function groupOpenByCustomer(openInvoices) {
 
 // ─── PDF ──────────────────────────────────────────────────────────────
 
-export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [] }) {
+export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [], anchor, paymentDatesByInvoiceNum }) {
   const safe = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0 }
   const { paid, open } = splitInvoices(byInvoice)
-  const paidVisible = applyPaidSince(paid, paidSince)
+  const paidDated = withPaidDates(paid, paymentDatesByInvoiceNum)
+  const paidVisible = applyPaidSince(paidDated, paidSince)
   const paidGrouped = groupPaidByCustomer(paidVisible)
   const openGrouped = groupOpenByCustomer(open)
   const today = new Date().toISOString().slice(0, 10)
@@ -90,15 +130,20 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
   if (rep.email) { doc.text(rep.email, 40, y); y += 14 }
   if (territories?.length) { doc.text(`Territories: ${territories.join(', ')}`, 40, y); y += 14 }
   doc.setTextColor(110)
-  doc.text(`Generated ${today}` + (paidSince ? ` • Paid invoices since ${paidSince}` : ''), 40, y)
+  const periodBits = []
+  if (anchor) periodBits.push(`Anchor ${fmtDay(anchor)}`)
+  if (paidSince && paidSince !== anchor) periodBits.push(`Paid invoices since ${fmtDay(paidSince)}`)
+  doc.text(`Generated ${today}` + (periodBits.length ? ` • ${periodBits.join(' • ')}` : ''), 40, y)
   doc.setTextColor(0)
   y += 20
 
   // ─── Summary KPIs ─────────────────────────────────────────────────
+  // Mirrors the live ledger tiles: Earned is intentionally omitted; Paid Out
+  // is the YTD figure; Available is the anchor-based amount still to collect.
   autoTable(doc, {
     startY: y,
-    head: [['Earned', 'Paid Out', 'Available', 'Pending (open invoices)']],
-    body: [[fmtMoney(safe.earned), fmtMoney(safe.paidOut), fmtMoney(safe.available), fmtMoney(safe.openCommission)]],
+    head: [['Paid Out YTD', 'Available', 'Pending (open invoices)']],
+    body: [[fmtMoney(safe.paidOut), fmtMoney(safe.available), fmtMoney(safe.openCommission)]],
     headStyles: { fillColor: TEAL_RGB, halign: 'center' },
     bodyStyles: { halign: 'center', fontStyle: 'bold', fontSize: 12 },
     styles: { fontSize: 10 },
@@ -110,7 +155,7 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
   if (brandSubtotals && brandSubtotals.length > 0) {
     doc.setFontSize(11)
     doc.setTextColor(...TEAL_RGB)
-    doc.text(`Earned by brand${paidSince ? ` (since ${paidSince})` : ''}`, 40, y)
+    doc.text(`Earned by brand${paidSince ? ` (since ${fmtDay(paidSince)})` : ''}`, 40, y)
     doc.setTextColor(0)
     y += 6
     autoTable(doc, {
@@ -129,12 +174,12 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
   doc.setTextColor(...TEAL_RGB)
   if (groupByCustomer) {
     doc.text(
-      `Paid invoices by customer${paidSince ? ` (since ${paidSince})` : ''} — ${paidGrouped.length} ${paidGrouped.length === 1 ? 'customer' : 'customers'}, ${paidVisible.length} ${paidVisible.length === 1 ? 'invoice' : 'invoices'}`,
+      `Paid invoices by customer${paidSince ? ` (since ${fmtDay(paidSince)})` : ''} — ${paidGrouped.length} ${paidGrouped.length === 1 ? 'customer' : 'customers'}, ${paidVisible.length} ${paidVisible.length === 1 ? 'invoice' : 'invoices'}`,
       40, y
     )
   } else {
     doc.text(
-      `Paid invoices${paidSince ? ` (since ${paidSince})` : ''} — ${paidVisible.length} ${paidVisible.length === 1 ? 'invoice' : 'invoices'}`,
+      `Paid invoices${paidSince ? ` (since ${fmtDay(paidSince)})` : ''} — ${paidVisible.length} ${paidVisible.length === 1 ? 'invoice' : 'invoices'}`,
       40, y
     )
   }
@@ -151,31 +196,28 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
       if (!paidByCustomerLookup[key]) paidByCustomerLookup[key] = []
       paidByCustomerLookup[key].push(inv)
     }
-    // Interleave customer summary rows with their individual invoice sub-rows.
-    // Sub-row layout: invoice number + date appear together under the
-    // "Invoices Paid" column (the column where the customer's count lives).
+    // Layout: a full-width customer header row (name only), followed by one
+    // row per invoice showing its paid date, amount, and commission. No
+    // per-customer counts or subtotals.
     const groupedBody = []
     for (const g of paidGrouped) {
       groupedBody.push([
-        g.customer,
-        g.count,
-        fmtMoney(g.amount),
-        { content: fmtMoney(g.commission), styles: { fontStyle: 'bold', textColor: TEAL_RGB } },
+        { content: g.customer, colSpan: 4, styles: { fontStyle: 'bold', textColor: TEAL_RGB, fillColor: [235, 243, 243] } },
       ])
       for (const inv of paidByCustomerLookup[g.customer] || []) {
         groupedBody.push([
-          '',
-          { content: `•  ${inv.invoiceNum}   ${inv.date || ''}`, styles: { textColor: 60, fontSize: 9 } },
-          { content: fmtMoney(inv.amount), styles: { textColor: 60, fontSize: 9 } },
-          { content: fmtMoney(inv.commission), styles: { textColor: 60, fontSize: 9 } },
+          { content: `•  ${inv.invoiceNum}`, styles: { textColor: 60 } },
+          { content: fmtDay(inv.paidOn) || '—', styles: { textColor: 60, halign: 'center' } },
+          { content: fmtMoney(inv.amount), styles: { textColor: 60, halign: 'right' } },
+          { content: fmtMoney(inv.commission), styles: { fontStyle: 'bold', textColor: TEAL_RGB, halign: 'right' } },
         ])
       }
     }
     autoTable(doc, {
       startY: y,
       head: [[
-        { content: 'Customer', styles: { halign: 'left' } },
-        { content: 'Invoices Paid', styles: { halign: 'left' } },
+        { content: 'Customer / Invoice', styles: { halign: 'left' } },
+        { content: 'Paid On', styles: { halign: 'center' } },
         { content: 'Amount', styles: { halign: 'right' } },
         { content: 'Commission', styles: { halign: 'right' } },
       ]],
@@ -185,15 +227,15 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
       headStyles: { fillColor: TEAL_RGB },
       columnStyles: {
         0: { halign: 'left' },
-        1: { halign: 'left' },
+        1: { halign: 'center' },
         2: { halign: 'right' },
         3: { halign: 'right' },
       },
       styles: { fontSize: 9, cellPadding: 5 },
       theme: 'striped',
+      showFoot: 'lastPage',
       foot: paidGrouped.length > 0 ? [[
-        { content: 'Total', styles: { fontStyle: 'bold', halign: 'left', textColor: [255, 255, 255] } },
-        { content: paidVisible.length, styles: { fontStyle: 'bold', halign: 'left', textColor: [255, 255, 255] } },
+        { content: 'Total', colSpan: 2, styles: { fontStyle: 'bold', halign: 'right', textColor: [255, 255, 255] } },
         { content: fmtMoney(paidTotalAmount), styles: { fontStyle: 'bold', halign: 'right', textColor: [255, 255, 255] } },
         { content: fmtMoney(paidTotalCommission), styles: { fontStyle: 'bold', halign: 'right', textColor: [255, 255, 255] } },
       ]] : undefined,
@@ -204,7 +246,7 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
       head: [[
         { content: 'Invoice', styles: { halign: 'left' } },
         { content: 'Customer', styles: { halign: 'left' } },
-        { content: 'Date', styles: { halign: 'center' } },
+        { content: 'Paid On', styles: { halign: 'center' } },
         { content: 'Amount', styles: { halign: 'right' } },
         { content: 'Commission', styles: { halign: 'right' } },
       ]],
@@ -213,7 +255,7 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
         : paidVisible.map(i => [
             i.invoiceNum,
             i.customer,
-            i.date || '—',
+            fmtDay(i.paidOn) || '—',
             fmtMoney(i.amount),
             { content: fmtMoney(i.commission), styles: { fontStyle: 'bold', textColor: TEAL_RGB } },
           ]),
@@ -227,6 +269,7 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
       },
       styles: { fontSize: 8, cellPadding: 4 },
       theme: 'striped',
+      showFoot: 'lastPage',
       foot: paidVisible.length > 0 ? [[
         { content: 'Total', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold', textColor: [255, 255, 255] } },
         { content: fmtMoney(paidTotalAmount), styles: { fontStyle: 'bold', halign: 'right', textColor: [255, 255, 255] } },
@@ -278,6 +321,7 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
       },
       styles: { fontSize: 9, cellPadding: 5 },
       theme: 'striped',
+      showFoot: 'lastPage',
       foot: openGrouped.length > 0 ? [[
         { content: 'Total', styles: { fontStyle: 'bold', halign: 'left', textColor: [255, 255, 255] } },
         { content: open.length, styles: { fontStyle: 'bold', halign: 'center', textColor: [255, 255, 255] } },
@@ -324,6 +368,7 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
       },
       styles: { fontSize: 8, cellPadding: 4 },
       theme: 'striped',
+      showFoot: 'lastPage',
       foot: open.length > 0 ? [[
         { content: 'Total', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold', textColor: [255, 255, 255] } },
         { content: fmtMoney(openTotalAmount), styles: { fontStyle: 'bold', halign: 'right', textColor: [255, 255, 255] } },
@@ -334,14 +379,15 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
   }
   y = doc.lastAutoTable.finalY + 20
 
-  // ─── Owed to Foundry (REP-account invoices: samples / personal orders) ──
-  if (repAccountInvoices.length > 0) {
-    const owedTotalAmount = repAccountInvoices.reduce((s, i) => s + (i.amount || 0), 0)
-    const owedTotalOpen = repAccountInvoices.reduce((s, i) => s + (i.openBalance || 0), 0)
+  // ─── Owed to Foundry (REP-account invoices with a balance still open) ──
+  const owedOpen = repAccountInvoices.filter(i => (i.openBalance || 0) > 0.005)
+  if (owedOpen.length > 0) {
+    const owedTotalAmount = owedOpen.reduce((s, i) => s + (i.amount || 0), 0)
+    const owedTotalOpen = owedOpen.reduce((s, i) => s + (i.openBalance || 0), 0)
     doc.setFontSize(13)
     doc.setTextColor(...TEAL_RGB)
     doc.text(
-      `Owed to Foundry (samples / personal orders) — ${repAccountInvoices.length} ${repAccountInvoices.length === 1 ? 'invoice' : 'invoices'}`,
+      `Owed to Foundry (samples / personal orders) — ${owedOpen.length} open ${owedOpen.length === 1 ? 'invoice' : 'invoices'}`,
       40, y
     )
     doc.setTextColor(0)
@@ -357,10 +403,10 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
         { content: 'Open Balance', styles: { halign: 'right' } },
         { content: 'Status', styles: { halign: 'center' } },
       ]],
-      body: repAccountInvoices.map(i => {
+      body: owedOpen.map(i => {
         const open = i.openBalance || 0
         const amt = i.amount || 0
-        const status = open <= 0.005 ? 'Paid' : (open + 0.005 < amt ? 'Partial' : 'Open')
+        const status = open + 0.005 < amt ? 'Partial' : 'Open'
         return [
           i.num || '—',
           i.customer || '—',
@@ -383,6 +429,7 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
       },
       styles: { fontSize: 9, cellPadding: 5 },
       theme: 'striped',
+      showFoot: 'lastPage',
       foot: [[
         { content: 'Total', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold', textColor: [255, 255, 255] } },
         { content: fmtMoney(owedTotalAmount), styles: { fontStyle: 'bold', halign: 'right', textColor: [255, 255, 255] } },
@@ -423,8 +470,9 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
       2: { halign: 'left' },
       3: { halign: 'right' },
     },
-    styles: { fontSize: 8, cellPadding: 4 },
+    styles: { fontSize: 9, cellPadding: 5 },
     theme: 'striped',
+    showFoot: 'lastPage',
     foot: sortedPayouts.length > 0 ? [[
       { content: 'Total paid out', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold', textColor: [255, 255, 255] } },
       { content: fmtMoney(sortedPayouts.reduce((s, p) => s + (p.amount || 0), 0)), styles: { fontStyle: 'bold', halign: 'right', textColor: [255, 255, 255] } },
@@ -436,10 +484,11 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
 
 // ─── XLSX ─────────────────────────────────────────────────────────────
 
-export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [] }) {
+export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [], anchor, paymentDatesByInvoiceNum }) {
   const safe = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0 }
   const { paid, open } = splitInvoices(byInvoice)
-  const paidVisible = applyPaidSince(paid, paidSince)
+  const paidDated = withPaidDates(paid, paymentDatesByInvoiceNum)
+  const paidVisible = applyPaidSince(paidDated, paidSince)
   const paidGrouped = groupPaidByCustomer(paidVisible)
   const openGrouped = groupOpenByCustomer(open)
   const today = new Date().toISOString().slice(0, 10)
@@ -456,16 +505,16 @@ export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSinc
   const summaryRows = [
     [{ v: `${rep.name} — Commission Report`, s: { font: { bold: true, sz: 14, color: tealText.color } } }],
     [{ v: `Generated ${today}`, s: { font: { color: { rgb: '707070' } } } }],
-    paidSince ? [{ v: `Paid invoices since ${paidSince}`, s: { font: { color: { rgb: '707070' } } } }] : [],
+    anchor ? [{ v: `Anchor ${fmtDay(anchor)}`, s: { font: { color: { rgb: '707070' } } } }] : [],
+    (paidSince && paidSince !== anchor) ? [{ v: `Paid invoices since ${fmtDay(paidSince)}`, s: { font: { color: { rgb: '707070' } } } }] : [],
     [],
     [{ v: 'Rep', s: labelStyle }, rep.name],
     [{ v: 'Agency', s: labelStyle }, rep.agency || ''],
     [{ v: 'Email', s: labelStyle }, rep.email || ''],
     [{ v: 'Territories', s: labelStyle }, (territories || []).join(', ')],
     [],
-    [{ v: 'Earned', s: headerStyle }, { v: 'Paid Out', s: headerStyle }, { v: 'Available', s: headerStyle }, { v: 'Pending (open invoices)', s: headerStyle }],
+    [{ v: 'Paid Out YTD', s: headerStyle }, { v: 'Available', s: headerStyle }, { v: 'Pending (open invoices)', s: headerStyle }],
     [
-      { v: safe.earned, t: 'n', z: moneyFmt, s: { font: { bold: true } } },
       { v: safe.paidOut, t: 'n', z: moneyFmt, s: { font: { bold: true } } },
       { v: safe.available, t: 'n', z: moneyFmt, s: { font: { bold: true, color: tealText.color } } },
       { v: safe.openCommission, t: 'n', z: moneyFmt, s: { font: { color: { rgb: '707070' } } } },
@@ -482,7 +531,7 @@ export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSinc
     })))
   }
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryRows)
-  wsSummary['!cols'] = [{ wch: 26 }, { wch: 22 }, { wch: 22 }, { wch: 28 }]
+  wsSummary['!cols'] = [{ wch: 22 }, { wch: 22 }, { wch: 28 }]
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Summary')
 
   // ── Sheet 2: Paid Invoices (grouped or detail, depending on toggle) ──
@@ -509,11 +558,11 @@ export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSinc
   }
   // Always include a detail sheet — useful as backup even when grouped.
   {
-    const head = ['Invoice', 'Customer', 'Date', 'Amount', 'Commission']
+    const head = ['Invoice', 'Customer', 'Paid On', 'Amount', 'Commission']
     const body = paidVisible.map(i => [
       i.invoiceNum,
       i.customer,
-      i.date || '',
+      fmtDay(i.paidOn) || '',
       { v: i.amount ?? 0, t: 'n', z: moneyFmt },
       { v: i.commission ?? 0, t: 'n', z: moneyFmt, s: { font: { bold: true, color: tealText.color } } },
     ])
@@ -575,14 +624,15 @@ export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSinc
     XLSX.utils.book_append_sheet(wb, ws, 'Open (Detail)')
   }
 
-  // ── Sheet: Owed to Foundry (REP-account invoices) ──
-  if (repAccountInvoices.length > 0) {
+  // ── Sheet: Owed to Foundry (REP-account invoices with a balance still open) ──
+  const owedOpenXlsx = repAccountInvoices.filter(i => (i.openBalance || 0) > 0.005)
+  if (owedOpenXlsx.length > 0) {
     const redText = { color: { rgb: 'B41E1E' } }
     const head = ['Invoice', 'Customer (QB)', 'Date', 'Due', 'Amount', 'Open Balance', 'Status']
-    const body = repAccountInvoices.map(i => {
+    const body = owedOpenXlsx.map(i => {
       const open = i.openBalance || 0
       const amt = i.amount || 0
-      const status = open <= 0.005 ? 'Paid' : (open + 0.005 < amt ? 'Partial' : 'Open')
+      const status = open + 0.005 < amt ? 'Partial' : 'Open'
       return [
         i.num || '',
         i.customer || '',
@@ -594,8 +644,8 @@ export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSinc
       ]
     })
     const rows = [head.map(h => ({ v: h, s: headerStyle })), ...body]
-    const owedTotalAmount = repAccountInvoices.reduce((s, i) => s + (i.amount || 0), 0)
-    const owedTotalOpen = repAccountInvoices.reduce((s, i) => s + (i.openBalance || 0), 0)
+    const owedTotalAmount = owedOpenXlsx.reduce((s, i) => s + (i.amount || 0), 0)
+    const owedTotalOpen = owedOpenXlsx.reduce((s, i) => s + (i.openBalance || 0), 0)
     rows.push([
       { v: 'Total', s: { font: { bold: true }, alignment: { horizontal: 'right' } } },
       '', '', '',
