@@ -1596,6 +1596,7 @@ function PaymentsTracker() {
           onEditPayout={openEditPayout}
           onDeletePayout={deleteCommissionPayout}
           territories={repTerritories[selectedRep.id] || []}
+          anchor={ADJUSTMENT_ANCHORS[selectedRep.id] || ADJUSTMENT_ANCHOR}
         />
       )}
 
@@ -3911,7 +3912,7 @@ function AccountDetailView({ account, entries, reps, brands, invoices = [], line
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories }) {
+function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   const byInvoice = aggregate?.byInvoice || {}
 
@@ -3951,8 +3952,11 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
     const yyyy = m[3].length === 2 ? `20${m[3]}` : m[3]
     return `${yyyy}-${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}`
   }
-  // Default the cycle filter to the rep's most recent recorded payout. The
-  // section then opens to "what's accrued since I last paid you".
+  // Default the cycle filter to the rep's most recent payout, so each new
+  // payout advances the window and the section shows "what's accrued since I
+  // last paid you" — not a lifetime list. Before the first payout, fall back
+  // to the adjustment anchor as the starting point. The exported report
+  // inherits this same "Since" value, so live ledger and export stay in sync.
   const lastPayoutDate = useMemo(() => {
     let best = ''
     for (const p of payouts || []) {
@@ -3961,11 +3965,12 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
     }
     return best
   }, [payouts])
-  const [paidSince, setPaidSince] = useState(() => lastPayoutDate)
+  const defaultSince = lastPayoutDate || anchor
+  const [paidSince, setPaidSince] = useState(() => defaultSince)
   const [hasPaidSinceTouched, setHasPaidSinceTouched] = useState(false)
   useEffect(() => {
-    if (!hasPaidSinceTouched) setPaidSince(lastPayoutDate)
-  }, [lastPayoutDate, hasPaidSinceTouched])
+    if (!hasPaidSinceTouched) setPaidSince(defaultSince)
+  }, [defaultSince, hasPaidSinceTouched])
   const [groupByCustomer, setGroupByCustomer] = useState(true)
 
   // Payment EVENTS instead of invoices — each row is one payment event
@@ -4197,7 +4202,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
 
   const exportArgs = {
     rep, summary: safeSummary, byInvoice, payouts, paidSince, territories, groupByCustomer,
-    brandSubtotals, repAccountInvoices,
+    brandSubtotals, repAccountInvoices, anchor, paymentDatesByInvoiceNum,
   }
 
   return (
@@ -4296,7 +4301,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                 {paidSince
                   ? ` received on or after ${formatPaidOn(paidSince)}`
                   : ' — all payments received for this rep'}
-                {paidSince && paidSince === lastPayoutDate ? ' (since last payout)' : ''}
+                {paidSince && paidSince === lastPayoutDate ? ' (since last payout)' : (paidSince && paidSince === anchor ? ' (since anchor)' : '')}
               </CardDescription>
             </div>
             <div className="flex items-center gap-2 text-sm flex-wrap">
