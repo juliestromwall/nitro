@@ -798,6 +798,7 @@ export const ADJUSTMENT_ANCHORS = {
   'rep-rob':           '2026-04-21',
   'rep-cody-prudoehl': '2026-06-21',
   'rep-brian-kulak':   '2026-03-27',
+  'rep-carter-katz':   '2026-05-20',
 }
 
 export const PAYOUTS = [
