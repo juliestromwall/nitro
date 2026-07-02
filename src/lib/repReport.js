@@ -73,6 +73,11 @@ function withPaidDates(paidInvoices, paymentDates) {
   return paidInvoices.map(i => ({ ...i, paidOn: paymentDateFor(paymentDates, i.invoiceNum) }))
 }
 
+// True when any commission line on the invoice is a NITRO Rental line.
+function isRentalInvoice(i) {
+  return (i?.lines || []).some(l => l.isRental)
+}
+
 function applyPaidSince(paidInvoices, paidSince) {
   if (!paidSince) return paidInvoices
   const since = toIsoDay(paidSince)
@@ -109,7 +114,7 @@ function groupOpenByCustomer(openInvoices) {
 
 // ─── PDF ──────────────────────────────────────────────────────────────
 
-export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [], anchor, paymentDatesByInvoiceNum }) {
+export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [], anchor, paymentDatesByInvoiceNum, returnBase64 = false }) {
   const safe = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0 }
   const { paid, open } = splitInvoices(byInvoice)
   const paidDated = withPaidDates(paid, paymentDatesByInvoiceNum)
@@ -206,7 +211,7 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
       ])
       for (const inv of paidByCustomerLookup[g.customer] || []) {
         groupedBody.push([
-          { content: `•  ${inv.invoiceNum}`, styles: { textColor: 60 } },
+          { content: `•  ${inv.invoiceNum}${isRentalInvoice(inv) ? '   · RENTAL' : ''}`, styles: { textColor: 60 } },
           { content: fmtDay(inv.paidOn) || '—', styles: { textColor: 60, halign: 'center' } },
           { content: fmtMoney(inv.amount), styles: { textColor: 60, halign: 'right' } },
           { content: fmtMoney(inv.commission), styles: { fontStyle: 'bold', textColor: TEAL_RGB, halign: 'right' } },
@@ -253,7 +258,7 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
       body: paidVisible.length === 0
         ? [[{ content: 'No paid invoices in this period.', colSpan: 5, styles: { halign: 'center', textColor: 120, fontStyle: 'italic' } }]]
         : paidVisible.map(i => [
-            i.invoiceNum,
+            `${i.invoiceNum}${isRentalInvoice(i) ? '  · RENTAL' : ''}`,
             i.customer,
             fmtDay(i.paidOn) || '—',
             fmtMoney(i.amount),
@@ -479,12 +484,18 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
     ]] : undefined,
   })
 
-  doc.save(`${sanitizeFilename(rep.name)} — commission ${today}.pdf`)
+  const pdfFilename = `${sanitizeFilename(rep.name)} — commission ${today}.pdf`
+  if (returnBase64) {
+    // datauristring → "data:application/pdf;...;base64,XXXX"; keep only the payload.
+    const base64 = doc.output('datauristring').split('base64,')[1] || ''
+    return { base64, filename: pdfFilename }
+  }
+  doc.save(pdfFilename)
 }
 
 // ─── XLSX ─────────────────────────────────────────────────────────────
 
-export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [], anchor, paymentDatesByInvoiceNum }) {
+export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [], anchor, paymentDatesByInvoiceNum, returnBase64 = false }) {
   const safe = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0 }
   const { paid, open } = splitInvoices(byInvoice)
   const paidDated = withPaidDates(paid, paymentDatesByInvoiceNum)
@@ -560,7 +571,7 @@ export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSinc
   {
     const head = ['Invoice', 'Customer', 'Paid On', 'Amount', 'Commission']
     const body = paidVisible.map(i => [
-      i.invoiceNum,
+      `${i.invoiceNum}${isRentalInvoice(i) ? ' (Rental)' : ''}`,
       i.customer,
       fmtDay(i.paidOn) || '',
       { v: i.amount ?? 0, t: 'n', z: moneyFmt },
@@ -678,5 +689,9 @@ export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSinc
   wsPayouts['!cols'] = [{ wch: 12 }, { wch: 10 }, { wch: 36 }, { wch: 14 }]
   XLSX.utils.book_append_sheet(wb, wsPayouts, 'Payouts')
 
-  XLSX.writeFile(wb, `${sanitizeFilename(rep.name)} — commission ${today}.xlsx`)
+  const xlsxFilename = `${sanitizeFilename(rep.name)} — commission ${today}.xlsx`
+  if (returnBase64) {
+    return { base64: XLSX.write(wb, { bookType: 'xlsx', type: 'base64' }), filename: xlsxFilename }
+  }
+  XLSX.writeFile(wb, xlsxFilename)
 }

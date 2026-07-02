@@ -20,6 +20,7 @@ import { loadPaymentsTx, savePaymentsTx as idbSavePaymentsTx, clearPaymentsTx as
 import { loadBpOverrides, mergeBpOverrides as idbMergeBpOverrides, clearBpOverrides as idbClearBpOverrides } from '@/lib/bpOverridesStore'
 import { loadWsrRemittances, addWsrRemittance as idbAddWsrRemittance, clearWsrRemittances as idbClearWsrRemittances } from '@/lib/wsrRemittanceStore'
 import { exportRepReportPDF, exportRepReportXLSX } from '@/lib/repReport'
+import { supabase } from '@/lib/supabase'
 
 // Loose column-name matcher for QuickBooks-style payment report imports.
 // QB doesn't always label columns the same way, so we accept several variants.
@@ -3910,6 +3911,108 @@ function AccountDetailView({ account, entries, reps, brands, invoices = [], line
 }
 
 // =====================================================================
+// EmailReportModal — email the rep's PDF + XLSX report from accounting@
+// =====================================================================
+function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
+  const [to, setTo] = useState('')
+  const [subject, setSubject] = useState('')
+  const [message, setMessage] = useState('')
+  const [status, setStatus] = useState('idle') // idle | sending | sent | error
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    if (!open) return
+    const first = (rep?.name || '').split(' ')[0] || 'there'
+    setTo(rep?.email || '')
+    setSubject('Your Foundry Distribution commission report')
+    setMessage(`Hi ${first},\n\nAttached is your latest commission report (PDF and Excel). Please review it and let us know if you have any questions.\n\nThank you,\nFoundry Distribution Accounting`)
+    setStatus('idle')
+    setError(null)
+  }, [open, rep])
+
+  const send = async () => {
+    setError(null)
+    if (!to.trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(to.trim())) {
+      setError('Enter a valid recipient email address.')
+      return
+    }
+    setStatus('sending')
+    try {
+      const pdf = exportRepReportPDF({ ...exportArgs, returnBase64: true })
+      const xlsx = exportRepReportXLSX({ ...exportArgs, returnBase64: true })
+      const { data, error: fnError } = await supabase.functions.invoke('email-rep-report', {
+        body: {
+          repName: rep?.name || '',
+          repEmail: to.trim(),
+          subject: subject.trim() || 'Your commission report',
+          message,
+          pdfBase64: pdf.base64, pdfFilename: pdf.filename,
+          xlsxBase64: xlsx.base64, xlsxFilename: xlsx.filename,
+        },
+      })
+      if (fnError) throw new Error(fnError.message || 'Send failed')
+      if (data?.error) throw new Error(data.error)
+      setStatus('sent')
+    } catch (e) {
+      setStatus('error')
+      setError(e?.message || 'Failed to send. Please try again.')
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o && status !== 'sending') onOpenChange(false) }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Email report to {rep?.name}</DialogTitle>
+          <DialogDescription>Sends the PDF + Excel commission report from accounting@foundrydist.com.</DialogDescription>
+        </DialogHeader>
+        {status === 'sent' ? (
+          <div className="py-8 text-center">
+            <div className="text-[#005b5b] font-semibold text-lg mb-1">Sent ✓</div>
+            <div className="text-sm text-muted-foreground">Report emailed to {to}.</div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>To</Label>
+              <Input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="rep@example.com" />
+              {!rep?.email && <p className="text-xs text-amber-600">No email on file for this rep — enter one above.</p>}
+            </div>
+            <div className="space-y-2">
+              <Label>Subject</Label>
+              <Input value={subject} onChange={(e) => setSubject(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Message</Label>
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                rows={6}
+                className="w-full px-3 py-2 rounded-md border border-input bg-transparent text-sm resize-y"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">Attachments: {rep?.name} commission report (PDF + Excel).</p>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+          </div>
+        )}
+        <DialogFooter>
+          {status === 'sent' ? (
+            <Button onClick={() => onOpenChange(false)} className="bg-[#005b5b] hover:bg-[#004848]">Done</Button>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => onOpenChange(false)} disabled={status === 'sending'}>Cancel</Button>
+              <Button onClick={send} disabled={status === 'sending'} className="bg-[#005b5b] hover:bg-[#004848]">
+                {status === 'sending' ? 'Sending…' : 'Send email'}
+              </Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
 function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor }) {
@@ -3972,6 +4075,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
     if (!hasPaidSinceTouched) setPaidSince(defaultSince)
   }, [defaultSince, hasPaidSinceTouched])
   const [groupByCustomer, setGroupByCustomer] = useState(true)
+  const [emailOpen, setEmailOpen] = useState(false)
 
   // Payment EVENTS instead of invoices — each row is one payment event
   // (a single installment, lump payment, or full settlement). Multi-
@@ -4233,10 +4337,15 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
               <Button variant="outline" size="sm" onClick={() => exportRepReportXLSX(exportArgs)}>
                 <FileSpreadsheet className="size-4 mr-1.5" /> XLSX
               </Button>
+              <Button size="sm" onClick={() => setEmailOpen(true)} className="bg-[#005b5b] hover:bg-[#004848]">
+                <Mail className="size-4 mr-1.5" /> Email
+              </Button>
             </div>
           </div>
         </CardHeader>
       </Card>
+
+      <EmailReportModal open={emailOpen} onOpenChange={setEmailOpen} rep={rep} exportArgs={exportArgs} />
 
       {/* Summary cards: the three pieces of info Tony's monthly report needs */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 ${safeSummary.owesFoundry > 0 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
@@ -4439,13 +4548,16 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                                           <td className="py-1.5 px-3 whitespace-nowrap">{ev.invoiceNum}</td>
                                           <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">{formatPaidOn(ev.paymentDate) || '—'}</td>
                                           <td className="py-1.5 px-3">
-                                            {evBrands.length === 0 ? (
+                                            {evBrands.length === 0 && !(ev.lines || []).some(l => l.isRental) ? (
                                               <span className="text-muted-foreground">—</span>
                                             ) : (
                                               <div className="flex flex-wrap gap-1">
                                                 {evBrands.map(b => (
                                                   <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
                                                 ))}
+                                                {(ev.lines || []).some(l => l.isRental) && (
+                                                  <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>
+                                                )}
                                               </div>
                                             )}
                                           </td>
@@ -4507,13 +4619,16 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                         <td className="py-2 px-4">{ev.customer}</td>
                         <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{formatPaidOn(ev.paymentDate) || '—'}</td>
                         <td className="py-2 px-4">
-                          {evBrands.length === 0 ? (
+                          {evBrands.length === 0 && !(ev.lines || []).some(l => l.isRental) ? (
                             <span className="text-muted-foreground text-xs">—</span>
                           ) : (
                             <div className="flex flex-wrap gap-1">
                               {evBrands.map(b => (
                                 <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
                               ))}
+                              {(ev.lines || []).some(l => l.isRental) && (
+                                <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>
+                              )}
                             </div>
                           )}
                         </td>
@@ -4621,13 +4736,16 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                                             {days != null && days > 0 ? `${days}d` : '—'}
                                           </td>
                                           <td className="py-1.5 px-3">
-                                            {invBrands.length === 0 ? (
+                                            {invBrands.length === 0 && !(inv.lines || []).some(l => l.isRental) ? (
                                               <span className="text-muted-foreground">—</span>
                                             ) : (
                                               <div className="flex flex-wrap gap-1">
                                                 {invBrands.map(b => (
                                                   <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
                                                 ))}
+                                                {(inv.lines || []).some(l => l.isRental) && (
+                                                  <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>
+                                                )}
                                               </div>
                                             )}
                                           </td>
@@ -4676,7 +4794,14 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                     const pending = (inv.commission || 0) - (inv.commissionAvailable || 0)
                     return (
                       <tr key={inv.invoiceNum} className="border-b last:border-0">
-                        <td className="py-2 px-4 text-xs whitespace-nowrap">{inv.invoiceNum}</td>
+                        <td className="py-2 px-4 text-xs whitespace-nowrap">
+                          <span className="inline-flex items-center gap-1.5">
+                            {inv.invoiceNum}
+                            {(inv.lines || []).some(l => l.isRental) && (
+                              <span className="text-[9px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>
+                            )}
+                          </span>
+                        </td>
                         <td className="py-2 px-4">{inv.customer}</td>
                         <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{inv.date || '—'}</td>
                         <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{inv.dueDate || '—'}</td>
