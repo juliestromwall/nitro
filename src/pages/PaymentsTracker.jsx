@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, Fragment } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react'
 import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
@@ -146,6 +146,10 @@ function PaymentsTracker() {
 
   const [view, setView] = useState('reps') // 'reps' | 'accounts' | 'invoices' | 'rep-ledger' | 'brands' | 'ledger' | 'account-detail'
   const [selectedRepId, setSelectedRepId] = useState(null)
+  // Rep ledger surfaces its export/email actions here so the buttons can live
+  // in the page header row next to the "<Rep> — Commission Ledger" title.
+  const [ledgerActions, setLedgerActions] = useState(null)
+  const registerLedgerActions = useCallback((a) => setLedgerActions(a), [])
   const [selectedBrandId, setSelectedBrandId] = useState(null)
   const [expandedPayouts, setExpandedPayouts] = useState({})
 
@@ -1337,7 +1341,8 @@ function PaymentsTracker() {
       )}
 
       {/* Header */}
-      <div>
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
         <h1 className="text-3xl font-bold tracking-tight">
           {view === 'reps' && 'Rep Payments'}
           {view === 'accounts' && 'Accounts'}
@@ -1370,6 +1375,20 @@ function PaymentsTracker() {
             {selectedAccount?.email && <> • <a href={`mailto:${selectedAccount.email}`} className="hover:text-foreground">{selectedAccount.email}</a></>}
             {(selectedAccount?.firstName || selectedAccount?.lastName) && <> • {[selectedAccount.firstName, selectedAccount.lastName].filter(Boolean).join(' ')}</>}
           </p>
+        )}
+        </div>
+        {view === 'rep-ledger' && ledgerActions && (
+          <div className="flex gap-2 shrink-0">
+            <Button variant="outline" size="sm" onClick={ledgerActions.pdf}>
+              <FileSpreadsheet className="size-4 mr-1.5" /> PDF
+            </Button>
+            <Button variant="outline" size="sm" onClick={ledgerActions.xlsx}>
+              <FileSpreadsheet className="size-4 mr-1.5" /> XLSX
+            </Button>
+            <Button size="sm" onClick={ledgerActions.email} className="bg-[#005b5b] hover:bg-[#004848]">
+              <Mail className="size-4 mr-1.5" /> Email
+            </Button>
+          </div>
         )}
       </div>
 
@@ -1598,6 +1617,7 @@ function PaymentsTracker() {
           onDeletePayout={deleteCommissionPayout}
           territories={repTerritories[selectedRep.id] || []}
           anchor={ADJUSTMENT_ANCHORS[selectedRep.id] || ADJUSTMENT_ANCHOR}
+          onRegisterActions={registerLedgerActions}
         />
       )}
 
@@ -4015,7 +4035,7 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor }) {
+function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   const byInvoice = aggregate?.byInvoice || {}
 
@@ -4309,6 +4329,20 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
     brandSubtotals, repAccountInvoices, anchor, paymentDatesByInvoiceNum,
   }
 
+  // Surface the export/email actions to the page header. Handlers read the
+  // latest exportArgs via a ref, so they register once and stay stable while
+  // still reflecting the current "Since"/grouping filters.
+  const exportArgsRef = useRef(exportArgs)
+  exportArgsRef.current = exportArgs
+  useEffect(() => {
+    onRegisterActions?.({
+      pdf: () => exportRepReportPDF(exportArgsRef.current),
+      xlsx: () => exportRepReportXLSX(exportArgsRef.current),
+      email: () => setEmailOpen(true),
+    })
+    return () => onRegisterActions?.(null)
+  }, [onRegisterActions])
+
   return (
     <>
       {/* Rep header */}
@@ -4329,17 +4363,6 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                 {rep.email || '—'}
                 {territories?.length > 0 && <> • {territories.join(', ')}</>}
               </CardDescription>
-            </div>
-            <div className="flex gap-2 shrink-0">
-              <Button variant="outline" size="sm" onClick={() => exportRepReportPDF(exportArgs)}>
-                <FileSpreadsheet className="size-4 mr-1.5" /> PDF
-              </Button>
-              <Button variant="outline" size="sm" onClick={() => exportRepReportXLSX(exportArgs)}>
-                <FileSpreadsheet className="size-4 mr-1.5" /> XLSX
-              </Button>
-              <Button size="sm" onClick={() => setEmailOpen(true)} className="bg-[#005b5b] hover:bg-[#004848]">
-                <Mail className="size-4 mr-1.5" /> Email
-              </Button>
             </div>
           </div>
         </CardHeader>
