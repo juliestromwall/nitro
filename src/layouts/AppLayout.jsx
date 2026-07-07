@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
-import { Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
 import { Tag, Store, BarChart3, LogOut, Home, RotateCcw, ChevronUp, ChevronDown, Shield, Wallet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -92,12 +92,14 @@ function CompanyLinks() {
 }
 
 function AppLayout() {
-  const { user, userRole, isBrandAdmin, signOut } = useAuth()
+  const { user, userRole, isBrandAdmin, isAccounting, signOut } = useAuth()
 
   // Brand admins get a completely separate layout
   if (isBrandAdmin) return <BrandAdminLayout />
   const location = useLocation()
-  const isTonyView = location.pathname.startsWith('/app/payments')
+  // "Tony view" is the minimal single-purpose payments layout for brand-admin-style users.
+  // Accounting users treat Payments as one of three normal pages, so they keep the full nav.
+  const isTonyView = location.pathname.startsWith('/app/payments') && !isAccounting
   const [showHomeMenu, setShowHomeMenu] = useState(false)
   const [homeConfirm, setHomeConfirm] = useState(null) // 'set' | 'reset'
   const [signOutOpen, setSignOutOpen] = useState(false)
@@ -225,21 +227,21 @@ function AppLayout() {
             )}
           </div>
 
-          {!isTonyView && <div className="border-t border-zinc-700 w-12 mb-3" />}
+          {!isTonyView && !isAccounting && <div className="border-t border-zinc-700 w-12 mb-3" />}
 
-          {/* Brand quick links — hidden in Tony's view */}
-          {!isTonyView && (
+          {/* Brand quick links — hidden in Tony's view and for accounting users */}
+          {!isTonyView && !isAccounting && (
             <div data-tour="brand-links" className="flex-1 min-h-0 overflow-hidden">
               <CompanyLinks />
             </div>
           )}
-          {isTonyView && <div className="flex-1" />}
+          {(isTonyView || isAccounting) && <div className="flex-1" />}
 
           <div className="border-t border-zinc-700 w-12 my-3" />
 
           {/* Navigation — icon only */}
           <nav className="flex flex-col gap-2 px-2 w-full mt-auto">
-            {!isTonyView && (
+            {!isTonyView && !isAccounting && (
               <>
                 <NavLink
                   to="/app"
@@ -271,22 +273,24 @@ function AppLayout() {
                 >
                   <Tag className="size-5" />
                 </NavLink>
-                <NavLink
-                  to="/app/accounts"
-                  end
-                  data-tour="nav-accounts"
-                  title="Accounts"
-                  className={({ isActive }) =>
-                    `flex items-center justify-center p-2 rounded-lg transition-colors ${
-                      isActive
-                        ? 'bg-[#005b5b] text-white'
-                        : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
-                    }`
-                  }
-                >
-                  <Store className="size-5" />
-                </NavLink>
               </>
+            )}
+            {!isTonyView && (
+              <NavLink
+                to="/app/accounts"
+                end
+                data-tour="nav-accounts"
+                title="Accounts"
+                className={({ isActive }) =>
+                  `flex items-center justify-center p-2 rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-[#005b5b] text-white'
+                      : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
+                  }`
+                }
+              >
+                <Store className="size-5" />
+              </NavLink>
             )}
             <NavLink
               to="/app/payments"
@@ -367,17 +371,31 @@ function AppLayout() {
           <TopBar />
           <main className="flex-1 overflow-auto">
             <Routes>
-              <Route index element={<Dashboard />} />
-              <Route path="companies" element={<Companies />} />
-              <Route path="companies/:id" element={<CompanyDetail />} />
-              <Route path="accounts" element={<Accounts />} />
-              <Route path="accounts/:id" element={<AccountDetail />} />
-              <Route path="reports" element={<Reports />} />
-              <Route path="admin" element={<Admin />} />
-              <Route path="payments" element={<PaymentsTracker />} />
+              {isAccounting ? (
+                // Accounting users only have access to Payments, Accounts, and Reports.
+                // Everything else (including the Dashboard index) redirects to Payments.
+                <>
+                  <Route path="accounts" element={<Accounts />} />
+                  <Route path="accounts/:id" element={<AccountDetail />} />
+                  <Route path="reports" element={<Reports />} />
+                  <Route path="payments" element={<PaymentsTracker />} />
+                  <Route path="*" element={<Navigate to="/app/payments" replace />} />
+                </>
+              ) : (
+                <>
+                  <Route index element={<Dashboard />} />
+                  <Route path="companies" element={<Companies />} />
+                  <Route path="companies/:id" element={<CompanyDetail />} />
+                  <Route path="accounts" element={<Accounts />} />
+                  <Route path="accounts/:id" element={<AccountDetail />} />
+                  <Route path="reports" element={<Reports />} />
+                  <Route path="admin" element={<Admin />} />
+                  <Route path="payments" element={<PaymentsTracker />} />
+                </>
+              )}
             </Routes>
           </main>
-          {!isTonyView && <OnboardingTour />}
+          {!isTonyView && !isAccounting && <OnboardingTour />}
         </div>
       </div>
     </TodoProvider>

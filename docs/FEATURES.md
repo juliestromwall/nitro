@@ -5,8 +5,8 @@
 | Component | Location | Description |
 |-----------|----------|-------------|
 | MarketingLayout | src/layouts/MarketingLayout.jsx | Public layout with marketing header (logo, nav, login/signup buttons) and footer. Uses Outlet for nested routes. Password-gated (BringMore$now!) with REPCOMMISH logo, localStorage persistence. |
-| AppLayout | src/layouts/AppLayout.jsx | Sidebar nav with company icons at top, icon navigation below, sign out button, customizable homepage (long-press/right-click logo to set any page as homepage). All app routes under /app/* prefix. |
-| ProtectedRoute | src/components/ProtectedRoute.jsx | Auth + subscription guard. Redirects to /login if not authenticated, to /signup if no active subscription. |
+| AppLayout | src/layouts/AppLayout.jsx | Sidebar nav with company icons at top, icon navigation below, sign out button, customizable homepage (long-press/right-click logo to set any page as homepage). All app routes under /app/* prefix. Role-aware: `accounting` role sees only Payments, Accounts, and Reports (no Dashboard/Brands/Admin/brand quick-links); all other routes redirect to /app/payments. |
+| ProtectedRoute | src/components/ProtectedRoute.jsx | Auth + subscription guard. Redirects to /login if not authenticated, to /signup if no active subscription. Brand Admin and Accounting roles bypass the subscription check (internal/free access). |
 | MarketingHeader | src/components/marketing/MarketingHeader.jsx | Sticky header with logo, nav links (Features, Pricing, About), Login/Sign Up buttons, mobile menu. |
 | MarketingFooter | src/components/marketing/MarketingFooter.jsx | Footer with brand description, product links, account links, legal links (Terms & Conditions, Privacy Policy), copyright. |
 | HomePage | src/pages/marketing/HomePage.jsx | Hero section, features preview cards, screenshot demo section, CTA. Auto-redirects authenticated users to /app. |
@@ -150,3 +150,4 @@
 | 2026-04-08 | Exchange rate API fix: updated frankfurter.app → frankfurter.dev/v1 (301 redirect was breaking CORS). |
 | 2026-04-08 | Google Sheets sync: service account integration, "Sync to Google Sheets" button on Commissions tab, styled output with row grouping and hidden sort columns. |
 | 2026-04-08 | Shareable Commission Report: public read-only commission view via unique URL. SharePage.jsx with full commission UI (season tabs, summary cards, sortable columns, collapsible groups, search). Edge functions for creating/fetching shares. commission_shares DB table. Gated to pro_rep + master_admin. |
+| 2026-07-07 | Accounting role: new `accounting` user role (assignable via Admin page) with restricted access — nav and routes limited to Payments, Accounts, and Reports (no Dashboard, Brands, Admin, or brand quick-links). All other /app/* routes redirect to /app/payments. Bypasses the subscription gate like Brand Admin. AuthContext exposes `isAccounting`. (Page scope to be refined for accounting users.) |

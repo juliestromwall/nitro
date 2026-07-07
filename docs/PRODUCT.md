@@ -17,8 +17,9 @@
 | Rep | Full access (own data only, enforced by RLS) — default role | Login, Dashboard, Accounts, Companies, CompanyDetail |
 | Sub Rep | Full access (own data only, enforced by RLS) | Login, Dashboard, Accounts, Companies, CompanyDetail |
 | Brand Admin | Read-only access to connected reps' data (no commissions). Free tier, no subscription required. | Brand Admin Dashboard, Rep View, Upload |
+| Accounting | Restricted access — only Payments, Accounts, and Reports. No Dashboard, Brands, or Admin. No subscription required. (Access scope will be refined for accounting users.) | Payments (/app/payments), Accounts, Reports |
 
-*Note: Most roles are labels only for now. Feature gating will be added later. Default role is `rep` (applied when app_metadata.role is absent). Brand Admin is the first role with distinct access — separate layout, read-only cross-user data via RLS.*
+*Note: Most roles are labels only for now. Feature gating will be added later. Default role is `rep` (applied when app_metadata.role is absent). Brand Admin is the first role with distinct access — separate layout, read-only cross-user data via RLS. Accounting shares the standard app layout but with its nav and routes restricted to Payments, Accounts, and Reports.*
 
 ## Key Flows
 
