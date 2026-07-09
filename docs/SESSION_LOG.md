@@ -1,5 +1,26 @@
 # Session Log
 
+## 2026-07-09 (Session 21)
+
+**Worked on:** New "Accounting" user role, migration of production hosting to Cloudflare Workers, and Foundry Distribution account data setup.
+
+**Changes made:**
+- **Accounting role (frontend):** New `accounting` role restricted to Payments, Accounts, and Reports only — no Dashboard, Brands, Admin, or brand quick-links; all other `/app/*` routes redirect to `/app/payments`. Bypasses the subscription gate like Brand Admin. Added to `USER_ROLES`/`ROLE_LABELS` (constants.js), `isAccounting` in AuthContext, gating in AppLayout + ProtectedRoute. Excluded accounting from the minimal "Tony" payments view and the onboarding tour.
+- **Accounting role (backend):** The `set-user-role` edge function had its own hardcoded `VALID_ROLES` allowlist that rejected the new role with "Invalid role: accounting". Added `accounting` and redeployed the function via `supabase functions deploy set-user-role`. No SQL/DB change needed — roles live in Auth `app_metadata`, not a table.
+- **Hosting migration to Cloudflare Workers:** Discovered the project had moved off the Hostinger VPS to Cloudflare Workers (static-assets SPA) — deployed via `npm run deploy` (build + `wrangler deploy`); the Worker is GitHub-connected so pushes to `main` auto-deploy. Deployed the accounting build, then cut `app.repcommish.com` over from the VPS (nginx, 187.77.10.132) to the Worker via the Cloudflare dashboard (Add Custom Domain → override existing DNS record). Pinned the custom domain + `workers_dev` in `wrangler.jsonc` so auto-deploys don't drop it. Verified live: `app.repcommish.com` serves Cloudflare, login works, no console errors. (`repcommish.com` marketing site may still be on the VPS.)
+- **Data — before syncing local was 31 commits behind origin:** rebased the accounting work onto latest `main` (Rep Payments/ledger/email-report commits) before deploying to avoid regressing production.
+- **Data ops (production):** Moved `demo@repcommish.com`'s data to a new `accounting@foundrydist.com` user (later reverted). Determined the real Foundry account list comes from two files Tony provided (`customer-contacts.csv` = 472 accounts + Contact ID; `1c2d2cb48a974-CUSTOMERS.xls` = 690 contacts with Company/Name/Email). Joined them (472/472 matched, all have email) and generated `import-foundry-accounts.sql` — undoes the demo move and inserts all 472 accounts with `primary_contact` {name,email} into `accounting@foundrydist.com`. **Handed to user to run in the Supabase SQL Editor (once); not yet confirmed run.**
+- **Helper scripts:** `scripts/create-accounting-user.js` (create a test accounting user), `scripts/move-user-data.js` (reassign one user's data to another, dry-run by default).
+
+**Next steps:**
+- Confirm the user ran `import-foundry-accounts.sql`; log in as `accounting@foundrydist.com` and verify 472 accounts + contacts display.
+- Fix the benign `406` on the subscriptions lookup for users with no subscription row (use `.maybeSingle()`).
+- **Real feature (deferred):** the Payments page ("Tony portal") is still a mock-data prototype (`paymentsDemoData`). Build a real "accounting ↔ reps" connection model (likely extend `brand_connections`) so accounting sees reps' live commission/payment data — including reps whose user accounts don't exist yet.
+
+**Open questions:**
+- Should accounting see reps' data via a copy or true shared/cross-user access? (Leaning shared, like Brand Admin RLS.) The earlier "copy 472 from juliestromwall@gmail.com" idea was superseded by importing from Tony's files.
+- Is `repcommish.com` (marketing) still on the old VPS, and do we want to move it to Cloudflare too?
+
 ## 2026-04-08 (Session 20)
 
 **Worked on:** app.repcommish.com subdomain, commission report exports (grouped by account), AI commission summary, XLSX styling, Google Sheets sync, shareable commission report links, exchange rate API fix
