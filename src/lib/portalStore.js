@@ -12,30 +12,49 @@ import { supabase } from './supabase'
 
 const TABLE = 'portal_data'
 
+// Datasets can be large (line_items is ~MB / tens of thousands of rows), and
+// the Supabase client in supabase.js aborts ordinary requests after 15s.
+// Passing our own AbortSignal both raises the ceiling AND bypasses that 15s
+// timer (its custom fetch skips its own timeout when a signal is supplied).
+const LONG_MS = 120000
+function longSignal() {
+  try { return AbortSignal.timeout(LONG_MS) } catch { return undefined }
+}
+function withSignal(builder) {
+  const sig = longSignal()
+  return sig ? builder.abortSignal(sig) : builder
+}
+
 // Returns the stored value for `key`, or undefined when absent (matching the
 // old IndexedDB idbGet behaviour so callers' Array.isArray/typeof guards work).
 export async function pget(key) {
-  const { data, error } = await supabase.from(TABLE).select('value').eq('key', key).maybeSingle()
+  const { data, error } = await withSignal(
+    supabase.from(TABLE).select('value').eq('key', key)
+  ).maybeSingle()
   if (error) throw error
   return data ? data.value : undefined
 }
 
 export async function pset(key, value) {
-  const { error } = await supabase
-    .from(TABLE)
-    .upsert({ key, value }, { onConflict: 'key' })
+  const { error } = await withSignal(
+    supabase.from(TABLE).upsert({ key, value }, { onConflict: 'key' })
+  )
   if (error) throw error
 }
 
 export async function pdel(key) {
-  const { error } = await supabase.from(TABLE).delete().eq('key', key)
+  const { error } = await withSignal(
+    supabase.from(TABLE).delete().eq('key', key)
+  )
   if (error) throw error
 }
 
 // Batch read — one round trip for several keys. Returns a plain object keyed
 // by the requested keys (missing keys simply absent).
 export async function pgetMany(keys) {
-  const { data, error } = await supabase.from(TABLE).select('key,value').in('key', keys)
+  const { data, error } = await withSignal(
+    supabase.from(TABLE).select('key,value').in('key', keys)
+  )
   if (error) throw error
   const out = {}
   for (const row of data || []) out[row.key] = row.value
