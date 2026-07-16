@@ -100,6 +100,9 @@ function AppLayout() {
   // "Tony view" is the minimal single-purpose payments layout for brand-admin-style users.
   // Accounting users treat Payments as one of three normal pages, so they keep the full nav.
   const isTonyView = location.pathname.startsWith('/app/payments') && !isAccounting
+  // The Payments page ("wallet") is accounting's tool. Reps (pro_rep/rep/sub_rep/
+  // admin/manager) should not see it. Master admin keeps access as the app owner.
+  const canSeePayments = isAccounting || userRole === 'master_admin'
   const [showHomeMenu, setShowHomeMenu] = useState(false)
   const [homeConfirm, setHomeConfirm] = useState(null) // 'set' | 'reset'
   const [signOutOpen, setSignOutOpen] = useState(false)
@@ -292,19 +295,21 @@ function AppLayout() {
                 <Store className="size-5" />
               </NavLink>
             )}
-            <NavLink
-              to="/app/payments"
-              title="Rep Payments (Brand Admin)"
-              className={({ isActive }) =>
-                `flex items-center justify-center p-2 rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-[#005b5b] text-white'
-                    : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
-                }`
-              }
-            >
-              <Wallet className="size-5" />
-            </NavLink>
+            {canSeePayments && (
+              <NavLink
+                to="/app/payments"
+                title="Payments"
+                className={({ isActive }) =>
+                  `flex items-center justify-center p-2 rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-[#005b5b] text-white'
+                      : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
+                  }`
+                }
+              >
+                <Wallet className="size-5" />
+              </NavLink>
+            )}
             {!isTonyView && (
               <NavLink
                 to="/app/reports"
@@ -390,7 +395,10 @@ function AppLayout() {
                   <Route path="accounts/:id" element={<AccountDetail />} />
                   <Route path="reports" element={<Reports />} />
                   <Route path="admin" element={<Admin />} />
-                  <Route path="payments" element={<PaymentsTracker />} />
+                  <Route
+                    path="payments"
+                    element={canSeePayments ? <PaymentsTracker /> : <Navigate to="/app" replace />}
+                  />
                 </>
               )}
             </Routes>
