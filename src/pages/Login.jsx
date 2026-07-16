@@ -28,6 +28,7 @@ function Login() {
   // Check for invite code in URL params
   const [searchParams] = useSearchParams()
   const inviteCode = searchParams.get('invite')
+  const acctInviteCode = searchParams.get('ainvite')
 
   // Prevent redirect to /app while we're resetting the password
   // (verifyResetCode signs the user in, which would trigger the redirect)
@@ -37,6 +38,9 @@ function Login() {
     // If there's an invite code, redirect to the invite page to accept it
     if (inviteCode) {
       return <Navigate to={`/invite/${inviteCode}`} replace />
+    }
+    if (acctInviteCode) {
+      return <Navigate to={`/accounting-invite/${acctInviteCode}`} replace />
     }
     return <Navigate to="/app" replace />
   }

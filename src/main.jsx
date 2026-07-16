@@ -21,6 +21,7 @@ import TermsPage from './pages/marketing/TermsPage'
 import PrivacyPage from './pages/marketing/PrivacyPage'
 import Login from './pages/Login'
 import InvitePage from './pages/marketing/InvitePage'
+import AccountingInvitePage from './pages/marketing/AccountingInvitePage'
 import SharePage from './pages/SharePage'
 
 // Clean up OAuth error params before React mounts (prevents router crash from invalid hash selectors)
@@ -52,6 +53,7 @@ createRoot(document.getElementById('root')).render(
             <Route path="/terms" element={<TermsPage />} />
             <Route path="/privacy" element={<PrivacyPage />} />
             <Route path="/invite/:code" element={<InvitePage />} />
+            <Route path="/accounting-invite/:code" element={<AccountingInvitePage />} />
           </Route>
 
           {/* Protected app routes */}

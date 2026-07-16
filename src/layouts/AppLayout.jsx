@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { Routes, Route, NavLink, Navigate, useLocation } from 'react-router-dom'
-import { Tag, Store, BarChart3, LogOut, Home, RotateCcw, ChevronUp, ChevronDown, Shield, Wallet } from 'lucide-react'
+import { Tag, Store, BarChart3, LogOut, Home, RotateCcw, ChevronUp, ChevronDown, Shield, Wallet, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
@@ -21,6 +21,7 @@ import AccountDetail from '@/pages/AccountDetail'
 import Reports from '@/pages/Reports'
 import Admin from '@/pages/Admin'
 import PaymentsTracker from '@/pages/PaymentsTracker'
+import AccountingReps from '@/pages/AccountingReps'
 
 function CompanyLinks() {
   const { activeCompanies } = useCompanies()
@@ -103,6 +104,8 @@ function AppLayout() {
   // The Payments page ("wallet") is accounting's tool. Reps (pro_rep/rep/sub_rep/
   // admin/manager) should not see it. Master admin keeps access as the app owner.
   const canSeePayments = isAccounting || userRole === 'master_admin'
+  // Managing rep connections is an accounting (+ owner) capability.
+  const canManageReps = isAccounting || userRole === 'master_admin'
   const [showHomeMenu, setShowHomeMenu] = useState(false)
   const [homeConfirm, setHomeConfirm] = useState(null) // 'set' | 'reset'
   const [signOutOpen, setSignOutOpen] = useState(false)
@@ -310,6 +313,21 @@ function AppLayout() {
                 <Wallet className="size-5" />
               </NavLink>
             )}
+            {canManageReps && (
+              <NavLink
+                to="/app/reps"
+                title="Connected Reps"
+                className={({ isActive }) =>
+                  `flex items-center justify-center p-2 rounded-lg transition-colors ${
+                    isActive
+                      ? 'bg-[#005b5b] text-white'
+                      : 'text-zinc-500 hover:text-white hover:bg-zinc-600'
+                  }`
+                }
+              >
+                <Users className="size-5" />
+              </NavLink>
+            )}
             {!isTonyView && (
               <NavLink
                 to="/app/reports"
@@ -383,6 +401,7 @@ function AppLayout() {
                   <Route path="accounts" element={<Accounts />} />
                   <Route path="accounts/:id" element={<AccountDetail />} />
                   <Route path="reports" element={<Reports />} />
+                  <Route path="reps" element={<AccountingReps />} />
                   <Route path="payments" element={<PaymentsTracker />} />
                   <Route path="*" element={<Navigate to="/app/payments" replace />} />
                 </>
@@ -398,6 +417,10 @@ function AppLayout() {
                   <Route
                     path="payments"
                     element={canSeePayments ? <PaymentsTracker /> : <Navigate to="/app" replace />}
+                  />
+                  <Route
+                    path="reps"
+                    element={canManageReps ? <AccountingReps /> : <Navigate to="/app" replace />}
                   />
                 </>
               )}
