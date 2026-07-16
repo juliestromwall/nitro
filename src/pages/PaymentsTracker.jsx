@@ -21,6 +21,8 @@ import { loadBpOverrides, mergeBpOverrides as idbMergeBpOverrides, clearBpOverri
 import { loadWsrRemittances, addWsrRemittance as idbAddWsrRemittance, clearWsrRemittances as idbClearWsrRemittances } from '@/lib/wsrRemittanceStore'
 import { exportRepReportPDF, exportRepReportXLSX } from '@/lib/repReport'
 import { supabase } from '@/lib/supabase'
+import { pget, pset, pdel } from '@/lib/portalStore'
+import { migrateLocalToServer } from '@/lib/portalMigrate'
 
 // Loose column-name matcher for QuickBooks-style payment report imports.
 // QB doesn't always label columns the same way, so we accept several variants.
@@ -78,24 +80,9 @@ const fmtDate = (s) => {
 }
 
 // localStorage key for persisting Manage Territories modal edits across refresh.
-// To reset to the defaults in REP_TERRITORIES, clear this key in DevTools or
-// click "Reset to defaults" in the modal.
-const REP_TERRITORIES_LS_KEY = 'rc_tony_rep_territories_v1'
-
-// localStorage keys for the Invoices CSV upload (lifted to module scope so both
-// PaymentsTracker and InvoicesView reference the same source-of-truth strings).
-const INVOICES_LS_KEY = 'rc_tony_invoices_v1'
-const INVOICES_META_LS_KEY = 'rc_tony_invoices_meta_v1'
-
-// Line items CSV ("items by invoice"): joined to invoices by `num`.
-// Each item: { customer, num, date, sku, description, qty, salesPrice, amount }
-const LINE_ITEMS_LS_KEY = 'rc_tony_invoice_items_v1'
-const LINE_ITEMS_META_LS_KEY = 'rc_tony_invoice_items_meta_v1'
-
-// Commission payouts — Tony records when he's paid a rep a portion of their
-// earned commissions. Each entry: { id, repId, date, amount, method, note, createdAt }
-// These subtract from "available to collect" in the per-rep ledger.
-const COMMISSION_PAYOUTS_LS_KEY = 'rc_tony_commission_payouts_v1'
+// Portal datasets (invoices, line items, payments, WSR, payouts, territories,
+// AR snapshots) persist to Supabase via portal_data (see portalStore.js) so
+// they're shared across logins. Dataset keys are defined at each use site.
 
 function PaymentsTracker() {
   const { activeCompanies } = useCompanies()
@@ -263,24 +250,22 @@ function PaymentsTracker() {
   const [accountSearch, setAccountSearch] = useState('')
   const [accountTerritoryFilter, setAccountTerritoryFilter] = useState('all')
 
-  // Rep ↔ territory mapping. Persisted to localStorage so Manage Territories
-  // modal edits survive browser refresh.
-  const [repTerritories, setRepTerritoriesState] = useState(() => {
-    try {
-      const raw = localStorage.getItem(REP_TERRITORIES_LS_KEY)
-      if (raw) return JSON.parse(raw)
-    } catch {}
-    return REP_TERRITORIES
-  })
+  // Rep ↔ territory mapping. Persisted to Supabase (portal_data) so Manage
+  // Territories edits are shared across logins. Starts from the seed default
+  // and is overwritten once the stored mapping loads.
+  const [repTerritories, setRepTerritoriesState] = useState(REP_TERRITORIES)
+  useEffect(() => {
+    pget('rep_territories').then(v => { if (v && typeof v === 'object') setRepTerritoriesState(v) }).catch(() => {})
+  }, [])
   const setRepTerritories = (next) => {
     setRepTerritoriesState(prev => {
       const value = typeof next === 'function' ? next(prev) : next
-      try { localStorage.setItem(REP_TERRITORIES_LS_KEY, JSON.stringify(value)) } catch {}
+      pset('rep_territories', value).catch(() => {})
       return value
     })
   }
   const resetRepTerritories = () => {
-    try { localStorage.removeItem(REP_TERRITORIES_LS_KEY) } catch {}
+    pdel('rep_territories').catch(() => {})
     setRepTerritoriesState(REP_TERRITORIES)
   }
 
@@ -290,37 +275,28 @@ function PaymentsTracker() {
   const [invoiceDrillCustomer, setInvoiceDrillCustomer] = useState(null)
   const [invoiceDrillHighlight, setInvoiceDrillHighlight] = useState(null)
 
-  // Invoices (lifted from InvoicesView so AccountsView can derive Open Balance)
-  const [invoicesRaw, setInvoicesState] = useState(() => {
-    try {
-      const raw = localStorage.getItem(INVOICES_LS_KEY)
-      if (raw) return JSON.parse(raw)
-    } catch {}
-    return []
-  })
-  const [invoicesMeta, setInvoicesMetaState] = useState(() => {
-    try {
-      const raw = localStorage.getItem(INVOICES_META_LS_KEY)
-      if (raw) return JSON.parse(raw)
-    } catch {}
-    return null
-  })
+  // Invoices (lifted from InvoicesView so AccountsView can derive Open Balance).
+  // Persisted to Supabase (portal_data); loaded async on mount.
+  const [invoicesRaw, setInvoicesState] = useState([])
+  const [invoicesMeta, setInvoicesMetaState] = useState(null)
+  useEffect(() => {
+    Promise.all([pget('invoices'), pget('invoices_meta')]).then(([inv, meta]) => {
+      if (Array.isArray(inv)) setInvoicesState(inv)
+      if (meta) setInvoicesMetaState(meta)
+    }).catch(() => {})
+  }, [])
   const saveInvoices = (rows, meta) => {
     setInvoicesState(rows)
     setInvoicesMetaState(meta)
-    try {
-      localStorage.setItem(INVOICES_LS_KEY, JSON.stringify(rows))
-      localStorage.setItem(INVOICES_META_LS_KEY, JSON.stringify(meta))
-    } catch {}
+    pset('invoices', rows).catch(() => {})
+    pset('invoices_meta', meta).catch(() => {})
     setLastInvoicesImport({ mode: 'replace', added: rows.length, updated: 0, total: rows.length })
   }
   const clearInvoicesState = () => {
     setInvoicesState([])
     setInvoicesMetaState(null)
-    try {
-      localStorage.removeItem(INVOICES_LS_KEY)
-      localStorage.removeItem(INVOICES_META_LS_KEY)
-    } catch {}
+    pdel('invoices').catch(() => {})
+    pdel('invoices_meta').catch(() => {})
   }
   // Append: merge by Num, incoming rows replace existing rows with the same Num.
   // Returns { added, updated, total } so the UI can show a summary.
@@ -356,10 +332,8 @@ function PaymentsTracker() {
     }
     setInvoicesState(merged)
     setInvoicesMetaState(newMeta)
-    try {
-      localStorage.setItem(INVOICES_LS_KEY, JSON.stringify(merged))
-      localStorage.setItem(INVOICES_META_LS_KEY, JSON.stringify(newMeta))
-    } catch {}
+    pset('invoices', merged).catch(() => {})
+    pset('invoices_meta', newMeta).catch(() => {})
     setLastInvoicesImport({ mode: 'append', added, updated, wsrPreserved, total: merged.length })
   }
 
@@ -567,17 +541,15 @@ function PaymentsTracker() {
     return count
   }, [invoicesRaw, bpOverrides, wsrInvoicePayments, wsrMemberToCustomer])
 
-  // Commission payouts (Tony paid Rep $X on date Y)
-  const [commissionPayouts, setCommissionPayoutsState] = useState(() => {
-    try {
-      const raw = localStorage.getItem(COMMISSION_PAYOUTS_LS_KEY)
-      if (raw) return JSON.parse(raw)
-    } catch {}
-    return []
-  })
+  // Commission payouts (Tony paid Rep $X on date Y). Persisted to Supabase
+  // (portal_data); loaded async on mount.
+  const [commissionPayouts, setCommissionPayoutsState] = useState([])
+  useEffect(() => {
+    pget('commission_payouts').then(v => { if (Array.isArray(v)) setCommissionPayoutsState(v) }).catch(() => {})
+  }, [])
   const persistCommissionPayouts = (next) => {
     setCommissionPayoutsState(next)
-    try { localStorage.setItem(COMMISSION_PAYOUTS_LS_KEY, JSON.stringify(next)) } catch {}
+    pset('commission_payouts', next).catch(() => {})
   }
   const addCommissionPayout = (payout) => {
     const entry = {
@@ -1377,6 +1349,11 @@ function PaymentsTracker() {
           </p>
         )}
         </div>
+        {view === 'invoices' && (
+          <div className="flex gap-2 shrink-0">
+            <PortalMigrateButton />
+          </div>
+        )}
         {view === 'rep-ledger' && ledgerActions && (
           <div className="flex gap-2 shrink-0">
             <Button variant="outline" size="sm" onClick={ledgerActions.pdf}>
@@ -3926,6 +3903,76 @@ function AccountDetailView({ account, entries, reps, brands, invoices = [], line
           )}
         </CardContent>
       </Card>
+    </>
+  )
+}
+
+// =====================================================================
+// PortalMigrateButton — one-time push of this browser's data to Supabase
+// =====================================================================
+function PortalMigrateButton() {
+  const [open, setOpen] = useState(false)
+  const [status, setStatus] = useState('idle') // idle | running | done | error
+  const [result, setResult] = useState(null)
+  const [error, setError] = useState(null)
+  const [overwrite, setOverwrite] = useState(false)
+
+  const run = async () => {
+    setStatus('running'); setError(null)
+    try {
+      const r = await migrateLocalToServer({ overwrite })
+      setResult(r); setStatus('done')
+    } catch (e) {
+      setError(e?.message || 'Sync failed'); setStatus('error')
+    }
+  }
+
+  return (
+    <>
+      <Button variant="outline" size="sm" onClick={() => { setOpen(true); setStatus('idle'); setResult(null); setError(null); setOverwrite(false) }}>
+        <Upload className="size-4 mr-1.5" /> Sync to server
+      </Button>
+      <Dialog open={open} onOpenChange={(o) => { if (status !== 'running') setOpen(o) }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Sync local data to the server</DialogTitle>
+            <DialogDescription>
+              Pushes the datasets currently in this browser up to Supabase so accounting@foundrydist.com — and any login — sees the same data. Run this once, from the browser that holds your data.
+            </DialogDescription>
+          </DialogHeader>
+          {status === 'done' && result ? (
+            <div className="space-y-2 text-sm">
+              <div className="text-[#005b5b] font-semibold">Synced ✓</div>
+              <div><span className="text-muted-foreground">Pushed:</span> {result.pushed.length ? result.pushed.map(p => `${p.key} (${p.count.toLocaleString()})`).join(', ') : 'nothing new'}</div>
+              {result.skipped.length > 0 && <div className="text-muted-foreground">Skipped (server already had): {result.skipped.join(', ')}</div>}
+              {result.empty.length > 0 && <div className="text-muted-foreground">Empty locally: {result.empty.join(', ')}</div>}
+            </div>
+          ) : (
+            <div className="space-y-3 text-sm">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={overwrite} onChange={e => setOverwrite(e.target.checked)} className="size-3.5" />
+                Overwrite datasets that already exist on the server
+              </label>
+              <p className="text-xs text-muted-foreground">
+                By default only datasets the server doesn't already have are pushed, so this is safe to re-run. Check the box to force-replace the server copy with this browser's data.
+              </p>
+              {error && <p className="text-red-600">{error}</p>}
+            </div>
+          )}
+          <DialogFooter>
+            {status === 'done' ? (
+              <Button onClick={() => setOpen(false)} className="bg-[#005b5b] hover:bg-[#004848]">Done</Button>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setOpen(false)} disabled={status === 'running'}>Cancel</Button>
+                <Button onClick={run} disabled={status === 'running'} className="bg-[#005b5b] hover:bg-[#004848]">
+                  {status === 'running' ? 'Syncing…' : 'Sync now'}
+                </Button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
