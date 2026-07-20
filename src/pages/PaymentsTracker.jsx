@@ -978,7 +978,7 @@ function PaymentsTracker() {
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
   // Also returns the list of invoice customers that couldn't be matched, grouped
   // by customer name, so the Accounts page can surface them in a banner.
-  const { accountOpenBalances, unmatchedSummary, fuzzyMatchedSummary } = useMemo(() => {
+  const { accountOpenBalances, unmatchedSummary, fuzzyMatchedSummary, invoiceNumsByAccountId } = useMemo(() => {
     const norm = (s) => String(s || '')
       .toUpperCase()
       .replace(/['']/g, '')
@@ -997,8 +997,8 @@ function PaymentsTracker() {
     const balances = {}
     const unmatched = {}
     const fuzzy = {}   // QB customer → account guessed via substring fallback
+    const invoiceNums = {}  // accountId → [invoice nums] for invoice-number search (all invoices, paid + open)
     for (const inv of invoices) {
-      if (!inv?.openBalance) continue
       const n = norm(inv.customer)
       if (!n) continue
       let acct = byNorm.get(n)
@@ -1016,6 +1016,14 @@ function PaymentsTracker() {
           }
         }
       }
+      // Map every invoice (paid or open) to its account so the search bar can
+      // resolve an invoice number to its owning account.
+      if (acct && inv?.num) {
+        if (!invoiceNums[acct.id]) invoiceNums[acct.id] = []
+        invoiceNums[acct.id].push(String(inv.num))
+      }
+      // Open-balance accounting below only applies to invoices with a balance.
+      if (!inv?.openBalance) continue
       if (acct) {
         balances[acct.id] = (balances[acct.id] || 0) + inv.openBalance
         if (matchedVia === 'substring') {
@@ -1046,7 +1054,7 @@ function PaymentsTracker() {
       .map(([customer, v]) => ({ customer, count: v.count, total: v.total }))
       .sort((a, b) => b.total - a.total)
     const fuzzyList = Object.values(fuzzy).sort((a, b) => b.total - a.total)
-    return { accountOpenBalances: balances, unmatchedSummary: unmatchedList, fuzzyMatchedSummary: fuzzyList }
+    return { accountOpenBalances: balances, unmatchedSummary: unmatchedList, fuzzyMatchedSummary: fuzzyList, invoiceNumsByAccountId: invoiceNums }
   }, [invoices, accounts])
 
   // Per-territory dashboard stats for the Accounts page tile grid.
@@ -1511,6 +1519,7 @@ function PaymentsTracker() {
           accounts={accounts}
           accountTotals={accountTotals}
           accountOpenBalances={accountOpenBalances}
+          invoiceNumsByAccountId={invoiceNumsByAccountId}
           unmatchedSummary={unmatchedSummary}
           fuzzyMatchedSummary={fuzzyMatchedSummary}
           territoryStats={territoryStats}
@@ -1902,7 +1911,7 @@ function TerritoryTile({ territory, stats, onClick }) {
   )
 }
 
-function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedSummary, fuzzyMatchedSummary = [], territoryStats = {}, search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
+function AccountsView({ accounts, accountTotals, accountOpenBalances, invoiceNumsByAccountId = {}, unmatchedSummary, fuzzyMatchedSummary = [], territoryStats = {}, search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
   const [unmatchedOpen, setUnmatchedOpen] = useState(false)
   const [fuzzyOpen, setFuzzyOpen] = useState(false)
   const fuzzyTotal = useMemo(
@@ -1933,10 +1942,12 @@ function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedS
         (a.email || '').toLowerCase().includes(q) ||
         (a.firstName || '').toLowerCase().includes(q) ||
         (a.lastName || '').toLowerCase().includes(q) ||
-        (a.territory || '').toLowerCase().includes(q)
+        (a.territory || '').toLowerCase().includes(q) ||
+        // Invoice-number search: match an account by any invoice it owns.
+        (invoiceNumsByAccountId[a.id] || []).some(num => num.toLowerCase().includes(q))
       )
     })
-  }, [accounts, search, territoryFilter, openBalancesOnly, accountOpenBalances])
+  }, [accounts, search, territoryFilter, openBalancesOnly, accountOpenBalances, invoiceNumsByAccountId])
 
   // Group by territory
   const grouped = useMemo(() => {
@@ -1977,7 +1988,7 @@ function AccountsView({ accounts, accountTotals, accountOpenBalances, unmatchedS
           <Input
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Search by account, contact, email, territory..."
+            placeholder="Search by account, contact, email, territory, or invoice #…"
             className="pl-9"
           />
         </div>
