@@ -8,6 +8,9 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { useCompanies } from '@/context/CompanyContext'
 import JSZip from 'jszip'
@@ -540,6 +543,26 @@ function PaymentsTracker() {
     }
     return count
   }, [invoicesRaw, bpOverrides, wsrInvoicePayments, wsrMemberToCustomer])
+
+  // Upload history — the CSV files uploaded for each dataset (server-backed).
+  // Only records uploads made after this feature shipped; existing datasets
+  // won't have back-history. Each entry: { id, dataset, fileName, mode, count, uploadedAt }.
+  const [uploadLog, setUploadLog] = useState([])
+  useEffect(() => {
+    pget('upload_log').then(v => { if (Array.isArray(v)) setUploadLog(v) }).catch(() => {})
+  }, [])
+  const recordUpload = (dataset, fileName, mode, count) => {
+    const entry = {
+      id: `up-${Date.now()}-${Math.round(Math.random() * 1e4)}`,
+      dataset, fileName: fileName || '', mode: mode || '', count: count ?? null,
+      uploadedAt: new Date().toISOString(),
+    }
+    setUploadLog(prev => {
+      const next = [...prev, entry]
+      pset('upload_log', next).catch(() => {})
+      return next
+    })
+  }
 
   // Commission payouts (Tony paid Rep $X on date Y). Persisted to Supabase
   // (portal_data); loaded async on mount.
@@ -1560,6 +1583,8 @@ function PaymentsTracker() {
           wsrAttributedCount={wsrRemittanceAppliedCount}
           onAddWsrRemittance={addWsrRemittanceState}
           onClearWsrRemittances={clearWsrRemittancesState}
+          uploadLog={uploadLog}
+          recordUpload={recordUpload}
           selectedCustomer={invoiceDrillCustomer}
           setSelectedCustomer={(c) => {
             setInvoiceDrillCustomer(c)
@@ -2234,7 +2259,38 @@ function InfoTip({ children }) {
 // LineItemsUploader — dual mode:
 //   - default (empty state): full dashed card, "Step 2 — Line Items CSV"
 //   - compact (post-upload): single-line status with a Replace/Clear strip
-function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsError, lastImport, onPickFile, onClear, compact }) {
+// Dropdown listing the CSV files uploaded for one dataset (newest first).
+function UploadHistoryMenu({ entries = [] }) {
+  const sorted = [...entries].sort((a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''))
+  const fmtWhen = (iso) => { try { return new Date(iso).toLocaleString() } catch { return iso || '' } }
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button type="button" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <ChevronDown className="size-3" /> {sorted.length} {sorted.length === 1 ? 'file' : 'files'}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80 max-h-72 overflow-y-auto">
+        <DropdownMenuLabel>Uploaded files</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {sorted.length === 0 ? (
+          <div className="px-2 py-2 text-xs text-muted-foreground">No uploads recorded yet.</div>
+        ) : sorted.map((e) => (
+          <div key={e.id} className="px-2 py-1.5">
+            <div className="text-xs font-medium truncate" title={e.fileName}>{e.fileName || '(unnamed file)'}</div>
+            <div className="text-[11px] text-muted-foreground flex flex-wrap gap-x-2">
+              <span>{fmtWhen(e.uploadedAt)}</span>
+              {e.mode && <span className="uppercase">{e.mode}</span>}
+              {e.count != null && <span>{Number(e.count).toLocaleString()} rows</span>}
+            </div>
+          </div>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsError, lastImport, onPickFile, onClear, compact, history = [] }) {
   const hasItems = (lineItems?.length || 0) > 0
   const pickHandler = (mode) => (e) => {
     if (e.target.files?.[0]) { onPickFile(e.target.files[0], mode); e.target.value = '' }
@@ -2280,6 +2336,7 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
                 </span>
               </label>
               <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+              {history.length > 0 && <UploadHistoryMenu entries={history} />}
             </>
           )}
         </div>
@@ -2324,7 +2381,7 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
   )
 }
 
-function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, error, lastImport }) {
+function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, error, lastImport, history = [] }) {
   const pickHandler = (mode) => (e) => {
     if (e.target.files?.[0]) { onPickFile(e.target.files[0], mode); e.target.value = '' }
   }
@@ -2365,6 +2422,7 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
             <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          {history.length > 0 && <UploadHistoryMenu entries={history} />}
         </span>
         {lastImport && (
           <p className={`basis-full text-xs mt-1 ${lastImport.mode === 'append' ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
@@ -2401,7 +2459,7 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
   )
 }
 
-function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClear, error, lastImport }) {
+function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClear, error, lastImport, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const total = overrides ? Object.keys(overrides).length : 0
   if (total > 0) {
@@ -2430,6 +2488,7 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
             </span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          {history.length > 0 && <UploadHistoryMenu entries={history} />}
         </span>
         {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Merged {lastImport.added.toLocaleString()} mappings from {lastImport.fileName} ({total} total stored).</p>}
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
@@ -2460,7 +2519,7 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
   )
 }
 
-function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, wsrAttributedCount = 0, onPickFile, onClear, error, lastImport }) {
+function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, wsrAttributedCount = 0, onPickFile, onClear, error, lastImport, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   if (remittances.length > 0) {
     return (
@@ -2493,6 +2552,7 @@ function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, 
             </span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          {history.length > 0 && <UploadHistoryMenu entries={history} />}
         </span>
         {lastImport && (
           <p className="basis-full text-xs text-muted-foreground mt-1">
@@ -2537,7 +2597,10 @@ function InvoicesView({
   bpOverrides = {}, bpOverridesMeta, bpOverridesAppliedCount = 0, onMergeBpOverrides, onClearBpOverrides,
   wsrRemittances = [], wsrAttributedCount = 0, onAddWsrRemittance, onClearWsrRemittances,
   selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
+  uploadLog = [], recordUpload,
 }) {
+  // Per-dataset upload histories for the "N files" dropdowns.
+  const historyFor = (dataset) => uploadLog.filter(e => e.dataset === dataset)
   const rows = invoices
   const meta = invoicesMeta
   const [error, setError] = useState(null)
@@ -2758,6 +2821,7 @@ function InvoicesView({
       }
       if (mode === 'append') onAppend(parsed, newMeta)
       else onSave(parsed, newMeta)
+      recordUpload?.('invoices', file.name, mode, parsed.length)
       setPage(1)
     } catch (e) {
       setError(e.message || 'Failed to parse CSV')
@@ -2870,6 +2934,7 @@ function InvoicesView({
       }
       if (mode === 'append') onAppendLineItems(parsed, newMeta)
       else onSaveLineItems(parsed, newMeta)
+      recordUpload?.('line_items', file.name, mode, parsed.length)
     } catch (e) {
       setItemsError(e.message || 'Failed to parse line items CSV')
     }
@@ -2966,10 +3031,12 @@ function InvoicesView({
         const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), count: merged.length, lastAppendCount: added, lastAppendFile: file.name }
         onSavePaymentsTx(merged, meta)
         setLastPaymentsImport({ mode: 'append', fileName: file.name, added, duplicates, total: merged.length })
+        recordUpload?.('payments', file.name, 'append', transactions.length)
       } else {
         const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), count: transactions.length }
         onSavePaymentsTx(transactions, meta)
         setLastPaymentsImport({ mode: 'replace', fileName: file.name, total: transactions.length })
+        recordUpload?.('payments', file.name, 'replace', transactions.length)
       }
     } catch (e) { setPaymentsError(e.message || 'Failed to parse payments file') }
   }
@@ -3013,6 +3080,7 @@ function InvoicesView({
       const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), count }
       await onMergeBpOverrides(newOverrides, meta)
       setLastBpImport({ fileName: file.name, added: count, totalAfter: Object.keys({ ...bpOverrides, ...newOverrides }).length })
+      recordUpload?.('bp_overrides', file.name, 'merge', count)
     } catch (e) { setBpError(e.message || 'Failed to parse BP overrides file') }
   }
   const clearBpOverridesConfirm = () => {
@@ -3104,6 +3172,7 @@ function InvoicesView({
       await onAddWsrRemittance(rec)
       const sumPaid = invoices.reduce((s, i) => s + (i.amountPaid || 0), 0)
       setLastWsrImport({ fileName: file.name, checkNumber, checkDate, paymentAmount, invoiceCount: invoices.length, sumPaid })
+      recordUpload?.('wsr', file.name, 'add', invoices.length)
     } catch (e) { setWsrError(e.message || 'Failed to parse WSR remittance file') }
   }
   const clearWsrRemittancesConfirm = () => {
@@ -3343,6 +3412,7 @@ function InvoicesView({
               </span>
             </label>
             <Button variant="ghost" size="sm" onClick={clearInvoices} className="text-muted-foreground">Clear</Button>
+            {historyFor('invoices').length > 0 && <UploadHistoryMenu entries={historyFor('invoices')} />}
           </div>
         </div>
         {lastInvoicesImport && (
@@ -3510,6 +3580,7 @@ function InvoicesView({
         lastImport={lastLineItemsImport}
         onPickFile={handleItemsFile}
         onClear={clearLineItems}
+        history={historyFor('line_items')}
         compact
       />
 
@@ -3521,6 +3592,7 @@ function InvoicesView({
         onClear={clearPaymentsTxConfirm}
         error={paymentsError}
         lastImport={lastPaymentsImport}
+        history={historyFor('payments')}
       />
 
       <BpOverridesUploader
@@ -3531,6 +3603,7 @@ function InvoicesView({
         onClear={clearBpOverridesConfirm}
         error={bpError}
         lastImport={lastBpImport}
+        history={historyFor('bp_overrides')}
       />
 
       <WsrRemittanceUploader
@@ -3543,6 +3616,7 @@ function InvoicesView({
         onClear={clearWsrRemittancesConfirm}
         error={wsrError}
         lastImport={lastWsrImport}
+        history={historyFor('wsr')}
       />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
