@@ -609,7 +609,7 @@ function PaymentsTracker() {
     }
     // 1. WSR remittance — push each line as an event.
     for (const [num, events] of wsrInvoicePayments.entries()) {
-      for (const ev of events) add(num, { date: ev.checkDate, amount: ev.amountPaid || 0, source: 'wsr' })
+      for (const ev of events) add(num, { date: ev.checkDate, amount: ev.amountPaid || 0, source: 'wsr', method: 'WSR' })
     }
     if (!paymentsTx?.length || !invoices?.length) {
       for (const arr of result.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
@@ -658,7 +658,7 @@ function PaymentsTracker() {
         }
         if (bestIdx >= 0) {
           const p = payments[bestIdx]
-          add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-single' })
+          add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-single', method: p.method || '' })
           used.add(bestIdx)
         }
       }
@@ -681,7 +681,7 @@ function PaymentsTracker() {
           if (Math.abs(n * amt - target) > 5) continue
           for (let j = 0; j < n; j++) {
             const p = payments[indices[j]]
-            add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-installments' })
+            add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-installments', method: p.method || '' })
             used.add(indices[j])
           }
           break
@@ -713,7 +713,7 @@ function PaymentsTracker() {
             if (bestMask & (1 << i)) {
               const idx = available[i]
               const p = payments[idx]
-              add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-subset' })
+              add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-subset', method: p.method || '' })
               used.add(idx)
             }
           }
@@ -746,7 +746,7 @@ function PaymentsTracker() {
         }
         if (bestMask) {
           for (let i = 0; i < m; i++) {
-            if (bestMask & (1 << i)) add(open[i].num, { date: payments[pi].date, amount: open[i].paidPortion, source: 'auto-group' })
+            if (bestMask & (1 << i)) add(open[i].num, { date: payments[pi].date, amount: open[i].paidPortion, source: 'auto-group', method: payments[pi].method || '' })
           }
           used.add(pi)
         }
@@ -2904,6 +2904,15 @@ function InvoicesView({
         memo: headers.findIndex(h => h.includes('memo')),
         num: headers.findIndex(h => h.includes('transaction number') || h === 'num'),
         amount: headers.indexOf('amount'),
+        method: headers.findIndex(h => h.includes('payment method') || h === 'method'),
+      }
+      // Shorten Skyline method labels; everything else passes through as-is.
+      const normMethod = (m) => {
+        const s = String(m || '').trim()
+        if (!s) return ''
+        if (/skyline\s*credit\s*card/i.test(s)) return 'Sky CC'
+        if (/skyline\s*ach/i.test(s)) return 'Sky ACH'
+        return s
       }
       const transactions = []
       let currentCustomer = null, skipped = false
@@ -2921,13 +2930,19 @@ function InvoicesView({
         }
         if (skipped) continue
         if (!typeCell) continue
+        const method = col.method >= 0 ? normMethod(r[col.method]) : ''
+        // For Skyline CC/ACH the Transaction Number IS the card/account number —
+        // don't store it. Keep it for checks (it's the check number).
+        let num = col.num >= 0 ? String(r[col.num] || '').trim() : ''
+        if (method === 'Sky CC' || method === 'Sky ACH') num = ''
         transactions.push({
           customer: currentCustomer || '',
           date: col.date >= 0 ? cellToDateString(r[col.date]) : '',
           type: typeCell,
           memo: col.memo >= 0 ? String(r[col.memo] || '').trim() : '',
-          num: col.num >= 0 ? String(r[col.num] || '').trim() : '',
+          num,
           amount: parseAmount(amountCell),
+          method,
         })
       }
       if (transactions.length === 0) throw new Error('No transactions found.')
@@ -2937,7 +2952,7 @@ function InvoicesView({
         // transaction re-exported in an overlapping date range is field-for-field
         // identical, so only exact duplicates are dropped — distinct rows that
         // happen to share a customer/date/amount are kept.
-        const keyOf = (t) => [t.customer, t.date, t.type, t.num, t.amount, t.memo].join('|')
+        const keyOf = (t) => [t.customer, t.date, t.type, t.num, t.amount, t.memo, t.method].join('|')
         const seen = new Set(paymentsTx.map(keyOf))
         let added = 0, duplicates = 0
         const fresh = []
@@ -4196,6 +4211,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
           paymentDate: ev.date,
           paymentAmount: ev.amount || 0,
           eventSource: ev.source,
+          paymentMethod: ev.method || '',
           commissionForEvent: fullCommission * fraction,
         })
       }
@@ -4627,7 +4643,10 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                                       return (
                                         <tr key={`${ev.invoiceNum}-${i}`} className="border-b border-border/40 last:border-0">
                                           <td className="py-1.5 px-3 whitespace-nowrap">{ev.invoiceNum}</td>
-                                          <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">{formatPaidOn(ev.paymentDate) || '—'}</td>
+                                          <td className="py-1.5 px-3 text-muted-foreground whitespace-nowrap">
+                                            {formatPaidOn(ev.paymentDate) || '—'}
+                                            {ev.paymentMethod && <span className="ml-1.5 text-[9px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">{ev.paymentMethod}</span>}
+                                          </td>
                                           <td className="py-1.5 px-3">
                                             {evBrands.length === 0 && !(ev.lines || []).some(l => l.isRental) ? (
                                               <span className="text-muted-foreground">—</span>
@@ -4698,7 +4717,10 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                       <tr key={`${ev.invoiceNum}-${i}`} className="border-b last:border-0">
                         <td className="py-2 px-4 text-xs whitespace-nowrap">{ev.invoiceNum}</td>
                         <td className="py-2 px-4">{ev.customer}</td>
-                        <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">{formatPaidOn(ev.paymentDate) || '—'}</td>
+                        <td className="py-2 px-4 text-xs text-muted-foreground whitespace-nowrap">
+                          {formatPaidOn(ev.paymentDate) || '—'}
+                          {ev.paymentMethod && <span className="ml-1.5 text-[9px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">{ev.paymentMethod}</span>}
+                        </td>
                         <td className="py-2 px-4">
                           {evBrands.length === 0 && !(ev.lines || []).some(l => l.isRental) ? (
                             <span className="text-muted-foreground text-xs">—</span>
