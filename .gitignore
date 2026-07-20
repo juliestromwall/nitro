@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 .env
+.env.staging
 
 # Customer-facing data (not for version control)
 Invoice data/
