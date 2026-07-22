@@ -36,3 +36,10 @@ docs/*Commission Data/
 !.dev.vars.example
 !.env.example
 customer-contacts.csv
+ar-tracking.xlsx
+sica-api_swagger.yml
+ar-collections-mockup.html
+# QuickBooks payment/invoice exports dropped in the project root — sensitive
+# customer financial data, never commit (the "Invoice data/" folder is ignored
+# wholesale; this catches loose copies left in root).
+*Invoices and Received Payments*.csv
