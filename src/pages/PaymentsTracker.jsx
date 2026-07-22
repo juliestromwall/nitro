@@ -25,7 +25,9 @@ import { loadWsrRemittances, addWsrRemittance as idbAddWsrRemittance, clearWsrRe
 import { exportRepReportPDF, exportRepReportXLSX } from '@/lib/repReport'
 import { supabase } from '@/lib/supabase'
 import { pget, pset, pdel } from '@/lib/portalStore'
-import { recordBalanceSnapshots } from '@/lib/balanceSnapshotsStore'
+import { recordBalanceSnapshots, loadBalanceSnapshots } from '@/lib/balanceSnapshotsStore'
+import { computeSettlementEvents } from '@/lib/settlementEngine'
+import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
 
 // Loose column-name matcher for QuickBooks-style payment report imports.
@@ -432,6 +434,14 @@ function PaymentsTracker() {
     setPaymentsTxMetaState(null)
     idbClearPaymentsTx().catch(() => {})
   }
+
+  // Per-invoice Open Balance snapshot history (payment-first settlement engine).
+  // Reloads when the payments dataset changes so a fresh weekly upload's
+  // snapshots feed the shadow preview without a page refresh.
+  const [balanceSnapshots, setBalanceSnapshots] = useState({})
+  useEffect(() => {
+    loadBalanceSnapshots().then(setBalanceSnapshots).catch(() => {})
+  }, [paymentsTxMeta])
 
   // Brightpearl invoice → original customer name overrides. Merge semantics.
   const [bpOverrides, setBpOverridesState] = useState({})
@@ -869,6 +879,58 @@ function PaymentsTracker() {
     return out
   }, [reps, aggregatesByRep, paymentEventsByInvoiceNum])
 
+  // ── SHADOW (payment-first preview) ──────────────────────────────────────
+  // Settlement events from the Open Balance snapshots + payment/credit txns.
+  const settlementEventsByInvoiceNum = useMemo(() => {
+    const m = new Map()
+    if (!invoices?.length) return m
+    const { byInvoice } = computeSettlementEvents({ snapshots: balanceSnapshots, transactions: paymentsTx, invoices })
+    for (const [num, evs] of Object.entries(byInvoice)) m.set(num, evs)
+    return m
+  }, [balanceSnapshots, paymentsTx, invoices])
+
+  // Shadow "earned since anchor": same anchor math as the live figure, but
+  // (1) driven by settlement events where snapshots produced them (hybrid —
+  // falls back to the live matcher otherwise), and (2) each line season-rated
+  // by seasonRateMultiplier at the settlement date's season. Display-only; it
+  // does NOT feed the Available that Tony pays on until this is promoted.
+  const shadowEarnedSinceAnchorByRep = useMemo(() => {
+    const todaySeason = seasonOf(new Date().toISOString())
+    const ratedCommission = (lines, refSeason) => {
+      let c = 0
+      for (const ln of (lines || [])) c += (ln.lineNet || 0) * (ln.rate || 0) * seasonRateMultiplier(ln.skuSeason, refSeason)
+      return c
+    }
+    const out = {}
+    for (const rep of reps) {
+      const anchor = ADJUSTMENT_ANCHORS[rep.id] || ADJUSTMENT_ANCHOR
+      const agg = aggregatesByRep[rep.id]
+      if (!agg?.byInvoice) { out[rep.id] = 0; continue }
+      let earned = 0
+      for (const [invNum, inv] of Object.entries(agg.byInvoice)) {
+        const fullAmount = inv.amount || 0
+        if (fullAmount <= 0) continue
+        const settle = settlementEventsByInvoiceNum.get(invNum)
+        let events
+        if (settle && settle.length) {
+          events = settle
+            .filter(e => e.kind === 'cash' || e.kind === 'unapplied' || e.kind === 'prior')
+            .map(e => ({ amount: e.amount, refDate: e.kind === 'prior' ? inv.date : e.date }))
+        } else {
+          events = (paymentEventsByInvoiceNum.get(invNum) || []).map(e => ({ amount: e.amount, refDate: e.date }))
+        }
+        for (const ev of events) {
+          const iso = toIsoDateAtParent(ev.refDate)
+          if (!iso || iso <= anchor) continue
+          const refSeason = seasonOf(ev.refDate) || todaySeason
+          earned += ratedCommission(inv.lines, refSeason) * ((ev.amount || 0) / fullAmount)
+        }
+      }
+      out[rep.id] = earned
+    }
+    return out
+  }, [reps, aggregatesByRep, settlementEventsByInvoiceNum, paymentEventsByInvoiceNum])
+
   // Per-rep payouts recorded strictly AFTER the adjustment anchor. These
   // subtract from Available, so a payout Tony logs lowers what he still owes
   // the rep — including paying down a starting-adjustment carryover. The
@@ -986,17 +1048,20 @@ function PaymentsTracker() {
       const startingAdjustment = STARTING_ADJUSTMENTS[rep.id] || 0
       const earnedSinceAnchor = earnedSinceAnchorByRep[rep.id] || 0
       const paidOutSinceAnchor = paidOutSinceAnchorByRep[rep.id] || 0
+      const shadowEarnedSinceAnchor = shadowEarnedSinceAnchorByRep[rep.id] || 0
       out[rep.id] = {
         earned,
         paidOut,
         available: startingAdjustment + earnedSinceAnchor - paidOutSinceAnchor,
+        // Shadow preview (payment-first + season-aware). Display-only.
+        shadowAvailable: startingAdjustment + shadowEarnedSinceAnchor - paidOutSinceAnchor,
         openCommission: agg?.openCommission || 0,
         totalCommission: agg?.totalCommission || 0,
         owesFoundry: owedByRep[rep.id] || 0,
       }
     }
     return out
-  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, earnedSinceAnchorByRep, paidOutSinceAnchorByRep, owedByRep])
+  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, earnedSinceAnchorByRep, shadowEarnedSinceAnchorByRep, paidOutSinceAnchorByRep, owedByRep])
 
   // Match invoice customer names to account names, sum open balances per account.
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
@@ -1516,6 +1581,17 @@ function PaymentsTracker() {
                         <span className="text-muted-foreground">Available</span>
                         <span className={`font-bold ${summary.available > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(summary.available)}</span>
                       </div>
+                      {typeof summary.shadowAvailable === 'number' && Math.abs(summary.shadowAvailable - summary.available) > 0.005 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground" title="Payment-first + season-aware preview">Preview (season-aware)</span>
+                          <span className="text-muted-foreground">
+                            {fmt(summary.shadowAvailable)}
+                            <span className={summary.shadowAvailable < summary.available ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
+                              ({summary.shadowAvailable < summary.available ? '−' : '+'}{fmt(Math.abs(summary.shadowAvailable - summary.available))})
+                            </span>
+                          </span>
+                        </div>
+                      )}
                       {summary.openCommission > 0 && (
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">Pending (open invoices)</span>
@@ -4206,7 +4282,7 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
 function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
-  const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
+  const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, shadowAvailable: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   const byInvoice = aggregate?.byInvoice || {}
 
   // Split rep's invoices by status. Partials qualify as "paid" for this
@@ -4553,6 +4629,19 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
           <CardHeader className="pb-2">
             <CardDescription>Available to collect</CardDescription>
             <CardTitle className={`text-2xl ${safeSummary.available > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(safeSummary.available)}</CardTitle>
+            {typeof safeSummary.shadowAvailable === 'number' && (() => {
+              const delta = safeSummary.shadowAvailable - safeSummary.available
+              return (
+                <div className="mt-1 text-xs text-muted-foreground" title="Payment-first + season-aware preview. Not yet the number you pay on.">
+                  Preview: <span className="font-semibold text-foreground">{fmt(safeSummary.shadowAvailable)}</span>
+                  {Math.abs(delta) > 0.005 && (
+                    <span className={delta < 0 ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
+                      ({delta < 0 ? '−' : '+'}{fmt(Math.abs(delta))})
+                    </span>
+                  )}
+                </div>
+              )
+            })()}
           </CardHeader>
         </Card>
         <Card>
