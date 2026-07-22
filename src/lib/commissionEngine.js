@@ -510,9 +510,12 @@ function baseInvoiceFields(invoice) {
 }
 
 function makeCommissionEntry({ invoice, sku, brand, brandId, isRental = false, isOlderSeason = false, lineNet, repId, rate, source }) {
-  // Older-season SKUs are paid at half rate. The original `rate` is kept on
-  // the entry for transparency; `effectiveRate` is what's actually applied.
-  const effectiveRate = isOlderSeason ? (rate || 0) * 0.5 : (rate || 0)
+  // Commission is computed at BASE rate here. The older-season HALF-rate is no
+  // longer applied in the engine — it's determined downstream per settlement
+  // (payment) date, since "older" depends on when the line was paid, not on a
+  // global flag (see docs/payment-first-spec.md + seasonRateMultiplier). The
+  // entry carries skuSeason so the earned/available layer can rate each line.
+  const effectiveRate = (rate || 0)
   const commission = (lineNet || 0) * effectiveRate
   const pf = paidFraction(invoice.amount, invoice.openBalance)
   return {
@@ -520,6 +523,7 @@ function makeCommissionEntry({ invoice, sku, brand, brandId, isRental = false, i
     sku,
     brand,
     brandId,
+    skuSeason: lookupBrand(sku)?.season || null,   // for season-aware rating (step 3)
     isRental,
     isOlderSeason,
     lineNet,
@@ -527,7 +531,7 @@ function makeCommissionEntry({ invoice, sku, brand, brandId, isRental = false, i
     repName: repName(repId),
     rate,
     effectiveRate,
-    rateSource: isOlderSeason ? `${source}-half` : source,
+    rateSource: source,
     commission,
     commissionAvailable: commission * pf,
     paidFraction: pf,

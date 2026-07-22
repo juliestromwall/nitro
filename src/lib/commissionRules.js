@@ -7,6 +7,43 @@
 // becomes "older" at half rate.
 export const CURRENT_SEASON = '2025-26'
 
+// ── Season derivation (commission season runs Sept 1 → Aug 31) ──────────────
+// seasonOf('2026-06-22') === '2025-26'; seasonOf('2026-09-01') === '2026-27'.
+// Reads year/month straight from ISO (YYYY-MM-DD) or US (M/D/YYYY) strings so
+// there's no timezone day-shift; also accepts a Date.
+export function seasonOf(dateInput) {
+  if (!dateInput) return null
+  const s = String(dateInput).trim()
+  let y, m, mo
+  if ((mo = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) { y = +mo[1]; m = +mo[2] }
+  else if ((mo = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) { m = +mo[1]; y = +mo[3] }
+  else {
+    const d = dateInput instanceof Date ? dateInput : new Date(s)
+    if (isNaN(d.getTime())) return null
+    y = d.getFullYear(); m = d.getMonth() + 1
+  }
+  if (!y || !m) return null
+  const startYear = m >= 9 ? y : y - 1
+  return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`
+}
+
+// Chronological compare of two 'YYYY-YY' season strings by start year.
+// < 0 when `a` is older than `b`, 0 when equal/unknown, > 0 when newer.
+export function compareSeasons(a, b) {
+  const ay = a ? parseInt(String(a).slice(0, 4), 10) : NaN
+  const by = b ? parseInt(String(b).slice(0, 4), 10) : NaN
+  if (Number.isNaN(ay) || Number.isNaN(by)) return 0
+  return ay - by
+}
+
+// Line rate multiplier: full (1) normally, HALF (0.5) when the SKU's season is
+// chronologically OLDER than the reference season — the season the payment
+// landed in (paid lines) or today's season (still-open lines). Newer-season
+// SKUs stay full. Unknown seasons default to full (compareSeasons → 0).
+export function seasonRateMultiplier(skuSeason, refSeason) {
+  return compareSeasons(skuSeason, refSeason) < 0 ? 0.5 : 1
+}
+
 // Layered model — most specific wins at lookup time:
 //   1. Customer + Rep + Brand override   (CUSTOMER_OVERRIDES, rare)
 //   2. Customer + Brand override         (CUSTOMER_OVERRIDES, common — e.g. Backcountry.com)
