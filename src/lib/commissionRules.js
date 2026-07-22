@@ -36,6 +36,14 @@ export function compareSeasons(a, b) {
   return ay - by
 }
 
+// Line rate multiplier: full (1) normally, HALF (0.5) when the SKU's season is
+// chronologically OLDER than the reference season — the season the payment
+// landed in (paid lines) or today's season (still-open lines). Newer-season
+// SKUs stay full. Unknown seasons default to full (compareSeasons → 0).
+export function seasonRateMultiplier(skuSeason, refSeason) {
+  return compareSeasons(skuSeason, refSeason) < 0 ? 0.5 : 1
+}
+
 // Layered model — most specific wins at lookup time:
 //   1. Customer + Rep + Brand override   (CUSTOMER_OVERRIDES, rare)
 //   2. Customer + Brand override         (CUSTOMER_OVERRIDES, common — e.g. Backcountry.com)
