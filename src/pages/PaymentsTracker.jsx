@@ -25,6 +25,7 @@ import { loadWsrRemittances, addWsrRemittance as idbAddWsrRemittance, clearWsrRe
 import { exportRepReportPDF, exportRepReportXLSX } from '@/lib/repReport'
 import { supabase } from '@/lib/supabase'
 import { pget, pset, pdel } from '@/lib/portalStore'
+import { recordBalanceSnapshots } from '@/lib/balanceSnapshotsStore'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
 
 // Loose column-name matcher for QuickBooks-style payment report imports.
@@ -2822,6 +2823,14 @@ function InvoicesView({
       if (mode === 'append') onAppend(parsed, newMeta)
       else onSave(parsed, newMeta)
       recordUpload?.('invoices', file.name, mode, parsed.length)
+      // Capture a per-invoice Open Balance snapshot (full AR coverage) so the
+      // settlement engine can read week-over-week balance drops.
+      try {
+        await recordBalanceSnapshots(
+          parsed.filter(p => p.openBalance != null).map(p => ({ num: p.num, openBalance: p.openBalance })),
+          { asOf: newMeta.uploadedAt, source: 'invoices:' + file.name },
+        )
+      } catch { /* snapshot is best-effort; never block the upload */ }
       setPage(1)
     } catch (e) {
       setError(e.message || 'Failed to parse CSV')
@@ -2970,6 +2979,7 @@ function InvoicesView({
         num: headers.findIndex(h => h.includes('transaction number') || h === 'num'),
         amount: headers.indexOf('amount'),
         method: headers.findIndex(h => h.includes('payment method') || h === 'method'),
+        openBalance: headers.findIndex(h => h.includes('open balance')),
       }
       // Shorten Skyline method labels; everything else passes through as-is.
       const normMethod = (m) => {
@@ -2980,6 +2990,7 @@ function InvoicesView({
         return s
       }
       const transactions = []
+      const balanceSnaps = []   // { num, openBalance } for Invoice rows (new format only)
       let currentCustomer = null, skipped = false
       for (let i = headerIdx + 1; i < matrix.length; i++) {
         const r = matrix[i]
@@ -3009,6 +3020,13 @@ function InvoicesView({
           amount: parseAmount(amountCell),
           method,
         })
+        // Invoice rows in the new-format report carry an Open Balance — collect
+        // per-invoice snapshots (num here is the SI-… invoice number).
+        if (col.openBalance >= 0 && /^invoice$/i.test(typeCell)) {
+          const invNum = col.num >= 0 ? String(r[col.num] || '').trim() : ''
+          const ob = parseAmount(r[col.openBalance])
+          if (invNum && ob != null) balanceSnaps.push({ num: invNum, openBalance: ob })
+        }
       }
       if (transactions.length === 0) throw new Error('No transactions found.')
       if (mode === 'append') {
@@ -3038,6 +3056,11 @@ function InvoicesView({
         setLastPaymentsImport({ mode: 'replace', fileName: file.name, total: transactions.length })
         recordUpload?.('payments', file.name, 'replace', transactions.length)
       }
+      // Persist per-invoice Open Balance snapshots (present in new-format
+      // reports only; older exports simply record nothing here).
+      try {
+        await recordBalanceSnapshots(balanceSnaps, { asOf: new Date().toISOString(), source: 'payments:' + file.name })
+      } catch { /* snapshot is best-effort; never block the upload */ }
     } catch (e) { setPaymentsError(e.message || 'Failed to parse payments file') }
   }
   const clearPaymentsTxConfirm = () => {
