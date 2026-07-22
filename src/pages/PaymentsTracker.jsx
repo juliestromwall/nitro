@@ -1063,6 +1063,31 @@ function PaymentsTracker() {
     return out
   }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, earnedSinceAnchorByRep, shadowEarnedSinceAnchorByRep, paidOutSinceAnchorByRep, owedByRep])
 
+  // ── Baseline snapshot ───────────────────────────────────────────────────
+  // The earliest Open Balance snapshot asOf = the line we move forward from.
+  const [showBaseline, setShowBaseline] = useState(false)
+  const baselineDate = useMemo(() => {
+    let min = null
+    for (const points of Object.values(balanceSnapshots || {})) {
+      for (const p of (points || [])) {
+        const d = String(p?.asOf || '')
+        if (d && (!min || d < min)) min = d
+      }
+    }
+    return min
+  }, [balanceSnapshots])
+  const exportBaselineCSV = () => {
+    const rows = [['Rep', 'Preview Available (baseline)']]
+    for (const rep of reps) rows.push([rep.name, (repSummary[rep.id]?.shadowAvailable ?? 0).toFixed(2)])
+    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `baseline-${baselineDate ? baselineDate.slice(0, 10) : 'snapshot'}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   // Match invoice customer names to account names, sum open balances per account.
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
   // Also returns the list of invoice customers that couldn't be matched, grouped
@@ -1524,6 +1549,45 @@ function PaymentsTracker() {
                 </div>
               </div>
             </div>
+          )}
+          {baselineDate && (
+            <Card className="mb-6 border-[#005b5b]/40">
+              <CardHeader className="pb-3 cursor-pointer" onClick={() => setShowBaseline(v => !v)}>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="text-base">Baseline snapshot</CardTitle>
+                    <CardDescription>Preview (season-aware) Available per rep as of {baselineDate.slice(0, 10)} — the frozen starting point to move forward from</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); exportBaselineCSV() }}>Export CSV</Button>
+                    <span className="text-muted-foreground text-sm">{showBaseline ? '▲' : '▼'}</span>
+                  </div>
+                </div>
+              </CardHeader>
+              {showBaseline && (
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-muted-foreground text-left border-b">
+                          <th className="py-1.5 pr-4 font-medium">Rep</th>
+                          <th className="py-1.5 pr-4 font-medium text-right">Preview Available (freeze figure)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[...reps].sort((a, b) => (repSummary[b.id]?.shadowAvailable || 0) - (repSummary[a.id]?.shadowAvailable || 0)).map(rep => (
+                          <tr key={rep.id} className="border-b last:border-0">
+                            <td className="py-1.5 pr-4">{rep.name}</td>
+                            <td className="py-1.5 pr-4 text-right font-semibold tabular-nums">{fmt(repSummary[rep.id]?.shadowAvailable ?? 0)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-3">These figures become each rep's frozen starting adjustment; every anchor resets to {baselineDate.slice(0, 10)}, and commission is tracked forward from here on Open Balance settlements.</p>
+                </CardContent>
+              )}
+            </Card>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {reps.map((rep) => {
