@@ -1072,9 +1072,12 @@ function PaymentsTracker() {
       out[rep.id] = {
         earned,
         paidOut,
-        available: startingAdjustment + earnedSinceAnchor - paidOutSinceAnchor,
-        // Shadow preview (payment-first + season-aware). Display-only.
-        shadowAvailable: startingAdjustment + shadowEarnedSinceAnchor - paidOutSinceAnchor,
+        // PROMOTED (2026-07-23): Available is now driven by the payment-first
+        // settlement engine (season-aware, Open-Balance deltas) instead of the
+        // old amount-matcher.
+        available: startingAdjustment + shadowEarnedSinceAnchor - paidOutSinceAnchor,
+        // Old amount-matcher figure, kept for the before/after comparison.
+        availableWas: startingAdjustment + earnedSinceAnchor - paidOutSinceAnchor,
         openCommission: agg?.openCommission || 0,
         totalCommission: agg?.totalCommission || 0,
         owesFoundry: owedByRep[rep.id] || 0,
@@ -1692,13 +1695,13 @@ function PaymentsTracker() {
                         <span className="text-muted-foreground">Available</span>
                         <span className={`font-bold ${summary.available > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(summary.available)}</span>
                       </div>
-                      {typeof summary.shadowAvailable === 'number' && Math.abs(summary.shadowAvailable - summary.available) > 0.005 && (
+                      {typeof summary.availableWas === 'number' && Math.abs(summary.available - summary.availableWas) > 0.005 && (
                         <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground" title="Payment-first + season-aware preview">Preview (season-aware)</span>
+                          <span className="text-muted-foreground" title="Available before the payment-first promotion (old amount-matcher)">was (old matcher)</span>
                           <span className="text-muted-foreground">
-                            {fmt(summary.shadowAvailable)}
-                            <span className={summary.shadowAvailable < summary.available ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
-                              ({summary.shadowAvailable < summary.available ? '−' : '+'}{fmt(Math.abs(summary.shadowAvailable - summary.available))})
+                            {fmt(summary.availableWas)}
+                            <span className={summary.available < summary.availableWas ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
+                              ({summary.available < summary.availableWas ? '−' : '+'}{fmt(Math.abs(summary.available - summary.availableWas))})
                             </span>
                           </span>
                         </div>
@@ -4393,7 +4396,7 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
 function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
-  const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, shadowAvailable: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
+  const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, availableWas: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   const byInvoice = aggregate?.byInvoice || {}
 
   // Split rep's invoices by status. Partials qualify as "paid" for this
@@ -4743,16 +4746,14 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
           <CardHeader className="pb-2">
             <CardDescription>Available to collect</CardDescription>
             <CardTitle className={`text-2xl ${safeSummary.available > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(safeSummary.available)}</CardTitle>
-            {typeof safeSummary.shadowAvailable === 'number' && (() => {
-              const delta = safeSummary.shadowAvailable - safeSummary.available
+            {typeof safeSummary.availableWas === 'number' && Math.abs(safeSummary.available - safeSummary.availableWas) > 0.005 && (() => {
+              const delta = safeSummary.available - safeSummary.availableWas
               return (
-                <div className="mt-1 text-xs text-muted-foreground" title="Payment-first + season-aware preview. Not yet the number you pay on.">
-                  Preview: <span className="font-semibold text-foreground">{fmt(safeSummary.shadowAvailable)}</span>
-                  {Math.abs(delta) > 0.005 && (
-                    <span className={delta < 0 ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
-                      ({delta < 0 ? '−' : '+'}{fmt(Math.abs(delta))})
-                    </span>
-                  )}
+                <div className="mt-1 text-xs text-muted-foreground" title="Available before the payment-first promotion (old amount-matcher).">
+                  was <span className="font-semibold text-foreground">{fmt(safeSummary.availableWas)}</span>
+                  <span className={delta < 0 ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
+                    ({delta < 0 ? '−' : '+'}{fmt(Math.abs(delta))})
+                  </span>
                 </div>
               )
             })()}
