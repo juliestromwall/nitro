@@ -763,46 +763,41 @@ export const EARNED_SNAPSHOTS = {
 //
 // Tony-confirmed values (2026-06-25). A zero means "no carryover — the
 // system's math from the anchor forward is the full picture for this rep."
+// Payment-first baseline freeze (confirmed with Tony 2026-07-23, as of the
+// 2026-07-20 snapshot). Each figure = season-rated commission on all paid
+// invoices (Open Balance basis) − payouts, reviewed against the Google Sheet.
 export const STARTING_ADJUSTMENTS = {
   'rep-adam':                      0.00,
-  'rep-rob':                    -139.08,
-  'rep-jason':                     0.00,
+  'rep-rob':                     807.53,
+  'rep-jason':                    86.72,
   'rep-kathy-karlovic':            0.00,
-  'rep-andy-wise':                 0.00,
+  'rep-andy-wise':               130.33,
   'rep-erika-lowder':              0.00,
-  'rep-dave-spruill':           8569.91,
-  'rep-chris-cooper':              4.71,
-  'rep-evan-ricker':               0.00,
-  'rep-jj-catlett':                0.00,
+  'rep-dave-spruill':           6098.10,
+  'rep-chris-cooper':             81.99,
+  'rep-evan-ricker':             138.98,
+  'rep-jj-catlett':               35.00,
   'rep-harrison-montgomery':     856.54,
   'rep-trevor-stockhausen':        0.00,
-  'rep-steve-clare':               0.00,
-  'rep-brian-kulak':              24.64,
+  'rep-steve-clare':              64.85,
+  'rep-brian-kulak':              62.99,
   'rep-kim-kulak':                 0.00,
-  'rep-carter-katz':               0.00,
-  'rep-cody-prudoehl':           353.83,
+  'rep-carter-katz':             538.92,
+  'rep-cody-prudoehl':           464.66,
 }
 
 // The default date STARTING_ADJUSTMENTS were measured. The anchor is the date
 // the baseline is "as of": Available counts earnings and payouts dated STRICTLY
 // AFTER it, and anything on or before it (earned OR paid) is already baked into
 // the starting adjustment. Used for any rep not overridden below.
-export const ADJUSTMENT_ANCHOR = '2026-06-25'
+export const ADJUSTMENT_ANCHOR = '2026-07-20'
 
-// Per-rep anchor overrides. Set a rep here when their baseline was confirmed
-// on a different day than the default launch date (e.g. onboarded later).
-// Their Available counts earnings/payouts only AFTER this date; everything
-// before it is assumed captured in their STARTING_ADJUSTMENTS figure. Reps not
-// listed fall back to ADJUSTMENT_ANCHOR.
+// Per-rep anchor overrides. Cleared at the 2026-07-20 payment-first baseline
+// freeze — every rep is now anchored to the same snapshot date via
+// ADJUSTMENT_ANCHOR, so their STARTING_ADJUSTMENTS captures everything paid on
+// or before 7/20 and Available grows only with settlements after it. Add a rep
+// here only if a future baseline is reset on a different day.
 export const ADJUSTMENT_ANCHORS = {
-  'rep-rob':           '2026-04-21',
-  'rep-cody-prudoehl': '2026-06-21',
-  'rep-brian-kulak':   '2026-03-27',
-  'rep-carter-katz':   '2026-05-20',
-  'rep-jason':         '2026-04-21',
-  'rep-andy-wise':     '2026-06-21',
-  'rep-chris-cooper':  '2026-04-24',
-  'rep-evan-ricker':   '2026-06-11',
 }
 
 export const PAYOUTS = [
