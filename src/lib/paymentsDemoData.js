@@ -792,6 +792,11 @@ export const STARTING_ADJUSTMENTS = {
 // the starting adjustment. Used for any rep not overridden below.
 export const ADJUSTMENT_ANCHOR = '2026-07-20'
 
+// Default "Invoices paid since" date on rep ledgers — the day after the baseline
+// anchor, so a ledger opens showing only post-baseline settlements (everything
+// on/before the anchor is already captured in STARTING_ADJUSTMENTS).
+export const LEDGER_PAID_SINCE_DEFAULT = '2026-07-21'
+
 // Per-rep anchor overrides. Cleared at the 2026-07-20 payment-first baseline
 // freeze — every rep is now anchored to the same snapshot date via
 // ADJUSTMENT_ANCHOR, so their STARTING_ADJUSTMENTS captures everything paid on

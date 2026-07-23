@@ -14,7 +14,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { useCompanies } from '@/context/CompanyContext'
 import JSZip from 'jszip'
-import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, TERRITORIES, STARTING_ADJUSTMENTS, ADJUSTMENT_ANCHOR, ADJUSTMENT_ANCHORS, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
+import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, TERRITORIES, STARTING_ADJUSTMENTS, ADJUSTMENT_ANCHOR, ADJUSTMENT_ANCHORS, LEDGER_PAID_SINCE_DEFAULT, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
 import { computeCommissions, aggregateByRep } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { shouldIgnoreCustomer, isWsrPostPaymentCustomer } from '@/lib/customerIgnoreList'
@@ -4445,7 +4445,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
     }
     return best
   }, [payouts])
-  const defaultSince = lastPayoutDate || anchor
+  const defaultSince = LEDGER_PAID_SINCE_DEFAULT
   const [paidSince, setPaidSince] = useState(() => defaultSince)
   const [hasPaidSinceTouched, setHasPaidSinceTouched] = useState(false)
   useEffect(() => {
