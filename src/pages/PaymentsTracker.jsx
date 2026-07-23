@@ -2462,7 +2462,7 @@ function UploadHistoryMenu({ entries = [] }) {
         <DropdownMenuLabel>Uploaded files</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {sorted.length === 0 ? (
-          <div className="px-2 py-2 text-xs text-muted-foreground">No uploads recorded yet.</div>
+          <div className="px-2 py-2 text-xs text-muted-foreground">No uploads logged yet — files uploaded from here on will be listed.</div>
         ) : sorted.map((e) => (
           <div key={e.id} className="px-2 py-1.5">
             <div className="text-xs font-medium truncate" title={e.fileName}>{e.fileName || '(unnamed file)'}</div>
@@ -2524,7 +2524,7 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
                 </span>
               </label>
               <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
-              {history.length > 0 && <UploadHistoryMenu entries={history} />}
+              <UploadHistoryMenu entries={history} />
             </>
           )}
         </div>
@@ -2610,7 +2610,7 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
             <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
-          {history.length > 0 && <UploadHistoryMenu entries={history} />}
+          <UploadHistoryMenu entries={history} />
         </span>
         {lastImport && (
           <p className={`basis-full text-xs mt-1 ${lastImport.mode === 'append' ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
@@ -2676,7 +2676,7 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
             </span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
-          {history.length > 0 && <UploadHistoryMenu entries={history} />}
+          <UploadHistoryMenu entries={history} />
         </span>
         {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Merged {lastImport.added.toLocaleString()} mappings from {lastImport.fileName} ({total} total stored).</p>}
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
@@ -2740,7 +2740,7 @@ function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, 
             </span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
-          {history.length > 0 && <UploadHistoryMenu entries={history} />}
+          <UploadHistoryMenu entries={history} />
         </span>
         {lastImport && (
           <p className="basis-full text-xs text-muted-foreground mt-1">
@@ -3622,7 +3622,7 @@ function InvoicesView({
               </span>
             </label>
             <Button variant="ghost" size="sm" onClick={clearInvoices} className="text-muted-foreground">Clear</Button>
-            {historyFor('invoices').length > 0 && <UploadHistoryMenu entries={historyFor('invoices')} />}
+            <UploadHistoryMenu entries={historyFor('invoices')} />
           </div>
         </div>
         {lastInvoicesImport && (
