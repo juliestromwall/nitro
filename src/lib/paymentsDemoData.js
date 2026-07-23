@@ -783,7 +783,7 @@ export const STARTING_ADJUSTMENTS = {
   'rep-brian-kulak':              62.99,
   'rep-kim-kulak':                 0.00,
   'rep-carter-katz':             538.92,
-  'rep-cody-prudoehl':           464.66,
+  'rep-cody-prudoehl':           490.70,
 }
 
 // The default date STARTING_ADJUSTMENTS were measured. The anchor is the date
