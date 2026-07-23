@@ -10,6 +10,17 @@
 // so an unresolved member is left for a BP override rather than mis-routed.
 
 const normId = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+
+// Member IDs that aren't clean word-prefixes of the account name (owner names,
+// consonant abbreviations, or greedy-match collisions). Confirmed via the
+// shared invoice's line-item customer name. Keyed by normalized member id →
+// exact account name. POWDERHSE is tentative (line items already showed "WSR").
+const MEMBER_OVERRIDES = {
+  KENJONE: 'SNOWBOARD JONES (WSR)',
+  SKIHAUS: 'NOTB SNOWBOARDS / SKI HAUS (WSR)',
+  POWDERH: 'POWDER HOUND LLC. (WSR)',
+  POWDERHSE: 'POWDER HOUSE INC - OR (WSR)',
+}
 const isWsrAccount = a => /\bwsr\b/i.test(a?.name || '') || /\(wsr\)/i.test(a?.name || '')
 const wordsOf = name => String(name || '').toUpperCase()
   .replace(/\(WSR\)/g, ' ').replace(/\bWSR\b/g, ' ')
@@ -34,6 +45,12 @@ function wordPrefixMatch(mid, name) {
 export function matchMemberToAccount(memberId, accounts) {
   const M = normId(memberId)
   if (!M) return null
+  // Explicit override first (codes that aren't derivable from the name).
+  const ov = MEMBER_OVERRIDES[M]
+  if (ov) {
+    const byName = (accounts || []).find(a => normId(a.name) === normId(ov))
+    if (byName) return byName
+  }
   const cands = []
   for (const a of accounts || []) {
     if (!isWsrAccount(a)) continue
