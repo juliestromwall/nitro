@@ -18,6 +18,7 @@ import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, A
 import { computeCommissions, aggregateByRep } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { shouldIgnoreCustomer, isWsrPostPaymentCustomer } from '@/lib/customerIgnoreList'
+import { matchMemberToAccount } from '@/lib/wsrMatch'
 import { loadLineItems, saveLineItems as idbSaveLineItems, clearLineItems as idbClearLineItems } from '@/lib/lineItemsStore'
 import { loadPaymentsTx, savePaymentsTx as idbSavePaymentsTx, clearPaymentsTx as idbClearPaymentsTx } from '@/lib/paymentsStore'
 import { loadBpOverrides, mergeBpOverrides as idbMergeBpOverrides, clearBpOverrides as idbClearBpOverrides } from '@/lib/bpOverridesStore'
@@ -516,6 +517,22 @@ function PaymentsTracker() {
     return m
   }, [wsrInvoicePayments, bpOverrides])
 
+  // Robust fallback: recover memberId → account name straight from the accounts
+  // master list (the remittance Member ID is a word-prefix code of the account
+  // name). Works regardless of upload mode or BP overrides; only confident
+  // matches are kept, so unresolved members fall through rather than mis-route.
+  const wsrMemberToAccount = useMemo(() => {
+    const m = new Map()
+    for (const events of wsrInvoicePayments.values()) {
+      for (const ev of events) {
+        if (!ev.memberId || m.has(ev.memberId)) continue
+        const acct = matchMemberToAccount(ev.memberId, ACCOUNTS)
+        if (acct) m.set(ev.memberId, acct.name)
+      }
+    }
+    return m
+  }, [wsrInvoicePayments])
+
   // Apply BP overrides FIRST, then WSR member chain. Only swaps the
   // customer when the current value reads as a WSR-renamed token. Every
   // downstream consumer (engine, account balances, unmatched banner, etc.)
@@ -523,7 +540,8 @@ function PaymentsTracker() {
   const invoices = useMemo(() => {
     const bpEmpty = !bpOverrides || Object.keys(bpOverrides).length === 0
     const chainEmpty = wsrMemberToCustomer.size === 0
-    if (bpEmpty && chainEmpty) return invoicesRaw
+    const acctEmpty = wsrMemberToAccount.size === 0
+    if (bpEmpty && chainEmpty && acctEmpty) return invoicesRaw
     return invoicesRaw.map(inv => {
       if (!isWsrPostPaymentCustomer(inv.customer)) return inv
       const bpName = bpOverrides?.[inv.num]
@@ -532,10 +550,12 @@ function PaymentsTracker() {
       if (events?.length) {
         const chained = wsrMemberToCustomer.get(events[0].memberId)
         if (chained) return { ...inv, customer: chained }
+        const acctName = wsrMemberToAccount.get(events[0].memberId)
+        if (acctName) return { ...inv, customer: acctName }
       }
       return inv
     })
-  }, [invoicesRaw, bpOverrides, wsrInvoicePayments, wsrMemberToCustomer])
+  }, [invoicesRaw, bpOverrides, wsrInvoicePayments, wsrMemberToCustomer, wsrMemberToAccount])
   const bpOverridesAppliedCount = useMemo(() => {
     if (!bpOverrides || Object.keys(bpOverrides).length === 0) return 0
     let count = 0
@@ -1076,9 +1096,36 @@ function PaymentsTracker() {
     }
     return min
   }, [balanceSnapshots])
+  // Data-derived baseline: season-rated commission on all PAID portions (via
+  // Open Balance — the authoritative "is it paid", immune to the matcher and
+  // the WSR customer-rename quirk) minus total payouts. This is the frozen
+  // starting point; it captures every paid invoice, including ones the
+  // payment-event/anchor model misses (e.g. SI-126563).
+  const baselineByRep = useMemo(() => {
+    const refSeason = seasonOf(new Date().toISOString())
+    const paidFrac = (amt, ob) => (amt ? Math.max(0, Math.min(1, (amt - (ob || 0)) / amt)) : 0)
+    const paidOut = {}
+    for (const p of commissionPayouts) paidOut[p.repId] = (paidOut[p.repId] || 0) + (p.amount || 0)
+    const out = {}
+    for (const rep of reps) {
+      const agg = aggregatesByRep[rep.id]
+      let earned = 0
+      if (agg?.byInvoice) {
+        for (const inv of Object.values(agg.byInvoice)) {
+          const pf = paidFrac(inv.amount, inv.openBalance)
+          if (pf <= 0) continue
+          for (const ln of (inv.lines || [])) {
+            earned += (ln.lineNet || 0) * (ln.rate || 0) * seasonRateMultiplier(ln.skuSeason, refSeason) * pf
+          }
+        }
+      }
+      out[rep.id] = earned - (paidOut[rep.id] || 0)
+    }
+    return out
+  }, [reps, aggregatesByRep, commissionPayouts])
   const exportBaselineCSV = () => {
-    const rows = [['Rep', 'Preview Available (baseline)']]
-    for (const rep of reps) rows.push([rep.name, (repSummary[rep.id]?.shadowAvailable ?? 0).toFixed(2)])
+    const rows = [['Rep', 'Starting adjustment (baseline)']]
+    for (const rep of reps) rows.push([rep.name, (baselineByRep[rep.id] ?? 0).toFixed(2)])
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
     const a = document.createElement('a')
@@ -1556,7 +1603,7 @@ function PaymentsTracker() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
                     <CardTitle className="text-base">Baseline snapshot</CardTitle>
-                    <CardDescription>Preview (season-aware) Available per rep as of {baselineDate.slice(0, 10)} — the frozen starting point to move forward from</CardDescription>
+                    <CardDescription>Season-rated commission on all paid invoices (Open Balance basis) − payouts, per rep, as of {baselineDate.slice(0, 10)} — the frozen starting point to move forward from</CardDescription>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); exportBaselineCSV() }}>Export CSV</Button>
@@ -1571,14 +1618,14 @@ function PaymentsTracker() {
                       <thead>
                         <tr className="text-muted-foreground text-left border-b">
                           <th className="py-1.5 pr-4 font-medium">Rep</th>
-                          <th className="py-1.5 pr-4 font-medium text-right">Preview Available (freeze figure)</th>
+                          <th className="py-1.5 pr-4 font-medium text-right">Starting adjustment (freeze figure)</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {[...reps].sort((a, b) => (repSummary[b.id]?.shadowAvailable || 0) - (repSummary[a.id]?.shadowAvailable || 0)).map(rep => (
+                        {[...reps].sort((a, b) => (baselineByRep[b.id] || 0) - (baselineByRep[a.id] || 0)).map(rep => (
                           <tr key={rep.id} className="border-b last:border-0">
                             <td className="py-1.5 pr-4">{rep.name}</td>
-                            <td className="py-1.5 pr-4 text-right font-semibold tabular-nums">{fmt(repSummary[rep.id]?.shadowAvailable ?? 0)}</td>
+                            <td className="py-1.5 pr-4 text-right font-semibold tabular-nums">{fmt(baselineByRep[rep.id] ?? 0)}</td>
                           </tr>
                         ))}
                       </tbody>
