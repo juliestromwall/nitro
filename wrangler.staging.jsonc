@@ -1,0 +1,20 @@
+{
+  // Staging Worker — deploys the same SPA as prod but to a separate
+  // workers.dev URL (nitro-staging.<subdomain>.workers.dev) with NO custom
+  // domain, so it never touches app.repcommish.com. Build it with the
+  // staging Supabase env: `npm run deploy:staging`.
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nitro-staging",
+  "compatibility_date": "2026-05-28",
+  "workers_dev": true,
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  },
+  "compatibility_flags": [
+    "nodejs_compat"
+  ]
+}
