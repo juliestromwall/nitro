@@ -20,6 +20,7 @@ const MEMBER_OVERRIDES = {
   SKIHAUS: 'NOTB SNOWBOARDS / SKI HAUS (WSR)',
   POWDERH: 'POWDER HOUND LLC. (WSR)',
   POWDERHSE: 'POWDER HOUSE INC - OR (WSR)',
+  RRBASE: 'Base Mountain Sports (WSR)',   // member id "R&RBASE" normalizes to RRBASE
 }
 const isWsrAccount = a => /\bwsr\b/i.test(a?.name || '') || /\(wsr\)/i.test(a?.name || '')
 const wordsOf = name => String(name || '').toUpperCase()
