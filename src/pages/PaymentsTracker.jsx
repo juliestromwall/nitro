@@ -4445,7 +4445,10 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
     }
     return best
   }, [payouts])
-  const defaultSince = LEDGER_PAID_SINCE_DEFAULT
+  // Open at the baseline (7/21) until the rep gets a payout AFTER it — then
+  // default to "since last payout" (what's accrued since they were last paid).
+  // Pre-baseline payouts don't pull the view back before the freeze.
+  const defaultSince = lastPayoutDate > LEDGER_PAID_SINCE_DEFAULT ? lastPayoutDate : LEDGER_PAID_SINCE_DEFAULT
   const [paidSince, setPaidSince] = useState(() => defaultSince)
   const [hasPaidSinceTouched, setHasPaidSinceTouched] = useState(false)
   useEffect(() => {
