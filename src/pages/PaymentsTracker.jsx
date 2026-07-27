@@ -1814,6 +1814,7 @@ function PaymentsTracker() {
           repAccountInvoices={repAccountInvoicesByRep[selectedRep.id] || []}
           paymentDatesByInvoiceNum={paymentDatesByInvoiceNum}
           paymentEventsByInvoiceNum={paymentEventsByInvoiceNum}
+          settlementEventsByInvoiceNum={settlementEventsByInvoiceNum}
           onAddPayout={() => openRecordPayout(selectedRep.id)}
           onEditPayout={openEditPayout}
           onDeletePayout={deleteCommissionPayout}
@@ -4395,9 +4396,27 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
+function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, settlementEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, availableWas: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
-  const byInvoice = aggregate?.byInvoice || {}
+  // Correct each invoice's paid status/openBalance from the settlement engine —
+  // the payment data is the source of truth. A date-filtered invoices export can
+  // omit an older invoice that was PAID this week (so it still reads "Open"),
+  // but its settlement events (from the payments snapshot) show it settled.
+  const byInvoice = useMemo(() => {
+    const raw = aggregate?.byInvoice || {}
+    const out = {}
+    for (const [k, inv] of Object.entries(raw)) {
+      const evs = settlementEventsByInvoiceNum?.get(inv.invoiceNum) || []
+      let settled = 0
+      for (const e of evs) if (e.kind === 'cash' || e.kind === 'unapplied' || e.kind === 'prior') settled += e.amount || 0
+      if (settled <= 0.005) { out[k] = inv; continue }
+      const amt = inv.amount || 0
+      const openBalance = Math.max(0, Math.round((amt - settled) * 100) / 100)
+      const status = amt > 0 && settled + 0.005 >= amt ? 'Paid' : 'Partial'
+      out[k] = { ...inv, status, openBalance }
+    }
+    return out
+  }, [aggregate, settlementEventsByInvoiceNum])
 
   // Split rep's invoices by status. Partials qualify as "paid" for this
   // section because the received portion is real earned commission; they
@@ -4476,7 +4495,12 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
     for (const inv of paidInvoices) {
       const fullAmount = inv.amount || 0
       const fullCommission = inv.commission || 0
-      const events = paymentEventsByInvoiceNum?.get(inv.invoiceNum) || []
+      // Prefer settlement events (cash/unapplied — dated, with method); fall
+      // back to the matcher for invoices with no snapshot history yet.
+      const settle = settlementEventsByInvoiceNum?.get(inv.invoiceNum)
+      const events = settle && settle.length
+        ? settle.filter(e => e.kind === 'cash' || e.kind === 'unapplied').map(e => ({ date: e.date, amount: e.amount, method: e.method, source: e.kind }))
+        : (paymentEventsByInvoiceNum?.get(inv.invoiceNum) || [])
       if (events.length === 0) {
         if (paidSince) continue
         const paidPortion = fullAmount - (inv.openBalance || 0)
@@ -4513,18 +4537,21 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       return (b.paymentDate || '').localeCompare(a.paymentDate || '')
     })
     return out
-  }, [paidInvoices, paymentEventsByInvoiceNum, paidSince])
-  // Count of paid invoices with no matched events, so we can show a nudge
+  }, [paidInvoices, settlementEventsByInvoiceNum, paymentEventsByInvoiceNum, paidSince])
+  // Count of paid invoices with no dated events, so we can show a nudge
   // when the Since filter is hiding them.
   const unmatchedHiddenCount = useMemo(() => {
     if (!paidSince) return 0
     let n = 0
     for (const inv of paidInvoices) {
-      const events = paymentEventsByInvoiceNum?.get(inv.invoiceNum) || []
-      if (events.length === 0) n++
+      const settle = settlementEventsByInvoiceNum?.get(inv.invoiceNum)
+      const hasDated = settle && settle.length
+        ? settle.some(e => e.kind === 'cash' || e.kind === 'unapplied')
+        : (paymentEventsByInvoiceNum?.get(inv.invoiceNum) || []).length > 0
+      if (!hasDated) n++
     }
     return n
-  }, [paidInvoices, paymentEventsByInvoiceNum, paidSince])
+  }, [paidInvoices, settlementEventsByInvoiceNum, paymentEventsByInvoiceNum, paidSince])
   // Alias for existing downstream consumers (brand subtotals, totals).
   const visiblePaidInvoices = visiblePaymentEvents
 
