@@ -18,7 +18,7 @@ export const REPS = [
   { id: 'rep-harrison-montgomery', name: 'Harrison Montgomery', email: 'montyrepsnow@gmail.com', agency: '' },
   { id: 'rep-dave-spruill',        name: 'Dave Spruill',        email: 'darkblizzardsales@gmail.com', agency: 'Dark Blizzard' },
   { id: 'rep-chris-cooper',        name: 'Chris Cooper',        email: 'coops@sprayinggravy.com', agency: 'Spraying Gravy' },
-  { id: 'rep-trevor-stockhausen',  name: 'Trevor Stockhausen',  email: '', agency: '' },
+  { id: 'rep-trevor-stockhausen',  name: 'Trevor Stockhausen',  email: 'trevor@brainstormsales.com', agency: 'Brainstorm Sales' },
   { id: 'rep-evan-ricker',         name: 'Evan Ricker',         email: 'e.ricker@icloud.com', agency: '' },
 ]
 
