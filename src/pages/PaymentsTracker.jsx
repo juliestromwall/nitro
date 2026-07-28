@@ -1086,58 +1086,6 @@ function PaymentsTracker() {
     return out
   }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, earnedSinceAnchorByRep, shadowEarnedSinceAnchorByRep, paidOutSinceAnchorByRep, owedByRep])
 
-  // ── Baseline snapshot ───────────────────────────────────────────────────
-  // The earliest Open Balance snapshot asOf = the line we move forward from.
-  const [showBaseline, setShowBaseline] = useState(false)
-  const baselineDate = useMemo(() => {
-    let min = null
-    for (const points of Object.values(balanceSnapshots || {})) {
-      for (const p of (points || [])) {
-        const d = String(p?.asOf || '')
-        if (d && (!min || d < min)) min = d
-      }
-    }
-    return min
-  }, [balanceSnapshots])
-  // Data-derived baseline: season-rated commission on all PAID portions (via
-  // Open Balance — the authoritative "is it paid", immune to the matcher and
-  // the WSR customer-rename quirk) minus total payouts. This is the frozen
-  // starting point; it captures every paid invoice, including ones the
-  // payment-event/anchor model misses (e.g. SI-126563).
-  const baselineByRep = useMemo(() => {
-    const refSeason = seasonOf(new Date().toISOString())
-    const paidFrac = (amt, ob) => (amt ? Math.max(0, Math.min(1, (amt - (ob || 0)) / amt)) : 0)
-    const paidOut = {}
-    for (const p of commissionPayouts) paidOut[p.repId] = (paidOut[p.repId] || 0) + (p.amount || 0)
-    const out = {}
-    for (const rep of reps) {
-      const agg = aggregatesByRep[rep.id]
-      let earned = 0
-      if (agg?.byInvoice) {
-        for (const inv of Object.values(agg.byInvoice)) {
-          const pf = paidFrac(inv.amount, inv.openBalance)
-          if (pf <= 0) continue
-          for (const ln of (inv.lines || [])) {
-            earned += (ln.lineNet || 0) * (ln.rate || 0) * seasonRateMultiplier(ln.skuSeason, refSeason) * pf
-          }
-        }
-      }
-      out[rep.id] = earned - (paidOut[rep.id] || 0)
-    }
-    return out
-  }, [reps, aggregatesByRep, commissionPayouts])
-  const exportBaselineCSV = () => {
-    const rows = [['Rep', 'Starting adjustment (baseline)']]
-    for (const rep of reps) rows.push([rep.name, (baselineByRep[rep.id] ?? 0).toFixed(2)])
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `baseline-${baselineDate ? baselineDate.slice(0, 10) : 'snapshot'}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
   // Match invoice customer names to account names, sum open balances per account.
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
   // Also returns the list of invoice customers that couldn't be matched, grouped
@@ -1599,45 +1547,6 @@ function PaymentsTracker() {
                 </div>
               </div>
             </div>
-          )}
-          {baselineDate && (
-            <Card className="mb-6 border-[#005b5b]/40">
-              <CardHeader className="pb-3 cursor-pointer" onClick={() => setShowBaseline(v => !v)}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <CardTitle className="text-base">Baseline snapshot</CardTitle>
-                    <CardDescription>Season-rated commission on all paid invoices (Open Balance basis) − payouts, per rep, as of {baselineDate.slice(0, 10)} — the frozen starting point to move forward from</CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); exportBaselineCSV() }}>Export CSV</Button>
-                    <span className="text-muted-foreground text-sm">{showBaseline ? '▲' : '▼'}</span>
-                  </div>
-                </div>
-              </CardHeader>
-              {showBaseline && (
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-muted-foreground text-left border-b">
-                          <th className="py-1.5 pr-4 font-medium">Rep</th>
-                          <th className="py-1.5 pr-4 font-medium text-right">Starting adjustment (freeze figure)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...reps].sort((a, b) => (baselineByRep[b.id] || 0) - (baselineByRep[a.id] || 0)).map(rep => (
-                          <tr key={rep.id} className="border-b last:border-0">
-                            <td className="py-1.5 pr-4">{rep.name}</td>
-                            <td className="py-1.5 pr-4 text-right font-semibold tabular-nums">{fmt(baselineByRep[rep.id] ?? 0)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-3">These figures become each rep's frozen starting adjustment; every anchor resets to {baselineDate.slice(0, 10)}, and commission is tracked forward from here on Open Balance settlements.</p>
-                </CardContent>
-              )}
-            </Card>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {reps.map((rep) => {
