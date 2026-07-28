@@ -4895,6 +4895,9 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                                                 {(ev.lines || []).some(l => l.isRental) && (
                                                   <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>
                                                 )}
+                                                {(ev.lines || []).some(l => l.skuSeason && seasonRateMultiplier(l.skuSeason, seasonOf(ev.paymentDate)) < 1) && (
+                                                  <span title="Contains past-season product — commission paid at the reduced (half) rate" className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-yellow-200 text-yellow-900">Reduced rate</span>
+                                                )}
                                               </div>
                                             )}
                                           </td>
@@ -4968,6 +4971,9 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                               ))}
                               {(ev.lines || []).some(l => l.isRental) && (
                                 <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>
+                              )}
+                              {(ev.lines || []).some(l => l.skuSeason && seasonRateMultiplier(l.skuSeason, seasonOf(ev.paymentDate)) < 1) && (
+                                <span title="Contains past-season product — commission paid at the reduced (half) rate" className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-yellow-200 text-yellow-900">Reduced rate</span>
                               )}
                             </div>
                           )}
