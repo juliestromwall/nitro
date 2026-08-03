@@ -28,6 +28,7 @@ import { supabase } from '@/lib/supabase'
 import { pget, pset, pdel } from '@/lib/portalStore'
 import { recordBalanceSnapshots, loadBalanceSnapshots } from '@/lib/balanceSnapshotsStore'
 import { computeSettlementEvents } from '@/lib/settlementEngine'
+import { parseSalesDetail } from '@/lib/salesDetailParser'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
 
@@ -2560,6 +2561,80 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
   )
 }
 
+function CollectedReportUploader({ result, error, syncing, onPickFile, onClear }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  if (result) {
+    const totalsOk = result.grandOk !== false && result.mismatches === 0
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          Collected:
+          <InfoTip>
+            <p className="font-medium mb-1">Cash-basis Sales by Customer Detail</p>
+            <p>What QuickBooks actually collected this period, per line item — the authoritative source for commission attribution (splits multi-invoice payments correctly, unlike the inferred settlement path).</p>
+            <p className="mt-1 text-muted-foreground">Source: QuickBooks "Sales by Customer Detail", <b>cash basis</b>.</p>
+          </InfoTip>
+        </span>
+        {result.period && <span className="font-medium">{result.period}</span>}
+        <span className="text-muted-foreground">{result.lineCount.toLocaleString()} lines · {result.customers.toLocaleString()} customers</span>
+        <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full ${totalsOk ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
+          {totalsOk ? `Totals match QBO ${money(result.grandParsed)}` : `Total mismatch (${result.mismatches})`}
+        </span>
+        {Object.keys(result.byBrand || {}).length > 0 && (
+          <span className="flex items-center gap-1.5 flex-wrap">
+            {Object.entries(result.byBrand).map(([b, v]) => (
+              <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+                {b} <span className="text-muted-foreground">{money(v)}</span>
+              </span>
+            ))}
+          </span>
+        )}
+        {result.reviewCount > 0 && (
+          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">{result.reviewCount} to review</span>
+        )}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+        </span>
+        <p className={`basis-full text-xs mt-1 ${result.sync?.ok ? 'text-[#005b5b]' : 'text-amber-700'}`}>
+          {result.sync?.ok
+            ? `Saved to Supabase — ${result.sync.lines?.toLocaleString?.() ?? result.lineCount} lines (period #${result.sync.periodId}).`
+            : `Parsed OK — not saved yet: ${result.sync?.message || 'sync unavailable'}. Deploy the sync-collected function to persist.`}
+        </p>
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Step 5 — Commission collected (Sales by Customer Detail, cash basis)
+        <InfoTip>
+          <p className="font-medium mb-1">Cash-basis Sales by Customer Detail</p>
+          <p>The authoritative commission source: exactly what was collected per line item, resolved to brand — so multi-invoice payments split correctly instead of being inferred.</p>
+          <p className="mt-1 text-muted-foreground">Must be run on <b>cash basis</b> (accrual shows invoiced, not collected).</p>
+        </InfoTip>
+      </p>
+      <p className="text-sm text-muted-foreground mb-4">Parses the paid portion of each line, resolves SKU → brand, and persists it for commission attribution. Validated against the report's own totals.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> {syncing ? 'Processing…' : 'Choose Sales by Customer Detail'}
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected: Transaction date, Type, Num, Product/Service, Description, Qty, Sales price, Amount</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
 function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClear, error, lastImport, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const total = overrides ? Object.keys(overrides).length : 0
@@ -3175,6 +3250,67 @@ function InvoicesView({
     return m
   }, [paymentsTx])
 
+  // ===== Commission — collected (cash-basis "Sales by Customer Detail") =====
+  // Parses the report client-side (validated to the penny) and persists it via
+  // the sync-collected edge function. The parse result is shown regardless of the
+  // sync outcome, so it degrades gracefully before the function is deployed.
+  const [collectedResult, setCollectedResult] = useState(null)
+  const [collectedError, setCollectedError] = useState(null)
+  const [collectedSyncing, setCollectedSyncing] = useState(false)
+  const handleCollectedFile = async (file) => {
+    setCollectedError(null); setCollectedResult(null); setCollectedSyncing(true)
+    try {
+      // Read the CSV as raw text — the report's row structure (leading blank
+      // column, MM/DD/YYYY dates) is what the parser keys on, and routing it
+      // through XLSX coerces dates to serials and breaks it.
+      const csv = await file.text()
+      const result = parseSalesDetail(csv)
+      if (!result.customers.length) {
+        throw new Error('No customer lines found — is this the cash-basis "Sales by Customer Detail" report?')
+      }
+      // Persist to Supabase; keep the parse result visible even if sync fails
+      // (e.g. before the edge function is deployed).
+      let sync
+      try {
+        const { data, error: fnError } = await supabase.functions.invoke('sync-collected', {
+          body: {
+            period: {
+              label: result.meta.period || file.name,
+              sourceFile: file.name,
+              grandTotal: result.totals.grandReported ?? result.totals.grandParsed,
+            },
+            lines: result.lines,
+            review: result.review,
+          },
+        })
+        if (fnError) throw new Error(fnError.message || 'Sync failed')
+        if (data?.error) throw new Error(data.error)
+        sync = { ok: true, periodId: data?.period_id, lines: data?.lines, review: data?.review }
+      } catch (se) {
+        sync = { ok: false, message: se.message || 'Sync failed' }
+      }
+      setCollectedResult({
+        fileName: file.name,
+        period: result.meta.period,
+        grandParsed: result.totals.grandParsed,
+        grandReported: result.totals.grandReported,
+        valid: result.validation.ok,
+        grandOk: result.validation.grandOk,
+        mismatches: result.validation.mismatches.length,
+        byBrand: result.totals.byBrand,
+        customers: result.customers.length,
+        lineCount: result.lines.length,
+        reviewCount: result.review.length,
+        sync,
+      })
+      recordUpload?.('collected', file.name, 'replace', result.lines.length)
+    } catch (e) {
+      setCollectedError(e.message || 'Failed to parse the Sales by Customer Detail report')
+    } finally {
+      setCollectedSyncing(false)
+    }
+  }
+
   // ===== BP invoice override CSV =====
   const [bpError, setBpError] = useState(null)
   const [lastBpImport, setLastBpImport] = useState(null)
@@ -3740,6 +3876,14 @@ function InvoicesView({
         error={wsrError}
         lastImport={lastWsrImport}
         history={historyFor('wsr')}
+      />
+
+      <CollectedReportUploader
+        result={collectedResult}
+        error={collectedError}
+        syncing={collectedSyncing}
+        onPickFile={handleCollectedFile}
+        onClear={() => { setCollectedResult(null); setCollectedError(null) }}
       />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
