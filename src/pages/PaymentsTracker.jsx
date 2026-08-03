@@ -29,6 +29,7 @@ import { pget, pset, pdel } from '@/lib/portalStore'
 import { recordBalanceSnapshots, loadBalanceSnapshots } from '@/lib/balanceSnapshotsStore'
 import { computeSettlementEvents } from '@/lib/settlementEngine'
 import { parseSalesDetail } from '@/lib/salesDetailParser'
+import { computeCollectedCommission } from '@/lib/collectedCommission'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
 
@@ -2635,6 +2636,60 @@ function CollectedReportUploader({ result, error, syncing, onPickFile, onClear }
   )
 }
 
+// Shows the per-rep commission computed from the uploaded cash-basis report —
+// the payoff of the whole collected pipeline (multi-invoice payments split
+// correctly). Computed on-read from the parse, so it works before any deploy.
+function CollectedCommissionPanel({ result }) {
+  if (!result?.commissionRows) return null
+  const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const rows = result.commissionRows
+  if (!rows.length) return null
+  return (
+    <div className="rounded-lg border bg-card">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold">Commission from collected — by rep</h3>
+          <p className="text-xs text-muted-foreground">Computed from {result.period || 'this period'} · what each rep is owed on cash actually collected</p>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-lg font-bold tabular-nums text-[#005b5b]">{money(result.commissionTotal)}</div>
+          <div className="text-[11px] text-muted-foreground">total commission</div>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
+              <th className="py-2 px-4 text-left font-medium">Rep</th>
+              <th className="py-2 px-4 text-right font-medium">Collected (commissionable)</th>
+              <th className="py-2 px-4 text-right font-medium">Commission</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.repId} className="border-b last:border-0">
+                <td className="py-2 px-4 font-medium">{r.repName}</td>
+                <td className="py-2 px-4 text-right tabular-nums text-muted-foreground whitespace-nowrap">{money(r.base)}</td>
+                <td className="py-2 px-4 text-right font-bold tabular-nums text-[#005b5b] whitespace-nowrap">{money(r.commission)}</td>
+              </tr>
+            ))}
+            <tr className="bg-muted/40 font-semibold">
+              <td className="py-2 px-4">Total</td>
+              <td className="py-2 px-4"></td>
+              <td className="py-2 px-4 text-right tabular-nums text-[#005b5b] whitespace-nowrap">{money(result.commissionTotal)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {result.commissionReview > 0 && (
+        <p className="px-4 py-2 text-xs text-amber-700 border-t bg-amber-50/60">
+          {result.commissionReview} line{result.commissionReview === 1 ? '' : 's'} couldn't be routed (unknown SKU or unmatched customer) — excluded from the totals above.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClear, error, lastImport, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const total = overrides ? Object.keys(overrides).length : 0
@@ -3268,6 +3323,24 @@ function InvoicesView({
       if (!result.customers.length) {
         throw new Error('No customer lines found — is this the cash-basis "Sales by Customer Detail" report?')
       }
+      // Compute per-rep commission on-read (rep routing + season half-rate) —
+      // this is the payoff: what each rep is owed from what was actually collected.
+      const commission = computeCollectedCommission({
+        lines: result.lines, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+      })
+      const repRows = {}
+      for (const e of commission.entries) {
+        if (e.needsReview || !e.repId) continue
+        const r = repRows[e.repId] || (repRows[e.repId] = { repId: e.repId, repName: e.repName, base: 0, commission: 0 })
+        r.base += e.lineNet || 0
+        r.commission += e.commission || 0
+      }
+      const commissionRows = Object.values(repRows)
+        .map(r => ({ ...r, base: Math.round(r.base * 100) / 100, commission: Math.round(r.commission * 100) / 100 }))
+        .sort((a, b) => b.commission - a.commission)
+      const commissionTotal = Math.round(commissionRows.reduce((s, r) => s + r.commission, 0) * 100) / 100
+      const commissionReview = commission.entries.filter(e => e.needsReview).length
+
       // Persist to Supabase; keep the parse result visible even if sync fails
       // (e.g. before the edge function is deployed).
       let sync
@@ -3301,6 +3374,9 @@ function InvoicesView({
         customers: result.customers.length,
         lineCount: result.lines.length,
         reviewCount: result.review.length,
+        commissionRows,
+        commissionTotal,
+        commissionReview,
         sync,
       })
       recordUpload?.('collected', file.name, 'replace', result.lines.length)
@@ -3885,6 +3961,8 @@ function InvoicesView({
         onPickFile={handleCollectedFile}
         onClear={() => { setCollectedResult(null); setCollectedError(null) }}
       />
+
+      <CollectedCommissionPanel result={collectedResult} />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 
