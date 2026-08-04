@@ -2749,6 +2749,7 @@ function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, o
           <InfoTip>
             <p className="font-medium mb-1">Money collected — the main commission source</p>
             <p>What QuickBooks actually collected each week, line by line — this is what reps get paid on. Splits multi-invoice payments correctly instead of guessing. Adds up week over week (no double-counting).</p>
+            <p className="mt-1 text-muted-foreground">File: QuickBooks <b>"Sales by Customer Detail"</b> report, run on <b>cash basis</b>.</p>
           </InfoTip>
         </span>
         <span className="text-muted-foreground">{(loaded.lineCount || 0).toLocaleString()} collected lines accumulated</span>
@@ -2775,7 +2776,7 @@ function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, o
           <InfoTip>
             <p className="font-medium mb-1">Money collected — the main commission source</p>
             <p>What QuickBooks actually collected each week, line by line — this is what reps get paid on. Splits multi-invoice payments correctly instead of guessing.</p>
-            <p className="mt-1 text-muted-foreground">Upload weekly. Must be run on <b>cash basis</b> (accrual shows what was invoiced, not paid).</p>
+            <p className="mt-1 text-muted-foreground">File: QuickBooks <b>"Sales by Customer Detail"</b> report. Upload weekly. Must be run on <b>cash basis</b> (accrual shows what was invoiced, not paid).</p>
           </InfoTip>
         </span>
         {result.period && <span className="font-medium">{result.period}</span>}
@@ -2817,7 +2818,7 @@ function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, o
         <InfoTip>
           <p className="font-medium mb-1">Money collected — the main commission source</p>
           <p>What QuickBooks actually collected each week, line by line — this is what reps get paid on. Splits multi-invoice payments correctly instead of guessing.</p>
-          <p className="mt-1 text-muted-foreground">Upload weekly. Must be run on <b>cash basis</b> (accrual shows what was invoiced, not paid).</p>
+          <p className="mt-1 text-muted-foreground">File: QuickBooks <b>"Sales by Customer Detail"</b> report. Upload weekly. Must be run on <b>cash basis</b> (accrual shows what was invoiced, not paid).</p>
         </InfoTip>
       </p>
       <p className="text-sm text-muted-foreground mb-4">The main commission upload. Reads what was actually collected on each line, matches it to a brand, and adds it up. Checked against the report's own totals. Run it on cash basis.</p>
