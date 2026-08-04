@@ -105,10 +105,20 @@ itself is already correct and needs no change:
 
 ---
 
-## 5. Data model — `scripts/commission-collected-schema.sql`
+## 5. Data model
 
-Server-side (Supabase, RLS on) so ingested data survives disk/browser loss — the
-failure that wiped IndexedDB and started this whole investigation.
+> **Superseded (2026-08).** The original plan below stored collected lines in
+> dedicated Supabase tables (`collected_periods` / `collected_lines` /
+> `collected_review`) written by a `sync-collected` edge function. Shipped
+> implementation instead persists the accumulated, de-duped lines to the shared
+> **portal KV store** (`public.portal_data`, via `src/lib/collectedStore.js`) —
+> same durability, no bespoke schema or function. The `collected_*` schema and
+> the `sync-collected` function were removed as dead code; sections 5–6 and
+> build steps 2–3 are kept for historical context only.
+
+Original design (server-side Supabase tables, RLS on) so ingested data survives
+disk/browser loss — the failure that wiped IndexedDB and started this whole
+investigation.
 
 | Table | Purpose | Grain |
 |---|---|---|
