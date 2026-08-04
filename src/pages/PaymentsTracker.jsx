@@ -890,29 +890,9 @@ function PaymentsTracker() {
   // forward from their own date. Fixed cutoff (unlike a moving last-payout
   // date) so recording a payout doesn't erase earned commission — payouts
   // subtract via paidOutSinceAnchorByRep instead.
-  const earnedSinceAnchorByRep = useMemo(() => {
-    const out = {}
-    for (const rep of reps) {
-      const anchor = ADJUSTMENT_ANCHORS[rep.id] || ADJUSTMENT_ANCHOR
-      const agg = aggregatesByRep[rep.id]
-      if (!agg?.byInvoice) { out[rep.id] = 0; continue }
-      let earned = 0
-      for (const [invNum, inv] of Object.entries(agg.byInvoice)) {
-        const events = paymentEventsByInvoiceNum.get(invNum) || []
-        if (!events.length) continue
-        const fullAmount = inv.amount || 0
-        const fullCommission = inv.commission || 0
-        for (const ev of events) {
-          const pIso = toIsoDateAtParent(ev.date)
-          if (!pIso || pIso <= anchor) continue
-          const fraction = fullAmount > 0 ? (ev.amount || 0) / fullAmount : 0
-          earned += fullCommission * fraction
-        }
-      }
-      out[rep.id] = earned
-    }
-    return out
-  }, [reps, aggregatesByRep, paymentEventsByInvoiceNum])
+  // (The old amount-matcher earnedSinceAnchor was retired at the 2026-08-04
+  // collected promotion — Available now uses collected earned, settlement as the
+  // "was" comparison; see repSummary.)
 
   // ── SHADOW (payment-first preview) ──────────────────────────────────────
   // Settlement events from the Open Balance snapshots + payment/credit txns.
@@ -1000,18 +980,6 @@ function PaymentsTracker() {
     return out
   }, [collectedEntries])
 
-  // Preview Available under the collected model: startingAdjustment + collected
-  // earnedSinceAnchor − paidOutSinceAnchor. Shown beside the live Available.
-  const repCollectedPreview = useMemo(() => {
-    if (!collectedEarnedSinceAnchorByRep) return null
-    const out = {}
-    for (const rep of reps) {
-      const earned = collectedEarnedSinceAnchorByRep[rep.id] || 0
-      const available = (STARTING_ADJUSTMENTS[rep.id] || 0) + earned - (paidOutSinceAnchorByRep[rep.id] || 0)
-      out[rep.id] = { earned: Math.round(earned * 100) / 100, available: Math.round(available * 100) / 100 }
-    }
-    return out
-  }, [collectedEarnedSinceAnchorByRep, reps, paidOutSinceAnchorByRep])
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
   // should not normally appear in QB data — when one shows up, it's flagged
@@ -1111,25 +1079,29 @@ function PaymentsTracker() {
       const earned = earnedYtdByRep[rep.id] || 0
       const paidOut = payoutsByRep[rep.id] || 0
       const startingAdjustment = STARTING_ADJUSTMENTS[rep.id] || 0
-      const earnedSinceAnchor = earnedSinceAnchorByRep[rep.id] || 0
       const paidOutSinceAnchor = paidOutSinceAnchorByRep[rep.id] || 0
       const shadowEarnedSinceAnchor = shadowEarnedSinceAnchorByRep[rep.id] || 0
+      const settlementAvailable = startingAdjustment + shadowEarnedSinceAnchor - paidOutSinceAnchor
+      // PROMOTED (2026-08-04): Available is driven by the COLLECTED report
+      // (cash-basis Sales by Customer Detail — read from QuickBooks, splits
+      // multi-invoice payments correctly) when one is loaded; otherwise it falls
+      // back to the payment-first settlement figure so the app still works.
+      const hasCollected = collectedEarnedSinceAnchorByRep != null
+      const collectedAvailable = startingAdjustment + (collectedEarnedSinceAnchorByRep?.[rep.id] || 0) - paidOutSinceAnchor
       out[rep.id] = {
         earned,
         paidOut,
-        // PROMOTED (2026-07-23): Available is now driven by the payment-first
-        // settlement engine (season-aware, Open-Balance deltas) instead of the
-        // old amount-matcher.
-        available: startingAdjustment + shadowEarnedSinceAnchor - paidOutSinceAnchor,
-        // Old amount-matcher figure, kept for the before/after comparison.
-        availableWas: startingAdjustment + earnedSinceAnchor - paidOutSinceAnchor,
+        available: hasCollected ? collectedAvailable : settlementAvailable,
+        // Pre-flip (settlement) figure, kept for the before/after comparison.
+        availableWas: settlementAvailable,
+        availableSource: hasCollected ? 'collected' : 'settlement',
         openCommission: agg?.openCommission || 0,
         totalCommission: agg?.totalCommission || 0,
         owesFoundry: owedByRep[rep.id] || 0,
       }
     }
     return out
-  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, earnedSinceAnchorByRep, shadowEarnedSinceAnchorByRep, paidOutSinceAnchorByRep, owedByRep])
+  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, shadowEarnedSinceAnchorByRep, collectedEarnedSinceAnchorByRep, paidOutSinceAnchorByRep, owedByRep])
 
   // Match invoice customer names to account names, sum open balances per account.
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
@@ -1646,27 +1618,19 @@ function PaymentsTracker() {
                         <span className="font-medium">{fmt(summary.paidOut)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Available</span>
+                        <span className="text-muted-foreground inline-flex items-center gap-1">
+                          Available
+                          {summary.availableSource === 'collected' && <span className="text-[9px] uppercase font-semibold px-1 py-0.5 rounded bg-[#005b5b]/10 text-[#005b5b]" title="Driven by the collected report (cash-basis Sales by Customer Detail)">collected</span>}
+                        </span>
                         <span className={`font-bold ${summary.available > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(summary.available)}</span>
                       </div>
-                      {typeof summary.availableWas === 'number' && Math.abs(summary.available - summary.availableWas) > 0.005 && (
+                      {summary.availableSource === 'collected' && typeof summary.availableWas === 'number' && Math.abs(summary.available - summary.availableWas) > 0.005 && (
                         <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground" title="Available before the payment-first promotion (old amount-matcher)">was (old matcher)</span>
+                          <span className="text-muted-foreground" title="Available under the previous settlement-inference model, before the collected switch.">was (settlement)</span>
                           <span className="text-muted-foreground">
                             {fmt(summary.availableWas)}
                             <span className={summary.available < summary.availableWas ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
                               ({summary.available < summary.availableWas ? '−' : '+'}{fmt(Math.abs(summary.available - summary.availableWas))})
-                            </span>
-                          </span>
-                        </div>
-                      )}
-                      {repCollectedPreview?.[rep.id]?.earned > 0.005 && (
-                        <div className="flex justify-between text-xs">
-                          <span className="text-amber-700" title="Preview only — Available if driven by the collected report (Sales by Customer Detail). Does not affect payouts.">collected preview</span>
-                          <span className="text-amber-700 font-medium">
-                            {fmt(repCollectedPreview[rep.id].available)}
-                            <span className="ml-1">
-                              ({repCollectedPreview[rep.id].available < summary.available ? '−' : '+'}{fmt(Math.abs(repCollectedPreview[rep.id].available - summary.available))})
                             </span>
                           </span>
                         </div>
@@ -1776,7 +1740,6 @@ function PaymentsTracker() {
           rep={selectedRep}
           aggregate={aggregatesByRep[selectedRep.id]}
           summary={repSummary[selectedRep.id]}
-          collectedPreview={repCollectedPreview?.[selectedRep.id]}
           payouts={commissionPayouts.filter(p => p.repId === selectedRep.id)}
           repAccountInvoices={repAccountInvoicesByRep[selectedRep.id] || []}
           paymentDatesByInvoiceNum={paymentDatesByInvoiceNum}
@@ -4591,7 +4554,7 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, collectedPreview, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, settlementEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
+function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, settlementEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, availableWas: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   // Correct each invoice's paid status/openBalance from the settlement engine —
   // the payment data is the source of truth. A date-filtered invoices export can
@@ -4966,28 +4929,19 @@ function RepLedgerView({ rep, aggregate, summary, collectedPreview, payouts, rep
         </Card>
         <Card className="border-[#005b5b]">
           <CardHeader className="pb-2">
-            <CardDescription>Available to collect</CardDescription>
+            <CardDescription className="inline-flex items-center gap-1.5">
+              Available to collect
+              {safeSummary.availableSource === 'collected' && <span className="text-[9px] uppercase font-semibold px-1 py-0.5 rounded bg-[#005b5b]/10 text-[#005b5b]" title="Driven by the collected report (cash-basis Sales by Customer Detail)">collected</span>}
+            </CardDescription>
             <CardTitle className={`text-2xl ${safeSummary.available > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(safeSummary.available)}</CardTitle>
-            {typeof safeSummary.availableWas === 'number' && Math.abs(safeSummary.available - safeSummary.availableWas) > 0.005 && (() => {
+            {safeSummary.availableSource === 'collected' && typeof safeSummary.availableWas === 'number' && Math.abs(safeSummary.available - safeSummary.availableWas) > 0.005 && (() => {
               const delta = safeSummary.available - safeSummary.availableWas
               return (
-                <div className="mt-1 text-xs text-muted-foreground" title="Available before the payment-first promotion (old amount-matcher).">
-                  was <span className="font-semibold text-foreground">{fmt(safeSummary.availableWas)}</span>
+                <div className="mt-1 text-xs text-muted-foreground" title="Available under the previous settlement-inference model, before the collected switch.">
+                  was (settlement) <span className="font-semibold text-foreground">{fmt(safeSummary.availableWas)}</span>
                   <span className={delta < 0 ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
                     ({delta < 0 ? '−' : '+'}{fmt(Math.abs(delta))})
                   </span>
-                </div>
-              )
-            })()}
-            {collectedPreview && collectedPreview.earned > 0.005 && (() => {
-              const delta = collectedPreview.available - safeSummary.available
-              return (
-                <div className="mt-1 text-xs text-amber-700" title="Preview only — Available if driven by the collected report (Sales by Customer Detail, cash basis). Does not affect payouts until promoted.">
-                  collected preview <span className="font-semibold">{fmt(collectedPreview.available)}</span>
-                  {Math.abs(delta) > 0.005 && (
-                    <span className="ml-1">({delta < 0 ? '−' : '+'}{fmt(Math.abs(delta))})</span>
-                  )}
-                  <span className="ml-1 text-muted-foreground">· earned {fmt(collectedPreview.earned)}</span>
                 </div>
               )
             })()}
