@@ -58,6 +58,7 @@ export function parseSalesDetail(csvText) {
 
   const lines = []
   const reportedByCustomer = {}
+  const occ_ = new Map()   // per-report occurrence counts for the de-dup key
   let grandReported = null
 
   for (const raw of rows) {
@@ -81,15 +82,24 @@ export function parseSalesDetail(csvText) {
     // Data line: blank col A, a real date, an Invoice transaction.
     if (!a && isDate(c[COL.date]) && /invoice/i.test(c[COL.type] || '')) {
       if (!customer) continue
+      const invoice = (c[COL.num] || '').trim()
+      const date = (c[COL.date] || '').trim()
       const sku = (c[COL.sku] || '').trim()
       const description = (c[COL.description] || '').trim()
       const paidAmount = toNum(c[COL.amount])
       const info = lookupBrand(sku)
       const kind = info ? 'brand' : classifyNonBrand(sku, description)
+      // Stable de-dup fingerprint: invoice + sku + payment date + an occurrence
+      // index (0-based, by row order) so identical lines on one invoice stay
+      // distinct while the SAME line across overlapping reports collapses to one.
+      const occKey = `${invoice}|${sku}|${date}`
+      const occ = occ_ ? (occ_.get(occKey) || 0) : 0
+      if (occ_) occ_.set(occKey, occ + 1)
       lines.push({
+        key: `${occKey}|${occ}`,
         customer,
-        invoice: (c[COL.num] || '').trim(),
-        date: (c[COL.date] || '').trim(),
+        invoice,
+        date,
         sku,
         description,
         qty: toNum(c[COL.qty]),
@@ -164,4 +174,16 @@ export function parseSalesDetail(csvText) {
     review,
     validation: { ok: mismatches.length === 0 && grandOk !== false, grandOk, mismatches },
   }
+}
+
+/**
+ * Merge freshly-parsed lines into the accumulated set, de-duped by each line's
+ * fingerprint (`key`). Later (incoming) wins, so a re-uploaded/corrected line
+ * updates in place — overlapping weekly reports never double-count.
+ */
+export function mergeCollectedLines(existing, incoming) {
+  const byKey = new Map()
+  for (const l of existing || []) if (l?.key) byKey.set(l.key, l)
+  for (const l of incoming || []) if (l?.key) byKey.set(l.key, l)
+  return [...byKey.values()]
 }

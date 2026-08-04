@@ -28,7 +28,7 @@ import { supabase } from '@/lib/supabase'
 import { pget, pset, pdel } from '@/lib/portalStore'
 import { recordBalanceSnapshots, loadBalanceSnapshots } from '@/lib/balanceSnapshotsStore'
 import { computeSettlementEvents } from '@/lib/settlementEngine'
-import { parseSalesDetail } from '@/lib/salesDetailParser'
+import { parseSalesDetail, mergeCollectedLines } from '@/lib/salesDetailParser'
 import { computeCollectedCommission } from '@/lib/collectedCommission'
 import { loadCollected, saveCollected } from '@/lib/collectedStore'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
@@ -143,17 +143,22 @@ function PaymentsTracker() {
 
   const [view, setView] = useState('reps') // 'reps' | 'accounts' | 'invoices' | 'rep-ledger' | 'brands' | 'ledger' | 'account-detail'
   const [selectedRepId, setSelectedRepId] = useState(null)
-  // Stage 2 (preview): collected-commission entries lifted up from the uploads
-  // view. Slim { repId, commission, date } records; drives a DISPLAY-ONLY
-  // "Collected" Available preview beside the live figure. Never affects payouts.
-  // Persisted to the shared portal store so it survives refresh / other logins.
-  const [collectedEntries, setCollectedEntries] = useState(null)
-  const onCollectedCommission = useCallback((entries) => {
-    setCollectedEntries(entries)
-    saveCollected(entries, { uploadedAt: new Date().toISOString() }).catch(() => {})
+  // Collected-commission source: the ACCUMULATED, de-duped parsed lines from the
+  // cash-basis "Sales by Customer Detail" uploads. Each weekly upload merges into
+  // this set by line fingerprint (mergeCollectedLines), so overlapping reports
+  // never double-count. Persisted to the shared portal store; drives Available.
+  const [collectedLines, setCollectedLines] = useState(null)
+  const collectedLinesRef = useRef(null)
+  const onCollectedLines = useCallback((newLines) => {
+    const merged = mergeCollectedLines(collectedLinesRef.current, newLines)
+    collectedLinesRef.current = merged
+    setCollectedLines(merged)
+    saveCollected(merged, { uploadedAt: new Date().toISOString() }).catch(() => {})
   }, [])
   useEffect(() => {
-    loadCollected().then(({ entries }) => { if (entries) setCollectedEntries(entries) }).catch(() => {})
+    loadCollected().then(({ lines }) => {
+      if (lines) { collectedLinesRef.current = lines; setCollectedLines(lines) }
+    }).catch(() => {})
   }, [])
   // Rep ledger surfaces its export/email actions here so the buttons can live
   // in the page header row next to the "<Rep> — Commission Ledger" title.
@@ -963,22 +968,29 @@ function PaymentsTracker() {
     return m
   }, [commissionPayouts])
 
-  // ── Stage 2 preview: earned-since-anchor from the COLLECTED report ──────────
-  // Per rep, sum the collected-commission for payments dated strictly AFTER the
-  // anchor (same boundary as earnedSinceAnchorByRep). This is the payment-first,
-  // read-from-QuickBooks commission — the intended replacement for the settlement
-  // inference. DISPLAY-ONLY until promoted; null when no collected report loaded.
+  // ── Collected commission → earned-since-anchor per rep ──────────────────────
+  // Route the ACCUMULATED, de-duped collected lines to reps (brand + rate +
+  // season + rental), then sum each rep's commission for payments dated strictly
+  // AFTER the anchor (same boundary as the settlement path). Drives Available.
+  // null when nothing uploaded yet → Available falls back to the settlement figure.
+  const collectedCommission = useMemo(() => {
+    if (!collectedLines) return null
+    return computeCollectedCommission({
+      lines: collectedLines, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+    })
+  }, [collectedLines])
   const collectedEarnedSinceAnchorByRep = useMemo(() => {
-    if (!collectedEntries) return null
+    if (!collectedCommission) return null
     const out = {}
-    for (const e of collectedEntries) {
+    for (const e of collectedCommission.entries) {
+      if (e.needsReview || !e.repId) continue
       const anchor = ADJUSTMENT_ANCHORS[e.repId] || ADJUSTMENT_ANCHOR
-      const iso = toIsoDateAtParent(e.date)
-      if (!iso || iso <= anchor) continue   // safety: only post-anchor payments
+      const iso = toIsoDateAtParent(e.invoiceDate)   // = the payment date
+      if (!iso || iso <= anchor) continue            // safety: only post-anchor payments
       out[e.repId] = (out[e.repId] || 0) + (e.commission || 0)
     }
     return out
-  }, [collectedEntries])
+  }, [collectedCommission])
 
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
@@ -1705,7 +1717,7 @@ function PaymentsTracker() {
           onClearWsrRemittances={clearWsrRemittancesState}
           uploadLog={uploadLog}
           recordUpload={recordUpload}
-          onCollectedCommission={onCollectedCommission}
+          onCollectedLines={onCollectedLines}
           selectedCustomer={invoiceDrillCustomer}
           setSelectedCustomer={(c) => {
             setInvoiceDrillCustomer(c)
@@ -2622,10 +2634,8 @@ function CollectedReportUploader({ result, error, syncing, onPickFile, onClear }
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
         </span>
-        <p className={`basis-full text-xs mt-1 ${result.sync?.ok ? 'text-[#005b5b]' : 'text-amber-700'}`}>
-          {result.sync?.ok
-            ? `Saved to Supabase — ${result.sync.lines?.toLocaleString?.() ?? result.lineCount} lines (period #${result.sync.periodId}).`
-            : `Parsed OK — not saved yet: ${result.sync?.message || 'sync unavailable'}. Deploy the sync-collected function to persist.`}
+        <p className="basis-full text-xs mt-1 text-[#005b5b]">
+          Saved &amp; accumulated — {result.lineCount.toLocaleString()} lines from this report merged into the collected set (de-duped by line, so overlapping reports don't double-count).
         </p>
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
       </div>
@@ -2847,7 +2857,7 @@ function InvoicesView({
   bpOverrides = {}, bpOverridesMeta, bpOverridesAppliedCount = 0, onMergeBpOverrides, onClearBpOverrides,
   wsrRemittances = [], wsrAttributedCount = 0, onAddWsrRemittance, onClearWsrRemittances,
   selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
-  uploadLog = [], recordUpload, onCollectedCommission,
+  uploadLog = [], recordUpload, onCollectedLines,
 }) {
   // Per-dataset upload histories for the "N files" dropdowns.
   const historyFor = (dataset) => uploadLog.filter(e => e.dataset === dataset)
@@ -3325,9 +3335,9 @@ function InvoicesView({
   }, [paymentsTx])
 
   // ===== Commission — collected (cash-basis "Sales by Customer Detail") =====
-  // Parses the report client-side (validated to the penny) and persists it via
-  // the sync-collected edge function. The parse result is shown regardless of the
-  // sync outcome, so it degrades gracefully before the function is deployed.
+  // Parses the report client-side (validated to the penny), then lifts its lines
+  // to the parent, which merges them (de-duped) into the accumulated collected set
+  // and persists via the shared portal store. This panel shows THIS upload's stats.
   const [collectedResult, setCollectedResult] = useState(null)
   const [collectedError, setCollectedError] = useState(null)
   const [collectedSyncing, setCollectedSyncing] = useState(false)
@@ -3360,35 +3370,14 @@ function InvoicesView({
       const commissionTotal = Math.round(commissionRows.reduce((s, r) => s + r.commission, 0) * 100) / 100
       const commissionReview = commission.entries.filter(e => e.needsReview).length
 
-      // Lift slim per-line commission up to the rep ledger for the Stage 2
-      // preview (repId · commission · payment date). Display-only.
-      onCollectedCommission?.(
-        commission.entries
-          .filter(e => !e.needsReview && e.repId)
-          .map(e => ({ repId: e.repId, commission: e.commission || 0, date: e.invoiceDate || '' }))
-      )
+      // Lift the parsed lines up to the parent, which merges them (de-duped by
+      // line fingerprint) into the accumulated set that drives Available. The
+      // panel below still shows THIS upload's per-rep commission for confirmation.
+      // Accumulate + persist through the parent (onCollectedLines →
+      // collectedStore → the shared portal_data KV). No edge function or deploy
+      // needed — it uses the same live store as the other uploads.
+      onCollectedLines?.(result.lines)
 
-      // Persist to Supabase; keep the parse result visible even if sync fails
-      // (e.g. before the edge function is deployed).
-      let sync
-      try {
-        const { data, error: fnError } = await supabase.functions.invoke('sync-collected', {
-          body: {
-            period: {
-              label: result.meta.period || file.name,
-              sourceFile: file.name,
-              grandTotal: result.totals.grandReported ?? result.totals.grandParsed,
-            },
-            lines: result.lines,
-            review: result.review,
-          },
-        })
-        if (fnError) throw new Error(fnError.message || 'Sync failed')
-        if (data?.error) throw new Error(data.error)
-        sync = { ok: true, periodId: data?.period_id, lines: data?.lines, review: data?.review }
-      } catch (se) {
-        sync = { ok: false, message: se.message || 'Sync failed' }
-      }
       setCollectedResult({
         fileName: file.name,
         period: result.meta.period,
@@ -3404,7 +3393,6 @@ function InvoicesView({
         commissionRows,
         commissionTotal,
         commissionReview,
-        sync,
       })
       recordUpload?.('collected', file.name, 'replace', result.lines.length)
     } catch (e) {
