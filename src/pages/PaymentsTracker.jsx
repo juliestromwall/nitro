@@ -2538,6 +2538,7 @@ function InfoTip({ children }) {
 // Dropdown listing the CSV files uploaded for one dataset (newest first).
 function UploadHistoryMenu({ entries = [] }) {
   const sorted = [...entries].sort((a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''))
+  const recent = sorted.slice(0, 5)   // show the 5 most recent filenames
   const fmtWhen = (iso) => { try { return new Date(iso).toLocaleString() } catch { return iso || '' } }
   return (
     <DropdownMenu>
@@ -2547,11 +2548,11 @@ function UploadHistoryMenu({ entries = [] }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 max-h-72 overflow-y-auto">
-        <DropdownMenuLabel>Uploaded files</DropdownMenuLabel>
+        <DropdownMenuLabel>{sorted.length > 5 ? '5 most recent files' : 'Uploaded files'}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {sorted.length === 0 ? (
+        {recent.length === 0 ? (
           <div className="px-2 py-2 text-xs text-muted-foreground">No uploads logged yet — files uploaded from here on will be listed.</div>
-        ) : sorted.map((e) => (
+        ) : recent.map((e) => (
           <div key={e.id} className="px-2 py-1.5">
             <div className="text-xs font-medium truncate" title={e.fileName}>{e.fileName || '(unnamed file)'}</div>
             <div className="text-[11px] text-muted-foreground flex flex-wrap gap-x-2">
@@ -2561,6 +2562,9 @@ function UploadHistoryMenu({ entries = [] }) {
             </div>
           </div>
         ))}
+        {sorted.length > 5 && (
+          <div className="px-2 py-1.5 text-[11px] text-muted-foreground border-t mt-1">+{sorted.length - 5} older upload{sorted.length - 5 === 1 ? '' : 's'}</div>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -2580,9 +2584,9 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
             <span className="text-muted-foreground inline-flex items-center gap-1">
               Line items:
               <InfoTip>
-                <p className="font-medium mb-1">Line items CSV</p>
-                <p>Per-invoice product detail (one row per SKU). Required for brand attribution — without it the engine can only credit commission at the invoice level, not split it across brands.</p>
-                <p className="mt-1 text-muted-foreground">Source: QuickBooks "Sales by Customer Type Detail" report.</p>
+                <p className="font-medium mb-1">Line items — what's on each invoice</p>
+                <p>Lists the products on every invoice so we know which brand earned each commission. It's what puts the right brand on the open invoices in your A/R Aging report, so "Pending" is correct.</p>
+                <p className="mt-1 text-muted-foreground">Upload weekly, covering the same dates as your A/R Aging report. From QuickBooks → "Sales by Customer Type Detail."</p>
               </InfoTip>
             </span>
             <span className="font-medium">{lineItems.length.toLocaleString()}</span>
@@ -2632,14 +2636,14 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
       <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
-        Step 2 — Line Items CSV (optional)
+        Line items — what's on each invoice
         <InfoTip>
-          <p className="font-medium mb-1">Line items CSV</p>
-          <p>Per-invoice product detail (one row per SKU). Required for brand attribution — without it the engine can only credit commission at the invoice level, not split it across brands.</p>
-          <p className="mt-1 text-muted-foreground">Source: QuickBooks "Sales by Customer Type Detail" report.</p>
+          <p className="font-medium mb-1">Line items — what's on each invoice</p>
+          <p>Lists the products on every invoice so we know which brand earned each commission. It's what puts the right brand on the open invoices in your A/R Aging report, so "Pending" is correct.</p>
+          <p className="mt-1 text-muted-foreground">Upload weekly, covering the same dates as your A/R Aging report. From QuickBooks → "Sales by Customer Type Detail."</p>
         </InfoTip>
       </p>
-      <p className="text-sm text-muted-foreground mb-4">Enables brand attribution per invoice. Drop later if you only have the invoices file now.</p>
+      <p className="text-sm text-muted-foreground mb-4">Tells us the brand on each invoice — needed so "Pending" (from A/R Aging) shows the right brands. Upload it for the same date range as your aging report.</p>
       <label className="inline-flex">
         <input type="file" accept=".csv" className="hidden" onChange={pickHandler('replace')} />
         <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
@@ -2671,9 +2675,9 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
         <span className="text-muted-foreground inline-flex items-center gap-1">
           Payments:
           <InfoTip>
-            <p className="font-medium mb-1">QB Payments &amp; Credit Memos</p>
-            <p>Every payment event and credit memo over the export's date range. Drives the 3-phase auto-matcher that assigns payment dates to invoices, and powers credit-memo claw-back logic.</p>
-            <p className="mt-1 text-muted-foreground">Source: QuickBooks "Invoices &amp; Received Payments" report.</p>
+            <p className="font-medium mb-1">QuickBooks payments — supporting, optional</p>
+            <p>Not needed for commissions anymore. It corrects an invoice's paid / unpaid status in the rep ledger — useful when a QuickBooks export leaves off older invoices that were actually paid.</p>
+            <p className="mt-1 text-muted-foreground">Refresh once in a while, not weekly. From QuickBooks → "Invoices &amp; Received Payments."</p>
           </InfoTip>
         </span>
         <span className="font-medium">{transactions.length.toLocaleString()}</span>
@@ -2715,14 +2719,14 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
       <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
-        Step 4 — QB Payments CSV (Invoices &amp; Received Payments)
+        QuickBooks payments (supporting — optional)
         <InfoTip>
-          <p className="font-medium mb-1">QB Payments &amp; Credit Memos</p>
-          <p>Every payment event and credit memo over the export's date range. Drives the 3-phase auto-matcher that assigns payment dates to invoices, and powers credit-memo claw-back logic.</p>
-          <p className="mt-1 text-muted-foreground">Source: QuickBooks "Invoices &amp; Received Payments" report.</p>
+          <p className="font-medium mb-1">QuickBooks payments — supporting, optional</p>
+          <p>Not needed for commissions anymore. It corrects an invoice's paid / unpaid status in the rep ledger — useful when a QuickBooks export leaves off older invoices that were actually paid.</p>
+          <p className="mt-1 text-muted-foreground">Refresh once in a while, not weekly. From QuickBooks → "Invoices &amp; Received Payments."</p>
         </InfoTip>
       </p>
-      <p className="text-sm text-muted-foreground mb-4">Captures every payment event + credit memo over a date range. Used for commission-timing audits and three-way reconciliation against invoices + AR.</p>
+      <p className="text-sm text-muted-foreground mb-4">Optional. Keeps invoice paid/unpaid status accurate in the rep ledger. Not used for the commission math anymore — refresh occasionally.</p>
       <label className="inline-flex">
         <input type="file" accept=".csv" className="hidden" onChange={pickHandler('replace')} />
         <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
@@ -2735,7 +2739,7 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
   )
 }
 
-function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, onClear }) {
+function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, onClear, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -2747,8 +2751,9 @@ function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, o
         <span className="text-muted-foreground inline-flex items-center gap-1">
           Collected:
           <InfoTip>
-            <p className="font-medium mb-1">Cash-basis Sales by Customer Detail</p>
-            <p>What QuickBooks actually collected, per line item — the authoritative source for commission attribution. Accumulates across weekly uploads (de-duped by line).</p>
+            <p className="font-medium mb-1">Money collected — the main commission source</p>
+            <p>What QuickBooks actually collected each week, line by line — this is what reps get paid on. Splits multi-invoice payments correctly instead of guessing. Adds up week over week (no double-counting).</p>
+            <p className="mt-1 text-muted-foreground">File: QuickBooks <b>"Sales by Customer Detail"</b> report, run on <b>cash basis</b>.</p>
           </InfoTip>
         </span>
         <span className="text-muted-foreground">{(loaded.lineCount || 0).toLocaleString()} collected lines accumulated</span>
@@ -2759,6 +2764,7 @@ function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, o
             <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Add report</span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
         </span>
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
       </div>
@@ -2773,9 +2779,9 @@ function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, o
         <span className="text-muted-foreground inline-flex items-center gap-1">
           Collected:
           <InfoTip>
-            <p className="font-medium mb-1">Cash-basis Sales by Customer Detail</p>
-            <p>What QuickBooks actually collected this period, per line item — the authoritative source for commission attribution (splits multi-invoice payments correctly, unlike the inferred settlement path).</p>
-            <p className="mt-1 text-muted-foreground">Source: QuickBooks "Sales by Customer Detail", <b>cash basis</b>.</p>
+            <p className="font-medium mb-1">Money collected — the main commission source</p>
+            <p>What QuickBooks actually collected each week, line by line — this is what reps get paid on. Splits multi-invoice payments correctly instead of guessing.</p>
+            <p className="mt-1 text-muted-foreground">File: QuickBooks <b>"Sales by Customer Detail"</b> report. Upload weekly. Must be run on <b>cash basis</b> (accrual shows what was invoiced, not paid).</p>
           </InfoTip>
         </span>
         {result.period && <span className="font-medium">{result.period}</span>}
@@ -2801,6 +2807,7 @@ function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, o
             <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
         </span>
         <p className="basis-full text-xs mt-1 text-[#005b5b]">
           Saved &amp; accumulated — {result.lineCount.toLocaleString()} lines from this report merged into the collected set (de-duped by line, so overlapping reports don't double-count).
@@ -2813,14 +2820,14 @@ function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, o
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
       <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
-        Step 5 — Commission collected (Sales by Customer Detail, cash basis)
+        Money collected — the main commission source
         <InfoTip>
-          <p className="font-medium mb-1">Cash-basis Sales by Customer Detail</p>
-          <p>The authoritative commission source: exactly what was collected per line item, resolved to brand — so multi-invoice payments split correctly instead of being inferred.</p>
-          <p className="mt-1 text-muted-foreground">Must be run on <b>cash basis</b> (accrual shows invoiced, not collected).</p>
+          <p className="font-medium mb-1">Money collected — the main commission source</p>
+          <p>What QuickBooks actually collected each week, line by line — this is what reps get paid on. Splits multi-invoice payments correctly instead of guessing.</p>
+          <p className="mt-1 text-muted-foreground">File: QuickBooks <b>"Sales by Customer Detail"</b> report. Upload weekly. Must be run on <b>cash basis</b> (accrual shows what was invoiced, not paid).</p>
         </InfoTip>
       </p>
-      <p className="text-sm text-muted-foreground mb-4">Parses the paid portion of each line, resolves SKU → brand, and persists it for commission attribution. Validated against the report's own totals.</p>
+      <p className="text-sm text-muted-foreground mb-4">The main commission upload. Reads what was actually collected on each line, matches it to a brand, and adds it up. Checked against the report's own totals. Run it on cash basis.</p>
       <label className="inline-flex">
         <input type="file" accept=".csv" className="hidden" onChange={pick} />
         <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
@@ -2887,7 +2894,7 @@ function CollectedCommissionPanel({ result }) {
   )
 }
 
-function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear }) {
+function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const [showUncovered, setShowUncovered] = useState(false)
@@ -2904,9 +2911,9 @@ function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear 
         <span className="text-muted-foreground inline-flex items-center gap-1">
           A/R Aging:
           <InfoTip>
-            <p className="font-medium mb-1">A/R Aging Detail</p>
-            <p>Open receivables (what customers still owe) — drives "Pending (open invoices)" commission. Open balances come from here; brand attribution comes from the line-items upload.</p>
-            <p className="mt-1 text-muted-foreground">Source: QuickBooks "A/R Aging Detail".</p>
+            <p className="font-medium mb-1">Unpaid invoices — drives "Pending"</p>
+            <p>What customers still owe. Gives each rep their "Pending" number — the commission they'll earn once these invoices are paid. The brands come from your line-items upload.</p>
+            <p className="mt-1 text-muted-foreground">Upload weekly. It's a snapshot — each upload replaces the last. From QuickBooks → "A/R Aging Detail."</p>
           </InfoTip>
         </span>
         {summary.asOf && <span className="font-medium">as of {summary.asOf}</span>}
@@ -2922,6 +2929,7 @@ function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear 
             <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
         </span>
         {/* Coverage diagnostic — how many open invoices carry line-item detail
             (the join that lets them contribute to Pending). Surfaces a line-items
@@ -2990,10 +2998,11 @@ function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear 
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
       <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
-        Step 6 — A/R Aging Detail (open receivables)
+        Unpaid invoices — A/R Aging Detail
         <InfoTip>
-          <p className="font-medium mb-1">A/R Aging Detail</p>
-          <p>Open balances per invoice → "Pending (open invoices)" commission (joined with line-item brands). A point-in-time snapshot; each upload replaces the last.</p>
+          <p className="font-medium mb-1">Unpaid invoices — drives "Pending"</p>
+          <p>What customers still owe. Gives each rep their "Pending" number — the commission they'll earn once these invoices are paid. The brands come from your line-items upload.</p>
+          <p className="mt-1 text-muted-foreground">Upload weekly. It's a snapshot — each upload replaces the last. From QuickBooks → "A/R Aging Detail."</p>
         </InfoTip>
       </p>
       <p className="text-sm text-muted-foreground mb-4">Nets credits, excludes REP accounts, validated against the report's own totals.</p>
@@ -3019,9 +3028,9 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
         <span className="text-muted-foreground inline-flex items-center gap-1">
           BP overrides:
           <InfoTip>
-            <p className="font-medium mb-1">Brightpearl invoice→customer mapping</p>
-            <p>Recovers the original customer name on invoices that QuickBooks renamed to bare "WSR" when a clearing-house payment hit. Without this, WSR-member invoices can't route to the right rep.</p>
-            <p className="mt-1 text-muted-foreground">Upload one file per territory — mappings merge, they don't replace.</p>
+            <p className="font-medium mb-1">Brightpearl name fixes — one-off</p>
+            <p>Puts the real customer name back on invoices that QuickBooks renamed to plain "WSR" when a group payment came in, so the commission reaches the right rep.</p>
+            <p className="mt-1 text-muted-foreground">Only needed occasionally. Upload one file per territory — they add up, they don't overwrite.</p>
           </InfoTip>
         </span>
         <span className="font-medium">{total.toLocaleString()}</span>
@@ -3049,14 +3058,14 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
       <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
-        Step 5 — BP invoice overrides (one-off backfill)
+        Brightpearl name fixes (one-off)
         <InfoTip>
-          <p className="font-medium mb-1">Brightpearl invoice→customer mapping</p>
-          <p>Recovers the original customer name on invoices that QuickBooks renamed to bare "WSR" when a clearing-house payment hit. Without this, WSR-member invoices can't route to the right rep.</p>
-          <p className="mt-1 text-muted-foreground">Upload one file per territory — mappings merge, they don't replace.</p>
+          <p className="font-medium mb-1">Brightpearl name fixes — one-off</p>
+          <p>Puts the real customer name back on invoices that QuickBooks renamed to plain "WSR" when a group payment came in, so the commission reaches the right rep.</p>
+          <p className="mt-1 text-muted-foreground">Only needed occasionally. Upload one file per territory — they add up, they don't overwrite.</p>
         </InfoTip>
       </p>
-      <p className="text-sm text-muted-foreground mb-4">Brightpearl export with original customer names per invoice. Recovers WSR-renamed invoices so they route to the right rep. Upload one file per territory; mappings accumulate.</p>
+      <p className="text-sm text-muted-foreground mb-4">Occasional fix. Restores the real customer name on invoices QuickBooks relabeled "WSR," so they route to the right rep. One file per territory; they accumulate.</p>
       <label className="inline-flex">
         <input type="file" accept=".csv" className="hidden" onChange={pick} />
         <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
@@ -3078,9 +3087,9 @@ function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, 
         <span className="text-muted-foreground inline-flex items-center gap-1">
           WSR remittances:
           <InfoTip>
-            <p className="font-medium mb-1">WSR ACH remittance forms</p>
-            <p>Each xlsx breaks a single WSR ACH payment down by member: invoice number, member ID, gross, admin fee, and net paid. Gives WSR-member invoices their correct paid date and amount.</p>
-            <p className="mt-1 text-muted-foreground">One file per check — re-uploading a check number replaces the prior copy.</p>
+            <p className="font-medium mb-1">WSR payment breakdowns</p>
+            <p>When the WSR buying group pays with one ACH, QuickBooks lumps it under "WSR." This form splits that payment back to each member — which invoice, how much — so the commission reaches the right rep.</p>
+            <p className="mt-1 text-muted-foreground">Upload each check's form as it arrives. Re-uploading the same check number replaces the old copy.</p>
           </InfoTip>
         </span>
         <span className="font-medium">{remittances.length}</span>
@@ -3117,14 +3126,14 @@ function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, 
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
       <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
-        Step 6 — WSR ACH payments (per-check remittance)
+        WSR payment breakdowns
         <InfoTip>
-          <p className="font-medium mb-1">WSR ACH remittance forms</p>
-          <p>Each xlsx breaks a single WSR ACH payment down by member: invoice number, member ID, gross, admin fee, and net paid. Gives WSR-member invoices their correct paid date and amount.</p>
-          <p className="mt-1 text-muted-foreground">One file per check — re-uploading a check number replaces the prior copy.</p>
+          <p className="font-medium mb-1">WSR payment breakdowns</p>
+          <p>When the WSR buying group pays with one ACH, QuickBooks lumps it under "WSR." This form splits that payment back to each member — which invoice, how much — so the commission reaches the right rep.</p>
+          <p className="mt-1 text-muted-foreground">Upload each check's form as it arrives. Re-uploading the same check number replaces the old copy.</p>
         </InfoTip>
       </p>
-      <p className="text-sm text-muted-foreground mb-4">Upload each WSR Additional Remittance Form xlsx. Gives us per-invoice attribution (member, gross, admin fee, net) within a lump WSR ACH payment so individual WSR-member invoices get correct payment dates and amounts.</p>
+      <p className="text-sm text-muted-foreground mb-4">Splits a lump WSR group payment back to each member (which invoice, how much) so those invoices reach the right rep with the correct paid date. Upload each check's Remittance Form as it arrives.</p>
       <label className="inline-flex">
         <input type="file" accept=".xlsx,.xls" className="hidden" onChange={pick} />
         <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
@@ -4014,7 +4023,7 @@ function InvoicesView({
           }`}
         >
           <FileSpreadsheet className="size-12 mx-auto text-muted-foreground mb-3" />
-          <p className="text-sm font-medium mb-1">Step 1 — Invoices CSV</p>
+          <p className="text-sm font-medium mb-1">Invoices list (supporting data — optional)</p>
           <p className="text-sm text-muted-foreground mb-4">Drag and drop your CSV file here, or</p>
           <label className="inline-flex">
             <input type="file" accept=".csv" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
@@ -4042,16 +4051,84 @@ function InvoicesView({
 
   return (
     <div className="space-y-4">
+      {/* ─── Section A: commission uploads (do these weekly) ─── */}
+      <div className="pt-1">
+        <h3 className="text-sm font-semibold text-[#005b5b]">Commission uploads — do these each week</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">These decide what every rep gets paid. Hover the info icon on each for what it is and when to upload it.</p>
+      </div>
+
+      <CollectedReportUploader
+        result={collectedResult}
+        loaded={collectedLoaded}
+        error={collectedError}
+        syncing={collectedSyncing}
+        onPickFile={handleCollectedFile}
+        onClear={() => {
+          setCollectedResult(null); setCollectedError(null)
+          if (collectedLoaded) setConfirmAction({
+            message: 'Clear all accumulated collected-commission lines? This drives each rep’s Available — you’ll need to re-upload the Sales by Customer Detail reports.',
+            onConfirm: () => onClearCollected?.(),
+          })
+        }}
+        history={historyFor('collected')}
+      />
+
+      <CollectedCommissionPanel result={collectedResult} />
+
+      <LineItemsUploader
+        lineItems={lineItems}
+        lineItemsMeta={lineItemsMeta}
+        itemsInvoiceCount={itemsInvoiceCount}
+        itemsError={itemsError || lineItemsStorageError}
+        lastImport={lastLineItemsImport}
+        onPickFile={handleItemsFile}
+        onClear={clearLineItems}
+        history={historyFor('line_items')}
+        compact
+      />
+
+      <ArAgingUploader
+        result={arAgingResult}
+        loaded={arAgingLoaded}
+        coverage={agingCoverage}
+        error={arAgingError}
+        onPickFile={handleArAgingFile}
+        onClear={() => {
+          setArAgingResult(null); setArAgingError(null)
+          if (arAgingLoaded) onClearArAging?.()
+        }}
+        history={historyFor('ar_aging')}
+      />
+
+      <WsrRemittanceUploader
+        remittances={wsrRemittances}
+        latest={latestWsrRemittance}
+        totalInvoices={wsrInvoiceCount}
+        totalPaid={wsrTotalPaid}
+        wsrAttributedCount={wsrAttributedCount}
+        onPickFile={handleWsrFile}
+        onClear={clearWsrRemittancesConfirm}
+        error={wsrError}
+        lastImport={lastWsrImport}
+        history={historyFor('wsr')}
+      />
+
+      {/* ─── Section B: supporting data (optional) ─── */}
+      <div className="pt-4">
+        <h3 className="text-sm font-semibold text-muted-foreground">Supporting data — optional</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">Not used for the commission math anymore. Keeps the customer account pages, open-balance totals, and invoice paid/unpaid status current. Refresh occasionally.</p>
+      </div>
+
       {/* Invoices uploader */}
       <div className="rounded-lg border border-input bg-background p-4">
         <div className="flex items-start justify-between gap-3 mb-2">
           <div>
             <h3 className="font-semibold inline-flex items-center gap-1.5">
-              Invoices CSV
+              Invoices list <span className="text-xs font-normal text-muted-foreground">(supporting — optional)</span>
               <InfoTip>
-                <p className="font-medium mb-1">Invoices CSV</p>
-                <p>The core data source — every QuickBooks invoice (SI) and credit memo (SC) we track for commission attribution.</p>
-                <p className="mt-1 text-muted-foreground">Append merges new invoices into what's already loaded; Replace wipes and reloads from scratch.</p>
+                <p className="font-medium mb-1">Invoices list — supporting, optional</p>
+                <p>Not needed for commissions anymore. Powers the customer account pages, open-balance totals, and the "Owes Foundry" section for reps' personal orders.</p>
+                <p className="mt-1 text-muted-foreground">Refresh now and then to keep those views current. Append adds new invoices; Replace reloads from scratch.</p>
               </InfoTip>
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -4238,19 +4315,6 @@ function InvoicesView({
         </div>
       )}
 
-      {/* Line items uploader / status */}
-      <LineItemsUploader
-        lineItems={lineItems}
-        lineItemsMeta={lineItemsMeta}
-        itemsInvoiceCount={itemsInvoiceCount}
-        itemsError={itemsError || lineItemsStorageError}
-        lastImport={lastLineItemsImport}
-        onPickFile={handleItemsFile}
-        onClear={clearLineItems}
-        history={historyFor('line_items')}
-        compact
-      />
-
       <PaymentsTxUploader
         transactions={paymentsTx}
         meta={paymentsTxMeta}
@@ -4271,48 +4335,6 @@ function InvoicesView({
         error={bpError}
         lastImport={lastBpImport}
         history={historyFor('bp_overrides')}
-      />
-
-      <WsrRemittanceUploader
-        remittances={wsrRemittances}
-        latest={latestWsrRemittance}
-        totalInvoices={wsrInvoiceCount}
-        totalPaid={wsrTotalPaid}
-        wsrAttributedCount={wsrAttributedCount}
-        onPickFile={handleWsrFile}
-        onClear={clearWsrRemittancesConfirm}
-        error={wsrError}
-        lastImport={lastWsrImport}
-        history={historyFor('wsr')}
-      />
-
-      <CollectedReportUploader
-        result={collectedResult}
-        loaded={collectedLoaded}
-        error={collectedError}
-        syncing={collectedSyncing}
-        onPickFile={handleCollectedFile}
-        onClear={() => {
-          setCollectedResult(null); setCollectedError(null)
-          if (collectedLoaded) setConfirmAction({
-            message: 'Clear all accumulated collected-commission lines? This drives each rep’s Available — you’ll need to re-upload the Sales by Customer Detail reports.',
-            onConfirm: () => onClearCollected?.(),
-          })
-        }}
-      />
-
-      <CollectedCommissionPanel result={collectedResult} />
-
-      <ArAgingUploader
-        result={arAgingResult}
-        loaded={arAgingLoaded}
-        coverage={agingCoverage}
-        error={arAgingError}
-        onPickFile={handleArAgingFile}
-        onClear={() => {
-          setArAgingResult(null); setArAgingError(null)
-          if (arAgingLoaded) onClearArAging?.()
-        }}
       />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
