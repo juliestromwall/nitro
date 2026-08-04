@@ -992,6 +992,30 @@ function PaymentsTracker() {
     return out
   }, [collectedCommission])
 
+  // Collected "payments received" events for the currently-open rep ledger:
+  // group that rep's collected commission entries by invoice into the same event
+  // shape the ledger's visiblePaymentEvents uses (amount = paymentAmount so the
+  // brand-subtotal fraction is 1). Drives the correct per-rep split in the table
+  // + "Earned by brand", replacing the settlement inference. null → old path.
+  const repCollectedEvents = useMemo(() => {
+    if (!collectedCommission || !selectedRepId) return null
+    const byInvoice = new Map()
+    for (const e of collectedCommission.entries) {
+      if (e.needsReview || e.repId !== selectedRepId) continue
+      let ev = byInvoice.get(e.invoiceNum)
+      if (!ev) {
+        ev = { invoiceNum: e.invoiceNum, customer: e.invoiceCustomer, paymentDate: e.invoiceDate, paymentMethod: '', eventSource: 'collected', status: '', paymentAmount: 0, commissionForEvent: 0, lines: [] }
+        byInvoice.set(e.invoiceNum, ev)
+      }
+      ev.paymentAmount += e.lineNet || 0
+      ev.commissionForEvent += e.commission || 0
+      ev.lines.push({ brand: e.brand, commission: e.commission || 0, lineNet: e.lineNet || 0, isRental: e.isRental })
+    }
+    const arr = [...byInvoice.values()]
+    for (const ev of arr) ev.amount = ev.paymentAmount
+    return arr
+  }, [collectedCommission, selectedRepId])
+
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
   // should not normally appear in QB data — when one shows up, it's flagged
@@ -1752,6 +1776,7 @@ function PaymentsTracker() {
           rep={selectedRep}
           aggregate={aggregatesByRep[selectedRep.id]}
           summary={repSummary[selectedRep.id]}
+          collectedEvents={repCollectedEvents}
           payouts={commissionPayouts.filter(p => p.repId === selectedRep.id)}
           repAccountInvoices={repAccountInvoicesByRep[selectedRep.id] || []}
           paymentDatesByInvoiceNum={paymentDatesByInvoiceNum}
@@ -4542,7 +4567,7 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, settlementEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
+function RepLedgerView({ rep, aggregate, summary, collectedEvents, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, settlementEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, availableWas: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   // Correct each invoice's paid status/openBalance from the settlement engine —
   // the payment data is the source of truth. A date-filtered invoices export can
@@ -4637,6 +4662,18 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
   // asking "what's owed since X" and we can't honestly place an undated
   // row on either side of X, so we hide them and surface a count below.
   const visiblePaymentEvents = useMemo(() => {
+    // Collected model (read from QuickBooks): use the pre-built per-invoice events
+    // for this rep, filtered by the Since date. Correctly splits multi-invoice
+    // payments; no "unmatched date" fallback needed.
+    if (collectedEvents) {
+      return collectedEvents
+        .filter(ev => {
+          if (!paidSince) return true
+          const iso = toIsoDate(ev.paymentDate)
+          return iso && iso >= paidSince
+        })
+        .sort((a, b) => (b.paymentDate || '').localeCompare(a.paymentDate || ''))
+    }
     const out = []
     for (const inv of paidInvoices) {
       const fullAmount = inv.amount || 0
@@ -4683,10 +4720,11 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       return (b.paymentDate || '').localeCompare(a.paymentDate || '')
     })
     return out
-  }, [paidInvoices, settlementEventsByInvoiceNum, paymentEventsByInvoiceNum, paidSince])
+  }, [collectedEvents, paidInvoices, settlementEventsByInvoiceNum, paymentEventsByInvoiceNum, paidSince])
   // Count of paid invoices with no dated events, so we can show a nudge
   // when the Since filter is hiding them.
   const unmatchedHiddenCount = useMemo(() => {
+    if (collectedEvents) return 0   // collected events all carry a payment date
     if (!paidSince) return 0
     let n = 0
     for (const inv of paidInvoices) {
@@ -4697,7 +4735,7 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       if (!hasDated) n++
     }
     return n
-  }, [paidInvoices, settlementEventsByInvoiceNum, paymentEventsByInvoiceNum, paidSince])
+  }, [collectedEvents, paidInvoices, settlementEventsByInvoiceNum, paymentEventsByInvoiceNum, paidSince])
   // Alias for existing downstream consumers (brand subtotals, totals).
   const visiblePaidInvoices = visiblePaymentEvents
 
