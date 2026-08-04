@@ -2538,6 +2538,7 @@ function InfoTip({ children }) {
 // Dropdown listing the CSV files uploaded for one dataset (newest first).
 function UploadHistoryMenu({ entries = [] }) {
   const sorted = [...entries].sort((a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''))
+  const recent = sorted.slice(0, 5)   // show the 5 most recent filenames
   const fmtWhen = (iso) => { try { return new Date(iso).toLocaleString() } catch { return iso || '' } }
   return (
     <DropdownMenu>
@@ -2547,11 +2548,11 @@ function UploadHistoryMenu({ entries = [] }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 max-h-72 overflow-y-auto">
-        <DropdownMenuLabel>Uploaded files</DropdownMenuLabel>
+        <DropdownMenuLabel>{sorted.length > 5 ? '5 most recent files' : 'Uploaded files'}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {sorted.length === 0 ? (
+        {recent.length === 0 ? (
           <div className="px-2 py-2 text-xs text-muted-foreground">No uploads logged yet — files uploaded from here on will be listed.</div>
-        ) : sorted.map((e) => (
+        ) : recent.map((e) => (
           <div key={e.id} className="px-2 py-1.5">
             <div className="text-xs font-medium truncate" title={e.fileName}>{e.fileName || '(unnamed file)'}</div>
             <div className="text-[11px] text-muted-foreground flex flex-wrap gap-x-2">
@@ -2561,6 +2562,9 @@ function UploadHistoryMenu({ entries = [] }) {
             </div>
           </div>
         ))}
+        {sorted.length > 5 && (
+          <div className="px-2 py-1.5 text-[11px] text-muted-foreground border-t mt-1">+{sorted.length - 5} older upload{sorted.length - 5 === 1 ? '' : 's'}</div>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -2735,7 +2739,7 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
   )
 }
 
-function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, onClear }) {
+function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, onClear, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -2760,6 +2764,7 @@ function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, o
             <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Add report</span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
         </span>
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
       </div>
@@ -2802,6 +2807,7 @@ function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, o
             <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
         </span>
         <p className="basis-full text-xs mt-1 text-[#005b5b]">
           Saved &amp; accumulated — {result.lineCount.toLocaleString()} lines from this report merged into the collected set (de-duped by line, so overlapping reports don't double-count).
@@ -2888,7 +2894,7 @@ function CollectedCommissionPanel({ result }) {
   )
 }
 
-function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear }) {
+function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
   const [showUncovered, setShowUncovered] = useState(false)
@@ -2923,6 +2929,7 @@ function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear 
             <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
         </span>
         {/* Coverage diagnostic — how many open invoices carry line-item detail
             (the join that lets them contribute to Pending). Surfaces a line-items
@@ -4063,6 +4070,7 @@ function InvoicesView({
             onConfirm: () => onClearCollected?.(),
           })
         }}
+        history={historyFor('collected')}
       />
 
       <CollectedCommissionPanel result={collectedResult} />
@@ -4089,6 +4097,7 @@ function InvoicesView({
           setArAgingResult(null); setArAgingError(null)
           if (arAgingLoaded) onClearArAging?.()
         }}
+        history={historyFor('ar_aging')}
       />
 
       <WsrRemittanceUploader
