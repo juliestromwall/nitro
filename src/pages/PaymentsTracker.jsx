@@ -30,9 +30,9 @@ import { recordBalanceSnapshots, loadBalanceSnapshots } from '@/lib/balanceSnaps
 import { computeSettlementEvents } from '@/lib/settlementEngine'
 import { parseSalesDetail, mergeCollectedLines } from '@/lib/salesDetailParser'
 import { computeCollectedCommission } from '@/lib/collectedCommission'
-import { loadCollected, saveCollected } from '@/lib/collectedStore'
+import { loadCollected, saveCollected, clearCollected } from '@/lib/collectedStore'
 import { parseArAging, openInvoicesFromAging } from '@/lib/arAgingParser'
-import { loadArAging, saveArAging } from '@/lib/arAgingStore'
+import { loadArAging, saveArAging, clearArAging } from '@/lib/arAgingStore'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
 
@@ -157,6 +157,11 @@ function PaymentsTracker() {
     setCollectedLines(merged)
     saveCollected(merged, { uploadedAt: new Date().toISOString() }).catch(() => {})
   }, [])
+  const onClearCollected = useCallback(() => {
+    collectedLinesRef.current = null
+    setCollectedLines(null)
+    clearCollected().catch(() => {})
+  }, [])
   useEffect(() => {
     loadCollected().then(({ lines }) => {
       if (lines) { collectedLinesRef.current = lines; setCollectedLines(lines) }
@@ -165,12 +170,22 @@ function PaymentsTracker() {
   // Open receivables from the A/R Aging Detail (snapshot; replaced each upload).
   // Will drive "Pending (open invoices)" (next PR). Persisted to the portal store.
   const [arAgingOpen, setArAgingOpen] = useState(null)
+  const [arAgingMeta, setArAgingMeta] = useState(null)
   const onArAging = useCallback((open, meta) => {
     setArAgingOpen(open)
+    setArAgingMeta(meta || null)
     saveArAging(open, meta).catch(() => {})
   }, [])
+  const onClearArAging = useCallback(() => {
+    setArAgingOpen(null)
+    setArAgingMeta(null)
+    clearArAging().catch(() => {})
+  }, [])
   useEffect(() => {
-    loadArAging().then(({ open }) => { if (open) setArAgingOpen(open) }).catch(() => {})
+    loadArAging().then(({ open, meta }) => {
+      if (open) setArAgingOpen(open)
+      if (meta) setArAgingMeta(meta)
+    }).catch(() => {})
   }, [])
   // Rep ledger surfaces its export/email actions here so the buttons can live
   // in the page header row next to the "<Rep> — Commission Ledger" title.
@@ -1158,6 +1173,47 @@ function PaymentsTracker() {
     return out
   }, [arAgingOpen, lineItems])
 
+  // Coverage diagnostic for the aging → Pending pipeline. The aging carries no
+  // SKUs, so an open invoice only contributes to Pending if its line items are
+  // loaded (join is by invoice num). This surfaces exactly how many open invoices
+  // are covered vs. missing line items — so a line-items date-range gap (the usual
+  // cause of understated Pending) is visible instead of silent.
+  const agingCoverage = useMemo(() => {
+    if (!arAgingOpen || !arAgingOpen.length) return null
+    const liNums = new Set((lineItems || []).map((li) => String(li?.num ?? '').trim()).filter(Boolean))
+    let covered = 0, uncovered = 0, coveredOpen = 0, uncoveredOpen = 0
+    for (const inv of arAgingOpen) {
+      const bal = inv.openBalance || 0
+      if (liNums.has(String(inv.num ?? '').trim())) { covered++; coveredOpen += bal }
+      else { uncovered++; uncoveredOpen += bal }
+    }
+    const pendingTotal = agingPendingByRep ? Object.values(agingPendingByRep).reduce((s, n) => s + (n || 0), 0) : 0
+    return {
+      total: arAgingOpen.length,
+      covered, uncovered,
+      coveredOpen: Math.round(coveredOpen * 100) / 100,
+      uncoveredOpen: Math.round(uncoveredOpen * 100) / 100,
+      pendingTotal: Math.round(pendingTotal * 100) / 100,
+      hasLineItems: liNums.size > 0,
+    }
+  }, [arAgingOpen, lineItems, agingPendingByRep])
+
+  // Persisted summary so the uploader can show what's loaded after a refresh
+  // (the upload panel's own result state is per-session and resets on reload).
+  const arAgingLoaded = useMemo(() => {
+    if (!arAgingOpen || !arAgingOpen.length) return null
+    return {
+      asOf: arAgingMeta?.asOf || null,
+      fileName: arAgingMeta?.fileName || null,
+      openCount: arAgingOpen.length,
+      openTotal: Math.round(arAgingOpen.reduce((s, o) => s + (o.openBalance || 0), 0) * 100) / 100,
+    }
+  }, [arAgingOpen, arAgingMeta])
+
+  const collectedLoaded = useMemo(() => (
+    collectedLines && collectedLines.length ? { lineCount: collectedLines.length } : null
+  ), [collectedLines])
+
   const repSummary = useMemo(() => {
     const out = {}
     for (const rep of reps) {
@@ -1793,7 +1849,12 @@ function PaymentsTracker() {
           uploadLog={uploadLog}
           recordUpload={recordUpload}
           onCollectedLines={onCollectedLines}
+          onClearCollected={onClearCollected}
+          collectedLoaded={collectedLoaded}
           onArAging={onArAging}
+          onClearArAging={onClearArAging}
+          arAgingLoaded={arAgingLoaded}
+          agingCoverage={agingCoverage}
           selectedCustomer={invoiceDrillCustomer}
           setSelectedCustomer={(c) => {
             setInvoiceDrillCustomer(c)
@@ -2670,9 +2731,35 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
   )
 }
 
-function CollectedReportUploader({ result, error, syncing, onPickFile, onClear }) {
+function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, onClear }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // Persisted state restored on refresh (the per-upload `result` is per-session).
+  if (!result && loaded) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          Collected:
+          <InfoTip>
+            <p className="font-medium mb-1">Cash-basis Sales by Customer Detail</p>
+            <p>What QuickBooks actually collected, per line item — the authoritative source for commission attribution. Accumulates across weekly uploads (de-duped by line).</p>
+          </InfoTip>
+        </span>
+        <span className="text-muted-foreground">{(loaded.lineCount || 0).toLocaleString()} collected lines accumulated</span>
+        <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">Loaded (saved)</span>
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Add report</span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+        </span>
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
 
   if (result) {
     const totalsOk = result.grandOk !== false && result.mismatches === 0
@@ -2796,13 +2883,18 @@ function CollectedCommissionPanel({ result }) {
   )
 }
 
-function ArAgingUploader({ result, error, onPickFile, onClear }) {
+function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  if (result) {
-    const totalsOk = result.grandOk !== false && result.mismatches === 0
+  // Show the compact panel when a report is loaded — either from THIS session's
+  // upload (`result`, carries the to-the-penny validation) or persisted from a
+  // prior session (`loaded`, restored on refresh so there's proof it's loaded).
+  const summary = result || loaded
+  if (summary) {
+    const fresh = !!result
+    const totalsOk = result ? (result.grandOk !== false && result.mismatches === 0) : null
     return (
-      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
         <span className="text-muted-foreground inline-flex items-center gap-1">
           A/R Aging:
@@ -2812,11 +2904,13 @@ function ArAgingUploader({ result, error, onPickFile, onClear }) {
             <p className="mt-1 text-muted-foreground">Source: QuickBooks "A/R Aging Detail".</p>
           </InfoTip>
         </span>
-        {result.asOf && <span className="font-medium">as of {result.asOf}</span>}
-        <span className="text-muted-foreground">{result.openCount.toLocaleString()} open invoices · {money(result.openTotal)}</span>
-        <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full ${totalsOk ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
-          {totalsOk ? `Totals match QBO ${money(result.grandOpen)}` : `Total mismatch (${result.mismatches})`}
-        </span>
+        {summary.asOf && <span className="font-medium">as of {summary.asOf}</span>}
+        <span className="text-muted-foreground">{(summary.openCount || 0).toLocaleString()} open invoices · {money(summary.openTotal)}</span>
+        {fresh
+          ? <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full ${totalsOk ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
+              {totalsOk ? `Totals match QBO ${money(result.grandOpen)}` : `Total mismatch (${result.mismatches})`}
+            </span>
+          : <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">Loaded (saved)</span>}
         <span className="ml-auto flex items-center gap-2">
           <label className="inline-flex">
             <input type="file" accept=".csv" className="hidden" onChange={pick} />
@@ -2824,6 +2918,28 @@ function ArAgingUploader({ result, error, onPickFile, onClear }) {
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
         </span>
+        {/* Coverage diagnostic — how many open invoices carry line-item detail
+            (the join that lets them contribute to Pending). Surfaces a line-items
+            date-range gap instead of silently understating Pending. */}
+        {coverage && (
+          <div className="basis-full text-xs mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            {!coverage.hasLineItems ? (
+              <span className="text-amber-700 inline-flex items-center gap-1">
+                <AlertTriangle className="size-3.5" /> No line items loaded — Pending can't be computed. Upload the line-items report (Step&nbsp;3).
+              </span>
+            ) : (
+              <>
+                <span className="text-emerald-700 font-medium">{coverage.covered.toLocaleString()} of {coverage.total.toLocaleString()} open invoices have line-item detail</span>
+                <span className="text-muted-foreground">→ {money(coverage.pendingTotal)} pending commission</span>
+                {coverage.uncovered > 0 && (
+                  <span className="text-amber-700 inline-flex items-center gap-1">
+                    <AlertTriangle className="size-3.5" /> {coverage.uncovered.toLocaleString()} missing line items ({money(coverage.uncoveredOpen)} open) won't count — likely outside the line-items date range
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+        )}
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
       </div>
     )
@@ -2989,7 +3105,8 @@ function InvoicesView({
   bpOverrides = {}, bpOverridesMeta, bpOverridesAppliedCount = 0, onMergeBpOverrides, onClearBpOverrides,
   wsrRemittances = [], wsrAttributedCount = 0, onAddWsrRemittance, onClearWsrRemittances,
   selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
-  uploadLog = [], recordUpload, onCollectedLines, onArAging,
+  uploadLog = [], recordUpload, onCollectedLines, onClearCollected, collectedLoaded,
+  onArAging, onClearArAging, arAgingLoaded, agingCoverage,
 }) {
   // Per-dataset upload histories for the "N files" dropdowns.
   const historyFor = (dataset) => uploadLog.filter(e => e.dataset === dataset)
@@ -4129,19 +4246,31 @@ function InvoicesView({
 
       <CollectedReportUploader
         result={collectedResult}
+        loaded={collectedLoaded}
         error={collectedError}
         syncing={collectedSyncing}
         onPickFile={handleCollectedFile}
-        onClear={() => { setCollectedResult(null); setCollectedError(null) }}
+        onClear={() => {
+          setCollectedResult(null); setCollectedError(null)
+          if (collectedLoaded) setConfirmAction({
+            message: 'Clear all accumulated collected-commission lines? This drives each rep’s Available — you’ll need to re-upload the Sales by Customer Detail reports.',
+            onConfirm: () => onClearCollected?.(),
+          })
+        }}
       />
 
       <CollectedCommissionPanel result={collectedResult} />
 
       <ArAgingUploader
         result={arAgingResult}
+        loaded={arAgingLoaded}
+        coverage={agingCoverage}
         error={arAgingError}
         onPickFile={handleArAgingFile}
-        onClear={() => { setArAgingResult(null); setArAgingError(null) }}
+        onClear={() => {
+          setArAgingResult(null); setArAgingError(null)
+          if (arAgingLoaded) onClearArAging?.()
+        }}
       />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
