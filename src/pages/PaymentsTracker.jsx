@@ -30,6 +30,7 @@ import { recordBalanceSnapshots, loadBalanceSnapshots } from '@/lib/balanceSnaps
 import { computeSettlementEvents } from '@/lib/settlementEngine'
 import { parseSalesDetail } from '@/lib/salesDetailParser'
 import { computeCollectedCommission } from '@/lib/collectedCommission'
+import { loadCollected, saveCollected } from '@/lib/collectedStore'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
 
@@ -145,8 +146,15 @@ function PaymentsTracker() {
   // Stage 2 (preview): collected-commission entries lifted up from the uploads
   // view. Slim { repId, commission, date } records; drives a DISPLAY-ONLY
   // "Collected" Available preview beside the live figure. Never affects payouts.
+  // Persisted to the shared portal store so it survives refresh / other logins.
   const [collectedEntries, setCollectedEntries] = useState(null)
-  const onCollectedCommission = useCallback((entries) => setCollectedEntries(entries), [])
+  const onCollectedCommission = useCallback((entries) => {
+    setCollectedEntries(entries)
+    saveCollected(entries, { uploadedAt: new Date().toISOString() }).catch(() => {})
+  }, [])
+  useEffect(() => {
+    loadCollected().then(({ entries }) => { if (entries) setCollectedEntries(entries) }).catch(() => {})
+  }, [])
   // Rep ledger surfaces its export/email actions here so the buttons can live
   // in the page header row next to the "<Rep> — Commission Ledger" title.
   const [ledgerActions, setLedgerActions] = useState(null)
