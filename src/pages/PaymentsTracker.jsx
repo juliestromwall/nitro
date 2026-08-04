@@ -1181,20 +1181,24 @@ function PaymentsTracker() {
   const agingCoverage = useMemo(() => {
     if (!arAgingOpen || !arAgingOpen.length) return null
     const liNums = new Set((lineItems || []).map((li) => String(li?.num ?? '').trim()).filter(Boolean))
-    let covered = 0, uncovered = 0, coveredOpen = 0, uncoveredOpen = 0
+    let covered = 0, coveredOpen = 0, uncoveredOpen = 0
+    const uncoveredList = []
     for (const inv of arAgingOpen) {
       const bal = inv.openBalance || 0
       if (liNums.has(String(inv.num ?? '').trim())) { covered++; coveredOpen += bal }
-      else { uncovered++; uncoveredOpen += bal }
+      else { uncoveredOpen += bal; uncoveredList.push({ num: inv.num, customer: inv.customer, dueDate: inv.dueDate, openBalance: Math.round(bal * 100) / 100 }) }
     }
+    // Biggest offenders first — the largest open balances are what move Pending.
+    uncoveredList.sort((a, b) => b.openBalance - a.openBalance)
     const pendingTotal = agingPendingByRep ? Object.values(agingPendingByRep).reduce((s, n) => s + (n || 0), 0) : 0
     return {
       total: arAgingOpen.length,
-      covered, uncovered,
+      covered, uncovered: uncoveredList.length,
       coveredOpen: Math.round(coveredOpen * 100) / 100,
       uncoveredOpen: Math.round(uncoveredOpen * 100) / 100,
       pendingTotal: Math.round(pendingTotal * 100) / 100,
       hasLineItems: liNums.size > 0,
+      uncoveredList,
     }
   }, [arAgingOpen, lineItems, agingPendingByRep])
 
@@ -2886,6 +2890,7 @@ function CollectedCommissionPanel({ result }) {
 function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const [showUncovered, setShowUncovered] = useState(false)
   // Show the compact panel when a report is loaded — either from THIS session's
   // upload (`result`, carries the to-the-penny validation) or persisted from a
   // prior session (`loaded`, restored on refresh so there's proof it's loaded).
@@ -2932,12 +2937,49 @@ function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear 
                 <span className="text-emerald-700 font-medium">{coverage.covered.toLocaleString()} of {coverage.total.toLocaleString()} open invoices have line-item detail</span>
                 <span className="text-muted-foreground">→ {money(coverage.pendingTotal)} pending commission</span>
                 {coverage.uncovered > 0 && (
-                  <span className="text-amber-700 inline-flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowUncovered((v) => !v)}
+                    className="text-amber-700 inline-flex items-center gap-1 hover:text-amber-900 hover:underline cursor-pointer"
+                    aria-expanded={showUncovered}
+                  >
                     <AlertTriangle className="size-3.5" /> {coverage.uncovered.toLocaleString()} missing line items ({money(coverage.uncoveredOpen)} open) won't count — likely outside the line-items date range
-                  </span>
+                    {showUncovered ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                  </button>
                 )}
               </>
             )}
+          </div>
+        )}
+        {/* Drill-down: the exact open invoices with no line items, biggest first —
+            so it's clear which ones need coverage (usually a wider line-items export). */}
+        {coverage && showUncovered && coverage.uncovered > 0 && (
+          <div className="basis-full mt-1 rounded-md border bg-amber-50/50 overflow-hidden">
+            <div className="max-h-64 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-amber-100/80 text-amber-900">
+                  <tr className="text-left">
+                    <th className="py-1.5 px-3 font-semibold">Invoice</th>
+                    <th className="py-1.5 px-3 font-semibold">Customer</th>
+                    <th className="py-1.5 px-3 font-semibold">Due date</th>
+                    <th className="py-1.5 px-3 font-semibold text-right">Open balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coverage.uncoveredList.map((u, i) => (
+                    <tr key={`${u.num}-${i}`} className="border-t border-amber-200/60">
+                      <td className="py-1.5 px-3 font-medium whitespace-nowrap">{u.num || '—'}</td>
+                      <td className="py-1.5 px-3">{u.customer}</td>
+                      <td className="py-1.5 px-3 whitespace-nowrap tabular-nums text-muted-foreground">{u.dueDate || '—'}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums font-medium whitespace-nowrap">{money(u.openBalance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="px-3 py-1.5 text-[11px] text-amber-800 border-t border-amber-200 bg-amber-100/40">
+              Re-export line items through {loaded?.asOf || result?.asOf || 'the aging date'} so these invoices get their brands and count toward Pending.
+            </p>
           </div>
         )}
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
