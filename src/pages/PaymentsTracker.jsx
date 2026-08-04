@@ -576,6 +576,23 @@ function PaymentsTracker() {
       return inv
     })
   }, [invoicesRaw, bpOverrides, wsrInvoicePayments, wsrMemberToCustomer, wsrMemberToAccount])
+
+  // Same WSR recovery the invoices memo applies, exposed for the collected path:
+  // when a line's customer is a WSR-renamed token, recover the real member
+  // account (BP override → member→customer chain → member→account) so it routes.
+  const recoverWsrCustomer = useCallback((invoiceNum, customer) => {
+    if (!isWsrPostPaymentCustomer(customer)) return customer
+    const bpName = bpOverrides?.[invoiceNum]
+    if (bpName) return bpName
+    const events = wsrInvoicePayments.get(invoiceNum)
+    if (events?.length) {
+      const chained = wsrMemberToCustomer.get(events[0].memberId)
+      if (chained) return chained
+      const acctName = wsrMemberToAccount.get(events[0].memberId)
+      if (acctName) return acctName
+    }
+    return customer
+  }, [bpOverrides, wsrInvoicePayments, wsrMemberToCustomer, wsrMemberToAccount])
   const bpOverridesAppliedCount = useMemo(() => {
     if (!bpOverrides || Object.keys(bpOverrides).length === 0) return 0
     let count = 0
@@ -975,10 +992,16 @@ function PaymentsTracker() {
   // null when nothing uploaded yet → Available falls back to the settlement figure.
   const collectedCommission = useMemo(() => {
     if (!collectedLines) return null
-    return computeCollectedCommission({
-      lines: collectedLines, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+    // Recover WSR-renamed customers (QB lumps paid member invoices under "WSR")
+    // to the real member account so their commission routes to the right rep.
+    const lines = collectedLines.map(l => {
+      const recovered = recoverWsrCustomer(l.invoice, l.customer)
+      return recovered === l.customer ? l : { ...l, customer: recovered }
     })
-  }, [collectedLines])
+    return computeCollectedCommission({
+      lines, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+    })
+  }, [collectedLines, recoverWsrCustomer])
   const collectedEarnedSinceAnchorByRep = useMemo(() => {
     if (!collectedCommission) return null
     const out = {}
