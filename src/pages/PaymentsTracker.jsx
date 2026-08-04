@@ -142,6 +142,11 @@ function PaymentsTracker() {
 
   const [view, setView] = useState('reps') // 'reps' | 'accounts' | 'invoices' | 'rep-ledger' | 'brands' | 'ledger' | 'account-detail'
   const [selectedRepId, setSelectedRepId] = useState(null)
+  // Stage 2 (preview): collected-commission entries lifted up from the uploads
+  // view. Slim { repId, commission, date } records; drives a DISPLAY-ONLY
+  // "Collected" Available preview beside the live figure. Never affects payouts.
+  const [collectedEntries, setCollectedEntries] = useState(null)
+  const onCollectedCommission = useCallback((entries) => setCollectedEntries(entries), [])
   // Rep ledger surfaces its export/email actions here so the buttons can live
   // in the page header row next to the "<Rep> — Commission Ledger" title.
   const [ledgerActions, setLedgerActions] = useState(null)
@@ -969,6 +974,36 @@ function PaymentsTracker() {
     }
     return m
   }, [commissionPayouts])
+
+  // ── Stage 2 preview: earned-since-anchor from the COLLECTED report ──────────
+  // Per rep, sum the collected-commission for payments dated strictly AFTER the
+  // anchor (same boundary as earnedSinceAnchorByRep). This is the payment-first,
+  // read-from-QuickBooks commission — the intended replacement for the settlement
+  // inference. DISPLAY-ONLY until promoted; null when no collected report loaded.
+  const collectedEarnedSinceAnchorByRep = useMemo(() => {
+    if (!collectedEntries) return null
+    const out = {}
+    for (const e of collectedEntries) {
+      const anchor = ADJUSTMENT_ANCHORS[e.repId] || ADJUSTMENT_ANCHOR
+      const iso = toIsoDateAtParent(e.date)
+      if (!iso || iso <= anchor) continue   // safety: only post-anchor payments
+      out[e.repId] = (out[e.repId] || 0) + (e.commission || 0)
+    }
+    return out
+  }, [collectedEntries])
+
+  // Preview Available under the collected model: startingAdjustment + collected
+  // earnedSinceAnchor − paidOutSinceAnchor. Shown beside the live Available.
+  const repCollectedPreview = useMemo(() => {
+    if (!collectedEarnedSinceAnchorByRep) return null
+    const out = {}
+    for (const rep of reps) {
+      const earned = collectedEarnedSinceAnchorByRep[rep.id] || 0
+      const available = (STARTING_ADJUSTMENTS[rep.id] || 0) + earned - (paidOutSinceAnchorByRep[rep.id] || 0)
+      out[rep.id] = { earned: Math.round(earned * 100) / 100, available: Math.round(available * 100) / 100 }
+    }
+    return out
+  }, [collectedEarnedSinceAnchorByRep, reps, paidOutSinceAnchorByRep])
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
   // should not normally appear in QB data — when one shows up, it's flagged
@@ -1617,6 +1652,17 @@ function PaymentsTracker() {
                           </span>
                         </div>
                       )}
+                      {repCollectedPreview?.[rep.id]?.earned > 0.005 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-amber-700" title="Preview only — Available if driven by the collected report (Sales by Customer Detail). Does not affect payouts.">collected preview</span>
+                          <span className="text-amber-700 font-medium">
+                            {fmt(repCollectedPreview[rep.id].available)}
+                            <span className="ml-1">
+                              ({repCollectedPreview[rep.id].available < summary.available ? '−' : '+'}{fmt(Math.abs(repCollectedPreview[rep.id].available - summary.available))})
+                            </span>
+                          </span>
+                        </div>
+                      )}
                       {summary.openCommission > 0 && (
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">Pending (open invoices)</span>
@@ -1687,6 +1733,7 @@ function PaymentsTracker() {
           onClearWsrRemittances={clearWsrRemittancesState}
           uploadLog={uploadLog}
           recordUpload={recordUpload}
+          onCollectedCommission={onCollectedCommission}
           selectedCustomer={invoiceDrillCustomer}
           setSelectedCustomer={(c) => {
             setInvoiceDrillCustomer(c)
@@ -1721,6 +1768,7 @@ function PaymentsTracker() {
           rep={selectedRep}
           aggregate={aggregatesByRep[selectedRep.id]}
           summary={repSummary[selectedRep.id]}
+          collectedPreview={repCollectedPreview?.[selectedRep.id]}
           payouts={commissionPayouts.filter(p => p.repId === selectedRep.id)}
           repAccountInvoices={repAccountInvoicesByRep[selectedRep.id] || []}
           paymentDatesByInvoiceNum={paymentDatesByInvoiceNum}
@@ -2828,7 +2876,7 @@ function InvoicesView({
   bpOverrides = {}, bpOverridesMeta, bpOverridesAppliedCount = 0, onMergeBpOverrides, onClearBpOverrides,
   wsrRemittances = [], wsrAttributedCount = 0, onAddWsrRemittance, onClearWsrRemittances,
   selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
-  uploadLog = [], recordUpload,
+  uploadLog = [], recordUpload, onCollectedCommission,
 }) {
   // Per-dataset upload histories for the "N files" dropdowns.
   const historyFor = (dataset) => uploadLog.filter(e => e.dataset === dataset)
@@ -3340,6 +3388,14 @@ function InvoicesView({
         .sort((a, b) => b.commission - a.commission)
       const commissionTotal = Math.round(commissionRows.reduce((s, r) => s + r.commission, 0) * 100) / 100
       const commissionReview = commission.entries.filter(e => e.needsReview).length
+
+      // Lift slim per-line commission up to the rep ledger for the Stage 2
+      // preview (repId · commission · payment date). Display-only.
+      onCollectedCommission?.(
+        commission.entries
+          .filter(e => !e.needsReview && e.repId)
+          .map(e => ({ repId: e.repId, commission: e.commission || 0, date: e.invoiceDate || '' }))
+      )
 
       // Persist to Supabase; keep the parse result visible even if sync fails
       // (e.g. before the edge function is deployed).
@@ -4527,7 +4583,7 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, settlementEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
+function RepLedgerView({ rep, aggregate, summary, collectedPreview, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, settlementEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, availableWas: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   // Correct each invoice's paid status/openBalance from the settlement engine —
   // the payment data is the source of truth. A date-filtered invoices export can
@@ -4912,6 +4968,18 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
                   <span className={delta < 0 ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
                     ({delta < 0 ? '−' : '+'}{fmt(Math.abs(delta))})
                   </span>
+                </div>
+              )
+            })()}
+            {collectedPreview && collectedPreview.earned > 0.005 && (() => {
+              const delta = collectedPreview.available - safeSummary.available
+              return (
+                <div className="mt-1 text-xs text-amber-700" title="Preview only — Available if driven by the collected report (Sales by Customer Detail, cash basis). Does not affect payouts until promoted.">
+                  collected preview <span className="font-semibold">{fmt(collectedPreview.available)}</span>
+                  {Math.abs(delta) > 0.005 && (
+                    <span className="ml-1">({delta < 0 ? '−' : '+'}{fmt(Math.abs(delta))})</span>
+                  )}
+                  <span className="ml-1 text-muted-foreground">· earned {fmt(collectedPreview.earned)}</span>
                 </div>
               )
             })()}
