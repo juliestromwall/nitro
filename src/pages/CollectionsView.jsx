@@ -7,7 +7,7 @@
 // worse" credit signal are Stage C (deferred) — this is the aging + notes core.
 
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronRight, ChevronDown, Plus, Trash2, Mail, Phone, FileText, Check, MapPin } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus, Trash2, Mail, Phone, FileText, Check, MapPin, Truck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { normCustomer, findAccount } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
@@ -138,6 +138,7 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
   const delNote = (key, idx) => mutate(key, (r) => ({ ...r, notes: r.notes.filter((_, i) => i !== idx) }))
   const setPlan = (key, plan) => mutate(key, (r) => ({ ...r, plan }))
   const setTerms = (key, terms) => mutate(key, (r) => ({ ...r, terms: r.terms === terms ? null : terms }))
+  const setEarlyShip = (key, earlyShip) => mutate(key, (r) => ({ ...r, earlyShip }))
 
   // Most-recent contact per account (notes are stored newest-first).
   const lastContactByKey = useMemo(() => {
@@ -315,6 +316,7 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
               onDelete={(i) => delNote(selected.key, i)}
               onPlan={(v) => setPlan(selected.key, v)}
               onTerms={(v) => setTerms(selected.key, v)}
+              onEarlyShip={(v) => setEarlyShip(selected.key, v)}
             />
           )}
         </div>
@@ -445,7 +447,7 @@ const QUICK_ACTIONS = [
   { icon: Check, label: 'Payment received', text: 'Payment received' },
 ]
 
-function DetailPanel({ c, record, onAdd, onEdit, onDelete, onPlan, onTerms }) {
+function DetailPanel({ c, record, onAdd, onEdit, onDelete, onPlan, onTerms, onEarlyShip }) {
   const [draft, setDraft] = useState('')
   const submit = () => { onAdd(draft); setDraft('') }
   const oldest = BUCKET_META.slice().reverse().find((b) => (c.buckets[b.key] || 0) > 0.005)
@@ -459,6 +461,19 @@ function DetailPanel({ c, record, onAdd, onEdit, onDelete, onPlan, onTerms }) {
           {c.account?.email && <span className="inline-flex items-center gap-1"><Mail className="size-3.5" />{c.account.email}</span>}
           {c.account?.phone && <span className="inline-flex items-center gap-1"><Phone className="size-3.5" />{c.account.phone}</span>}
         </div>
+        <button
+          onClick={() => onEarlyShip(!record.earlyShip)}
+          aria-pressed={record.earlyShip}
+          title={record.earlyShip ? 'Marked as qualifying for early ship — click to clear' : 'Mark this customer as qualifying for early ship'}
+          className={`mt-2.5 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full border transition-colors ${
+            record.earlyShip
+              ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
+              : 'bg-background border-dashed border-emerald-600/50 text-emerald-700 hover:bg-emerald-50'
+          }`}
+        >
+          {record.earlyShip ? <Check className="size-3.5" /> : <Truck className="size-3.5" />}
+          Qualifies for Early Ship
+        </button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 px-4 pb-4">

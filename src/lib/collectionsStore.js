@@ -5,7 +5,7 @@
 //
 // Shape (one blob, keyed by a stable account key — the account id, or the
 // normalized customer name when no account matched):
-//   { [accountKey]: { notes: [{ ts, text }], plan: boolean, terms: 'on_terms' | 'late_30' | 'no_respect' | null } }
+//   { [accountKey]: { notes: [{ ts, text }], plan: boolean, terms: 'on_terms' | 'late_30' | 'no_respect' | null, earlyShip: boolean } }
 // `ts` is an ISO string stamped at write time (dates can't be generated in some
 // contexts, so callers pass it in).
 
@@ -28,5 +28,5 @@ export async function saveCollectionsNotes(map) {
 
 // Convenience: an empty per-account record.
 export function emptyRecord() {
-  return { notes: [], plan: false, terms: null }
+  return { notes: [], plan: false, terms: null, earlyShip: false }
 }
