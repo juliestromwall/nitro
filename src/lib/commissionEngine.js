@@ -64,7 +64,7 @@ const GENERIC_SKU_NAME = 'generic sku'
 // `accountOpenBalances` and `AccountDetailView` use, otherwise the engine
 // will route different invoices than the on-screen account totals say.
 // Strips: contact suffix ("- Scott Moffatt"), parens, apostrophes, punctuation.
-const normCustomer = (s) => String(s || '')
+export const normCustomer = (s) => String(s || '')
   .toUpperCase()
   .replace(/['']/g, '')
   .replace(/\([^)]*\)/g, '')
@@ -78,7 +78,7 @@ function isExcluded(sku) { return EXCLUDED_SKU_NAMES.has(normSku(sku)) }
 function isDiscountLike(sku) { return DISCOUNT_LIKE_NAMES.has(normSku(sku)) }
 function isGenericSku(sku) { return normSku(sku) === GENERIC_SKU_NAME }
 
-function findAccount(invoiceCustomer, accountsByName) {
+export function findAccount(invoiceCustomer, accountsByName) {
   if (!invoiceCustomer) return null
   const n = normCustomer(invoiceCustomer)
   if (!n) return null
