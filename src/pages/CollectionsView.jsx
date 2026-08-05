@@ -28,6 +28,25 @@ const BUCKET_ORDER = { current: 0, d1_30: 1, d31_60: 2, d61_90: 3, d91: 4 }
 const bucketLabel = (k) => BUCKET_META.find((b) => b.key === k)?.label || '—'
 const bucketColor = (k) => BUCKET_META.find((b) => b.key === k)?.color || '#94a3b8'
 
+// Canonical west→east territory order for the filter bar (matches the app's
+// TERRITORIES). Anything unrecognized (and "Unmatched") sorts to the end.
+const TERRITORY_ORDER = [
+  'PNW',
+  'NORCAL',
+  'SOCAL / AZ',
+  'SOUTHWEST (UT, CO, NM, TX)',
+  'MIDWEST PLAINS',
+  'SOUTHEAST',
+  'EAST COAST (PA, NY, NJ, DE)',
+  'NEW ENGLAND',
+]
+const territoryRank = (t) => {
+  const i = TERRITORY_ORDER.indexOf(t)
+  return i === -1 ? TERRITORY_ORDER.length : i
+}
+// Drop the "(states…)" suffix for the pill label; full name stays as the title.
+const shortTerr = (t) => String(t || '').replace(/\s*\(.*\)$/, '')
+
 const TERMS = [
   { key: 'on_terms', label: 'Pays on terms' },
   { key: 'late_30', label: '~30 days late' },
@@ -163,7 +182,9 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
       if (c.territory) counts.set(c.territory, (counts.get(c.territory) || 0) + 1)
       else unmatched += 1
     }
-    const list = [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([t, n]) => ({ key: t, label: t, count: n }))
+    const list = [...counts.entries()]
+      .sort((a, b) => territoryRank(a[0]) - territoryRank(b[0]) || a[0].localeCompare(b[0]))
+      .map(([t, n]) => ({ key: t, label: shortTerr(t), count: n }))
     if (unmatched) list.push({ key: '__unmatched__', label: 'Unmatched', count: unmatched })
     return list
   }, [customers])
@@ -234,9 +255,9 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
       <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
         <span className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">Territory</span>
         <div className="flex gap-2 flex-wrap">
-          <TerrPill on={terrFilter === 'all'} label="All" count={customers.length} onClick={() => setTerrFilter('all')} />
+          <TerrPill on={terrFilter === 'all'} label="All" title="All territories" count={customers.length} onClick={() => setTerrFilter('all')} />
           {territories.map((t) => (
-            <TerrPill key={t.key} on={terrFilter === t.key} label={t.label} count={t.count} onClick={() => setTerrFilter(t.key)} />
+            <TerrPill key={t.key} on={terrFilter === t.key} label={t.label} title={t.key === '__unmatched__' ? 'Unmatched to an account' : t.key} count={t.count} onClick={() => setTerrFilter(t.key)} />
           ))}
         </div>
       </div>
@@ -335,11 +356,11 @@ function Kpi({ label, value, sub, alert, muted }) {
   )
 }
 
-function TerrPill({ on, label, count, onClick }) {
+function TerrPill({ on, label, title, count, onClick }) {
   return (
     <button
       onClick={onClick}
-      title={label}
+      title={title || label}
       className={`inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full border transition-colors ${
         on ? 'bg-[#005b5b] border-[#005b5b] text-white' : 'bg-background border-input text-muted-foreground hover:border-[#005b5b] hover:text-[#005b5b]'
       } ${count === 0 ? 'opacity-50' : ''}`}
@@ -464,15 +485,15 @@ function DetailPanel({ c, record, onAdd, onEdit, onDelete, onPlan, onTerms, onEa
         <button
           onClick={() => onEarlyShip(!record.earlyShip)}
           aria-pressed={record.earlyShip}
-          title={record.earlyShip ? 'Marked as qualifying for early ship — click to clear' : 'Mark this customer as qualifying for early ship'}
+          title={record.earlyShip ? 'Qualifies for early ship — click to clear' : 'Click to mark this customer as qualifying for early ship'}
           className={`mt-2.5 inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1 rounded-full border transition-colors ${
             record.earlyShip
               ? 'bg-emerald-600 border-emerald-600 text-white hover:bg-emerald-700'
-              : 'bg-background border-dashed border-emerald-600/50 text-emerald-700 hover:bg-emerald-50'
+              : 'bg-background border-dashed border-muted-foreground/40 text-muted-foreground hover:border-emerald-600/50 hover:text-emerald-700'
           }`}
         >
           {record.earlyShip ? <Check className="size-3.5" /> : <Truck className="size-3.5" />}
-          Qualifies for Early Ship
+          {record.earlyShip ? 'Qualifies for Early Ship' : 'Does not qualify for Early Ship'}
         </button>
       </div>
 
