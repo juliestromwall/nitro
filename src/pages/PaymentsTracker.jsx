@@ -33,6 +33,7 @@ import { computeCollectedCommission } from '@/lib/collectedCommission'
 import { loadCollected, saveCollected, clearCollected } from '@/lib/collectedStore'
 import { parseArAging, openInvoicesFromAging } from '@/lib/arAgingParser'
 import { loadArAging, saveArAging, clearArAging } from '@/lib/arAgingStore'
+import CollectionsView from './CollectionsView'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
 
@@ -171,20 +172,24 @@ function PaymentsTracker() {
   // Will drive "Pending (open invoices)" (next PR). Persisted to the portal store.
   const [arAgingOpen, setArAgingOpen] = useState(null)
   const [arAgingMeta, setArAgingMeta] = useState(null)
-  const onArAging = useCallback((open, meta) => {
+  const [arAgingRows, setArAgingRows] = useState(null)   // full parsed rows → Collections
+  const onArAging = useCallback((open, meta, rows) => {
     setArAgingOpen(open)
     setArAgingMeta(meta || null)
-    saveArAging(open, meta).catch(() => {})
+    setArAgingRows(Array.isArray(rows) ? rows : null)
+    saveArAging(open, meta, rows).catch(() => {})
   }, [])
   const onClearArAging = useCallback(() => {
     setArAgingOpen(null)
     setArAgingMeta(null)
+    setArAgingRows(null)
     clearArAging().catch(() => {})
   }, [])
   useEffect(() => {
-    loadArAging().then(({ open, meta }) => {
+    loadArAging().then(({ open, meta, rows }) => {
       if (open) setArAgingOpen(open)
       if (meta) setArAgingMeta(meta)
+      if (rows) setArAgingRows(rows)
     }).catch(() => {})
   }, [])
   // Rep ledger surfaces its export/email actions here so the buttons can live
@@ -1536,7 +1541,7 @@ function PaymentsTracker() {
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-4 space-y-6">
       {/* Top-level tab bar (only on top-level views) */}
-      {(view === 'reps' || view === 'accounts' || view === 'invoices') && (
+      {(view === 'reps' || view === 'accounts' || view === 'collections' || view === 'invoices') && (
         <div className="flex items-center gap-2 border-b">
           <button
             onClick={() => setView('reps')}
@@ -1553,6 +1558,14 @@ function PaymentsTracker() {
             }`}
           >
             Accounts <span className="text-xs text-muted-foreground">({accounts.length})</span>
+          </button>
+          <button
+            onClick={() => setView('collections')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              view === 'collections' ? 'border-[#005b5b] text-[#005b5b]' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Collections
           </button>
           <button
             onClick={() => setView('invoices')}
@@ -1602,6 +1615,7 @@ function PaymentsTracker() {
         <h1 className="text-3xl font-bold tracking-tight">
           {view === 'reps' && 'Rep Payments'}
           {view === 'accounts' && 'Accounts'}
+          {view === 'collections' && 'Collections'}
           {view === 'invoices' && 'Data Uploads'}
           {view === 'rep-ledger' && `${selectedRep?.name} — Commission Ledger`}
           {view === 'brands' && `${selectedRep?.name}`}
@@ -1610,6 +1624,7 @@ function PaymentsTracker() {
         </h1>
         {view === 'reps' && <p className="mt-2 text-muted-foreground">Track commission payments for each rep</p>}
         {view === 'accounts' && <p className="mt-2 text-muted-foreground">{accounts.length} accounts across {new Set(accounts.map(a => a.territory).filter(Boolean)).size} territories</p>}
+        {view === 'collections' && <p className="mt-2 text-muted-foreground">Work the past-due list — aging, brands, and notes from your weekly A/R upload{arAgingMeta?.asOf ? ` (as of ${arAgingMeta.asOf})` : ''}</p>}
         {view === 'invoices' && <p className="mt-2 text-muted-foreground">Upload QuickBooks invoices, line items, and AR reports</p>}
         {view === 'brands' && <p className="mt-2 text-muted-foreground">Select a brand to view payment history</p>}
         {view === 'ledger' && (
@@ -1818,6 +1833,17 @@ function PaymentsTracker() {
           territoryFilter={accountTerritoryFilter}
           onTerritoryChange={setAccountTerritoryFilter}
           onSelect={goToAccount}
+        />
+      )}
+
+      {/* === COLLECTIONS VIEW === */}
+      {view === 'collections' && (
+        <CollectionsView
+          agingRows={arAgingRows}
+          agingOpen={arAgingOpen}
+          asOf={arAgingMeta?.asOf || null}
+          accounts={accounts}
+          lineItems={lineItems}
         />
       )}
 
@@ -3711,7 +3737,8 @@ function InvoicesView({
       const parsed = parseArAging(await file.text())
       if (!parsed.rows.length) throw new Error('No aging rows found — is this the "A/R Aging Detail" report?')
       const open = openInvoicesFromAging(parsed)
-      onArAging?.(open, { asOf: parsed.meta.asOf, fileName: file.name })
+      // Full rows (every type + bucket, incl. credits) power the Collections worklist.
+      onArAging?.(open, { asOf: parsed.meta.asOf, fileName: file.name }, parsed.rows)
       setArAgingResult({
         fileName: file.name,
         asOf: parsed.meta.asOf,
