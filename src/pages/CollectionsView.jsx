@@ -7,7 +7,7 @@
 // worse" credit signal are Stage C (deferred) — this is the aging + notes core.
 
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronRight, ChevronDown, Plus, Trash2, Mail, Phone, FileText, Check, MapPin, Truck } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus, Trash2, Mail, Phone, FileText, Check, MapPin, Truck, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { normCustomer, findAccount } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
@@ -223,6 +223,11 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
     }
   }, [customers, lastContactByKey])
 
+  // The per-invoice aging buckets come from the FULL parsed aging rows. If only the
+  // older "open invoices" payload is stored (an upload from before this page existed),
+  // we can show balances but not buckets — prompt a fresh upload.
+  const bucketsPending = (!agingRows || !agingRows.length) && customers.length > 0
+
   const toggleExpand = (key) => setExpanded((prev) => {
     const next = new Set(prev)
     next.has(key) ? next.delete(key) : next.add(key)
@@ -243,6 +248,16 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
 
   return (
     <div className="space-y-5">
+      {bucketsPending && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-900 px-3.5 py-2.5 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+          <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+          <span>
+            <b>Aging buckets aren’t loaded yet.</b> Balances are showing, but the per-bucket aging (Current / 30 / 60 / 90 / 91+) needs a fresh upload.
+            Re-upload your <b>A/R Aging Detail</b> on <b>Data Uploads</b> — same weekly file — and the buckets and invoice ages will fill in.
+          </span>
+        </div>
+      )}
+
       {/* KPI strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Kpi label="Outstanding (list)" value={fmt(kpis.listTotal)} sub={`${kpis.count} ${kpis.count === 1 ? 'customer' : 'customers'} owing`} />
