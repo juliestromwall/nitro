@@ -335,9 +335,11 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
           </div>
         </div>
 
-        {/* Detail */}
-        <div className="rounded-lg border bg-card overflow-hidden">
-          <div className="flex items-center justify-between gap-2 px-4 py-3 border-b">
+        {/* Detail — pinned in view on wide screens so scrolling the worklist and
+            clicking a customer updates it without scrolling back up. Caps its own
+            height and scrolls internally when a customer has a long notes log. */}
+        <div className="rounded-lg border bg-card overflow-hidden xl:sticky xl:top-4 xl:max-h-[calc(100vh-5rem)] xl:overflow-y-auto">
+          <div className="flex items-center justify-between gap-2 px-4 py-3 border-b bg-card sticky top-0 z-10">
             <h2 className="text-sm font-semibold">Customer detail</h2>
             <span className="text-xs text-muted-foreground">{selected?.territory || (selected ? 'Unmatched' : '')}</span>
           </div>
