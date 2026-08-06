@@ -65,6 +65,13 @@ const shortDate = (iso) => {
   if (Number.isNaN(t)) return ''
   return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
+// Normalize a US 10-digit number to (xxx) xxx-xxxx; leave anything else as-is.
+const formatPhone = (p) => {
+  const d = String(p || '').replace(/\D/g, '')
+  const ten = d.length === 11 && d[0] === '1' ? d.slice(1) : d
+  return ten.length === 10 ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}` : String(p || '')
+}
+const telHref = (p) => `tel:${String(p || '').replace(/[^\d+]/g, '')}`
 
 export default function CollectionsView({ agingRows, agingOpen, accounts = [], lineItems = [] }) {
   // Brand(s) per invoice number, from the line-items upload (aging has no SKUs).
@@ -681,8 +688,8 @@ function DetailPanel({ c, record, sica, sicaAvailable, sicaOverride, sicaRetaile
         <div className="text-base font-bold">{c.name}</div>
         <div className="text-xs text-muted-foreground mt-0.5 flex gap-3 flex-wrap">
           <span className="inline-flex items-center gap-1"><MapPin className="size-3.5" />{c.territory || 'Unmatched territory'}</span>
-          {c.account?.email && <span className="inline-flex items-center gap-1"><Mail className="size-3.5" />{c.account.email}</span>}
-          {c.account?.phone && <span className="inline-flex items-center gap-1"><Phone className="size-3.5" />{c.account.phone}</span>}
+          {c.account?.email && <a href={`mailto:${c.account.email}`} className="inline-flex items-center gap-1 hover:text-foreground"><Mail className="size-3.5" />{c.account.email}</a>}
+          {c.account?.phone && <a href={telHref(c.account.phone)} className="inline-flex items-center gap-1 hover:text-foreground"><Phone className="size-3.5" />{formatPhone(c.account.phone)}</a>}
         </div>
         <button
           onClick={() => onEarlyShip(!record.earlyShip)}
