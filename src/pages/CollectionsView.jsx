@@ -612,11 +612,17 @@ function MatchEditor({ matched, confirmed, overrideNoMatch, currentRetailerId, r
   const [picking, setPicking] = useState(false)
   const [q, setQ] = useState('')
   const results = useMemo(() => {
-    const query = q.trim().toUpperCase()
-    if (query.length < 2) return []
+    // Token search: every word (2+ chars) must appear somewhere in the retailer's
+    // legal name, DBA, or city — so word order and extra words don't matter
+    // ("skyline bear valley" finds "Bear Valley Skyline" or a store in Bear Valley).
+    const words = q.trim().toUpperCase().split(/\s+/).filter((w) => w.length >= 2)
+    if (!words.length) return []
     return retailers
-      .filter((r) => `${r.legal_name || ''} ${r.dba || ''}`.toUpperCase().includes(query))
-      .slice(0, 8)
+      .filter((r) => {
+        const hay = `${r.legal_name || ''} ${r.dba || ''} ${r.city || ''}`.toUpperCase()
+        return words.every((w) => hay.includes(w))
+      })
+      .slice(0, 20)
   }, [q, retailers])
   const assign = (rid) => { onAssign(rid, { source: 'manual', confirmed: true }); setPicking(false); setQ('') }
 
