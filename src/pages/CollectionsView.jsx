@@ -614,6 +614,7 @@ function DetailPanel({ c, record, sica, sicaAvailable, onAdd, onEdit, onDelete, 
               <div className="text-[11px] text-muted-foreground mt-1.5">
                 {sica.sicadex_avg_12mth != null && <>12-mo avg {sica.sicadex_avg_12mth} · </>}
                 {scoreRose(sica.sicadex_variance_smly) ? 'trending worse (score rising)' : 'trending better (score falling)'} vs last yr
+                {sica.member_count != null && <><br />Based on {sica.member_count.toLocaleString()} reporting {sica.member_count === 1 ? 'member' : 'members'}</>}
                 <br />Matched: <span className="text-foreground">{sica.dba || sica.legal_name}</span>
               </div>
             </>
