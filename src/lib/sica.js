@@ -54,6 +54,29 @@ export async function loadSica() {
   }
 }
 
+// ── Match overrides (Stage C.2) ─────────────────────────────────────────
+// Human-curated refinements over the fuzzy name match, keyed by a stable account
+// key. retailerId = a SICA retailer id (a confirmed/corrected match) or null (an
+// explicit "not a match" that suppresses the fuzzy guess → "—").
+export async function saveSicaMatch(accountKey, retailerId, { source = 'manual', confirmed = true } = {}) {
+  const row = {
+    account_key: accountKey,
+    retailer_id: retailerId ?? null,
+    match_source: source,
+    confirmed,
+    updated_at: new Date().toISOString(),
+  }
+  const { error } = await supabase.from('sica_account_matches').upsert(row, { onConflict: 'account_key' })
+  if (error) throw new Error(error.message || 'Could not save the match')
+  return row
+}
+
+// Delete the override entirely → the account falls back to the fuzzy name match.
+export async function removeSicaMatch(accountKey) {
+  const { error } = await supabase.from('sica_account_matches').delete().eq('account_key', accountKey)
+  if (error) throw new Error(error.message || 'Could not clear the override')
+}
+
 // Kick the monthly sync on demand (the "Refresh scores" button). No countryid →
 // the function defaults to US (2). Throws with a readable message on failure
 // (e.g. the function isn't deployed yet).

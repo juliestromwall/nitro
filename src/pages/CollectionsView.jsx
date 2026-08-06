@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button'
 import { normCustomer, findAccount } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { loadCollectionsNotes, saveCollectionsNotes, emptyRecord } from '@/lib/collectionsStore'
-import { loadSica, refreshSica, sicaRisk, scoreRose } from '@/lib/sica'
+import { loadSica, refreshSica, saveSicaMatch, removeSicaMatch, sicaRisk, scoreRose } from '@/lib/sica'
 
 const fmt = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('en-US')
 const REP_RE = /\s-\s*REP\s*$/i
@@ -65,6 +65,13 @@ const shortDate = (iso) => {
   if (Number.isNaN(t)) return ''
   return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
+// Normalize a US 10-digit number to (xxx) xxx-xxxx; leave anything else as-is.
+const formatPhone = (p) => {
+  const d = String(p || '').replace(/\D/g, '')
+  const ten = d.length === 11 && d[0] === '1' ? d.slice(1) : d
+  return ten.length === 10 ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}` : String(p || '')
+}
+const telHref = (p) => `tel:${String(p || '').replace(/[^\d+]/g, '')}`
 
 export default function CollectionsView({ agingRows, agingOpen, accounts = [], lineItems = [] }) {
   // Brand(s) per invoice number, from the line-items upload (aging has no SKUs).
@@ -172,6 +179,10 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
     finally { setRefreshing(false) }
   }
 
+  // Stable per-account override key (account id when matched, else the row key).
+  // Coerced to string to match the text account_key column in sica_account_matches.
+  const accountKeyFor = (c) => String(c.account ? c.account.id : c.key)
+
   // Join each worklist row to a SICA retailer: an explicit override wins (a null
   // retailer_id = "no match / ignore"); otherwise the same fuzzy name matcher the
   // commission engine uses, against SICA legal names + DBAs. → Map(row key → retailer).
@@ -184,8 +195,7 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
       for (const nm of [r.legal_name, r.dba]) { const n = normCustomer(nm); if (n && !byName.has(n)) byName.set(n, r) }
     }
     for (const c of customers) {
-      const key = c.account ? c.account.id : c.key
-      const ov = sica.overrides?.[key]
+      const ov = sica.overrides?.[accountKeyFor(c)]
       let r = null
       if (ov) r = ov.retailer_id ? (byId.get(ov.retailer_id) || null) : null
       else r = findAccount(c.account?.name || c.name, byName)
@@ -193,6 +203,25 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
     }
     return out
   }, [sica, customers])
+
+  // Apply / clear / undo a match override (writes sica_account_matches, then
+  // updates local overrides so the worklist + card re-resolve immediately).
+  const applyMatch = async (c, retailerId, opts) => {
+    const key = accountKeyFor(c)
+    setSicaError(null)
+    try {
+      await saveSicaMatch(key, retailerId, opts)
+      setSica((prev) => ({ ...prev, overrides: { ...prev.overrides, [key]: { account_key: key, retailer_id: retailerId ?? null, confirmed: opts?.confirmed ?? true } } }))
+    } catch (e) { setSicaError(e.message || 'Could not save the match') }
+  }
+  const undoMatch = async (c) => {
+    const key = accountKeyFor(c)
+    setSicaError(null)
+    try {
+      await removeSicaMatch(key)
+      setSica((prev) => { const o = { ...prev.overrides }; delete o[key]; return { ...prev, overrides: o } })
+    } catch (e) { setSicaError(e.message || 'Could not clear the override') }
+  }
 
   // Most-recent contact per account (notes are stored newest-first).
   const lastContactByKey = useMemo(() => {
@@ -412,6 +441,10 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
               record={recordFor(selected.key)}
               sica={sicaByKey.get(selected.key)}
               sicaAvailable={!!sica?.available}
+              sicaOverride={sica?.overrides?.[accountKeyFor(selected)]}
+              sicaRetailers={sica?.retailers || []}
+              onAssignMatch={(rid, opts) => applyMatch(selected, rid, opts)}
+              onUndoMatch={() => undoMatch(selected)}
               onAdd={(t) => addNote(selected.key, t)}
               onEdit={(i, t) => editNote(selected.key, i, t)}
               onDelete={(i) => delNote(selected.key, i)}
@@ -572,10 +605,82 @@ const QUICK_ACTIONS = [
   { icon: Check, label: 'Payment received', text: 'Payment received' },
 ]
 
-function DetailPanel({ c, record, sica, sicaAvailable, onAdd, onEdit, onDelete, onPlan, onTerms, onEarlyShip }) {
+function MiniBtn({ onClick, children, tone }) {
+  const base = 'text-[11px] px-2 py-0.5 rounded-md border font-medium transition-colors'
+  const cls = tone === 'danger'
+    ? 'border-input bg-background text-muted-foreground hover:border-red-300 hover:text-[#b91c1c]'
+    : 'border-input bg-background text-muted-foreground hover:border-[#005b5b] hover:text-[#005b5b]'
+  return <button type="button" onClick={onClick} className={`${base} ${cls}`}>{children}</button>
+}
+
+// The confirm / correct / clear controls for a SICA match, plus a retailer search
+// picker. Writes flow up through onAssign(retailerId | null, opts) / onUndo.
+function MatchEditor({ matched, confirmed, overrideNoMatch, currentRetailerId, retailers, onAssign, onUndo }) {
+  const [picking, setPicking] = useState(false)
+  const [q, setQ] = useState('')
+  const results = useMemo(() => {
+    // Token search: every word (2+ chars) must appear somewhere in the retailer's
+    // legal name, DBA, or city — so word order and extra words don't matter
+    // ("skyline bear valley" finds "Bear Valley Skyline" or a store in Bear Valley).
+    const words = q.trim().toUpperCase().split(/\s+/).filter((w) => w.length >= 2)
+    if (!words.length) return []
+    return retailers
+      .filter((r) => {
+        const hay = `${r.legal_name || ''} ${r.dba || ''} ${r.city || ''}`.toUpperCase()
+        return words.every((w) => hay.includes(w))
+      })
+      .slice(0, 20)
+  }, [q, retailers])
+  const assign = (rid) => { onAssign(rid, { source: 'manual', confirmed: true }); setPicking(false); setQ('') }
+
+  if (picking) {
+    return (
+      <div className="mt-2 pt-2 border-t border-[#005b5b1a]">
+        <div className="flex items-center gap-2">
+          <input
+            autoFocus value={q} onChange={(e) => setQ(e.target.value)}
+            placeholder="Search SICA retailers by name…"
+            className="flex-1 text-xs rounded-md border border-input bg-background px-2.5 py-1.5 focus:outline-none focus:border-[#005b5b] focus:ring-2 focus:ring-[#005b5b]/15"
+          />
+          <button type="button" onClick={() => { setPicking(false); setQ('') }} className="text-[11px] text-muted-foreground hover:text-foreground">Cancel</button>
+        </div>
+        <div className="mt-1.5 max-h-44 overflow-y-auto rounded-md border divide-y">
+          {q.trim().length < 2 && <div className="px-2.5 py-2 text-[11px] text-muted-foreground">Type at least 2 letters to search.</div>}
+          {q.trim().length >= 2 && results.length === 0 && <div className="px-2.5 py-2 text-[11px] text-muted-foreground">No retailers match “{q.trim()}”.</div>}
+          {results.map((r) => (
+            <button key={r.retailer_id} type="button" onClick={() => assign(r.retailer_id)} className="w-full text-left px-2.5 py-1.5 hover:bg-muted">
+              <div className="text-xs font-medium">{r.dba || r.legal_name}</div>
+              <div className="text-[10px] text-muted-foreground flex gap-2 flex-wrap">
+                {r.legal_name && r.dba && r.legal_name !== r.dba && <span>{r.legal_name}</span>}
+                {r.city && <span>{r.city}{r.province_code ? `, ${r.province_code}` : ''}</span>}
+                {r.sicadex_cm != null && <span>SICA {r.sicadex_cm}</span>}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-2 pt-2 border-t border-[#005b5b1a] flex items-center gap-1.5 flex-wrap">
+      {matched && !confirmed && <MiniBtn onClick={() => onAssign(currentRetailerId, { source: 'manual', confirmed: true })}>Confirm</MiniBtn>}
+      {matched && <MiniBtn onClick={() => setPicking(true)}>Change</MiniBtn>}
+      {matched && <MiniBtn tone="danger" onClick={() => onAssign(null, { source: 'ignored', confirmed: true })}>Not a match</MiniBtn>}
+      {overrideNoMatch && <MiniBtn onClick={onUndo}>Undo — restore auto-match</MiniBtn>}
+      {!matched && !overrideNoMatch && <MiniBtn onClick={() => setPicking(true)}>Find a match…</MiniBtn>}
+    </div>
+  )
+}
+
+function DetailPanel({ c, record, sica, sicaAvailable, sicaOverride, sicaRetailers = [], onAssignMatch, onUndoMatch, onAdd, onEdit, onDelete, onPlan, onTerms, onEarlyShip }) {
   const [draft, setDraft] = useState('')
   const submit = () => { onAdd(draft); setDraft('') }
   const oldest = BUCKET_META.slice().reverse().find((b) => (c.buckets[b.key] || 0) > 0.005)
+  // Match state: a saved override with a retailer = a confirmed/corrected match;
+  // an override with null retailer = an explicit "not a match".
+  const sicaMatchConfirmed = !!sicaOverride && sicaOverride.retailer_id != null
+  const sicaOverrideNoMatch = !!sicaOverride && sicaOverride.retailer_id == null
 
   return (
     <div>
@@ -583,8 +688,8 @@ function DetailPanel({ c, record, sica, sicaAvailable, onAdd, onEdit, onDelete, 
         <div className="text-base font-bold">{c.name}</div>
         <div className="text-xs text-muted-foreground mt-0.5 flex gap-3 flex-wrap">
           <span className="inline-flex items-center gap-1"><MapPin className="size-3.5" />{c.territory || 'Unmatched territory'}</span>
-          {c.account?.email && <span className="inline-flex items-center gap-1"><Mail className="size-3.5" />{c.account.email}</span>}
-          {c.account?.phone && <span className="inline-flex items-center gap-1"><Phone className="size-3.5" />{c.account.phone}</span>}
+          {c.account?.email && <a href={`mailto:${c.account.email}`} className="inline-flex items-center gap-1 hover:text-foreground"><Mail className="size-3.5" />{c.account.email}</a>}
+          {c.account?.phone && <a href={telHref(c.account.phone)} className="inline-flex items-center gap-1 hover:text-foreground"><Phone className="size-3.5" />{formatPhone(c.account.phone)}</a>}
         </div>
         <button
           onClick={() => onEarlyShip(!record.earlyShip)}
@@ -605,23 +710,44 @@ function DetailPanel({ c, record, sica, sicaAvailable, onAdd, onEdit, onDelete, 
       <div className="px-4 pb-3">
         <div className="rounded-lg border px-3 py-2.5" style={sica?.sicadex_cm != null ? { background: 'linear-gradient(180deg,#005b5b0a,#005b5b03)', borderColor: '#005b5b2e' } : undefined}>
           <div className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">SICA credit score · higher = more risk</div>
-          {sica?.sicadex_cm != null ? (
-            <>
-              <div className="flex items-baseline gap-2 mt-1.5">
-                <ScoreChip retailer={sica} size="lg" />
-                <span className="text-xs text-muted-foreground">{sicaRisk(sica.sicadex_cm)?.tier}</span>
-              </div>
-              <div className="text-[11px] text-muted-foreground mt-1.5">
-                {sica.sicadex_avg_12mth != null && <>12-mo avg {sica.sicadex_avg_12mth} · </>}
-                {scoreRose(sica.sicadex_variance_smly) ? 'trending worse (score rising)' : 'trending better (score falling)'} vs last yr
-                {sica.member_count != null && <><br />Based on {sica.member_count.toLocaleString()} reporting {sica.member_count === 1 ? 'member' : 'members'}</>}
-                <br />Matched: <span className="text-foreground">{sica.dba || sica.legal_name}</span>
-              </div>
-            </>
+          {!sicaAvailable ? (
+            <div className="text-xs text-muted-foreground mt-1.5">SICA not connected yet — deploy sync-sica and refresh scores.</div>
           ) : (
-            <div className="text-xs text-muted-foreground mt-1.5">
-              {sicaAvailable ? 'No SICA match for this account.' : 'SICA not connected yet — deploy sync-sica and refresh scores.'}
-            </div>
+            <>
+              {sica ? (
+                sica.sicadex_cm != null ? (
+                  <>
+                    <div className="flex items-baseline gap-2 mt-1.5">
+                      <ScoreChip retailer={sica} size="lg" />
+                      <span className="text-xs text-muted-foreground">{sicaRisk(sica.sicadex_cm)?.tier}</span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-1.5">
+                      {sica.sicadex_avg_12mth != null && <>12-mo avg {sica.sicadex_avg_12mth} · </>}
+                      {scoreRose(sica.sicadex_variance_smly) ? 'trending worse (score rising)' : 'trending better (score falling)'} vs last yr
+                      {sica.member_count != null && <><br />Based on {sica.member_count.toLocaleString()} reporting {sica.member_count === 1 ? 'member' : 'members'}</>}
+                      <br />Matched{sicaMatchConfirmed ? ' (confirmed)' : ''}: <span className="text-foreground">{sica.dba || sica.legal_name}</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-[11px] text-muted-foreground mt-1.5">
+                    Matched{sicaMatchConfirmed ? ' (confirmed)' : ''} to <span className="text-foreground">{sica.dba || sica.legal_name}</span> — no score (SICA shows N/A).
+                  </div>
+                )
+              ) : (
+                <div className="text-xs text-muted-foreground mt-1.5">
+                  {sicaOverrideNoMatch ? 'Marked “no match” — no score shown for this account.' : 'No SICA match found for this account.'}
+                </div>
+              )}
+              <MatchEditor
+                matched={!!sica}
+                confirmed={sicaMatchConfirmed}
+                overrideNoMatch={sicaOverrideNoMatch}
+                currentRetailerId={sica?.retailer_id ?? null}
+                retailers={sicaRetailers}
+                onAssign={onAssignMatch}
+                onUndo={onUndoMatch}
+              />
+            </>
           )}
         </div>
       </div>
