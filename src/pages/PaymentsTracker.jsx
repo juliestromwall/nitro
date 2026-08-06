@@ -1841,7 +1841,6 @@ function PaymentsTracker() {
         <CollectionsView
           agingRows={arAgingRows}
           agingOpen={arAgingOpen}
-          asOf={arAgingMeta?.asOf || null}
           accounts={accounts}
           lineItems={lineItems}
         />

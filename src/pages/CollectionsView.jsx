@@ -7,11 +7,12 @@
 // worse" credit signal are Stage C (deferred) — this is the aging + notes core.
 
 import { useEffect, useMemo, useState } from 'react'
-import { ChevronRight, ChevronDown, Plus, Trash2, Mail, Phone, FileText, Check, MapPin, Truck, AlertTriangle } from 'lucide-react'
+import { ChevronRight, ChevronDown, Plus, Trash2, Mail, Phone, FileText, Check, MapPin, Truck, AlertTriangle, TrendingUp, TrendingDown, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { normCustomer, findAccount } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { loadCollectionsNotes, saveCollectionsNotes, emptyRecord } from '@/lib/collectionsStore'
+import { loadSica, refreshSica, sicaRisk, scoreRose } from '@/lib/sica'
 
 const fmt = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('en-US')
 const REP_RE = /\s-\s*REP\s*$/i
@@ -65,7 +66,7 @@ const shortDate = (iso) => {
   return new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export default function CollectionsView({ agingRows, agingOpen, asOf, accounts = [], lineItems = [] }) {
+export default function CollectionsView({ agingRows, agingOpen, accounts = [], lineItems = [] }) {
   // Brand(s) per invoice number, from the line-items upload (aging has no SKUs).
   const brandsByInvoiceNum = useMemo(() => {
     const m = {}
@@ -159,6 +160,40 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
   const setTerms = (key, terms) => mutate(key, (r) => ({ ...r, terms: r.terms === terms ? null : terms }))
   const setEarlyShip = (key, earlyShip) => mutate(key, (r) => ({ ...r, earlyShip }))
 
+  // ── SICA credit scores (Stage C) ───────────────────────────────────────
+  const [sica, setSica] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [sicaError, setSicaError] = useState(null)
+  useEffect(() => { loadSica().then(setSica).catch(() => setSica({ retailers: [], overrides: {}, lastSync: null, available: false })) }, [])
+  const refreshScores = async () => {
+    setRefreshing(true); setSicaError(null)
+    try { await refreshSica(); setSica(await loadSica()) }
+    catch (e) { setSicaError(e.message || 'Refresh failed') }
+    finally { setRefreshing(false) }
+  }
+
+  // Join each worklist row to a SICA retailer: an explicit override wins (a null
+  // retailer_id = "no match / ignore"); otherwise the same fuzzy name matcher the
+  // commission engine uses, against SICA legal names + DBAs. → Map(row key → retailer).
+  const sicaByKey = useMemo(() => {
+    const out = new Map()
+    if (!sica?.retailers?.length) return out
+    const byId = new Map(), byName = new Map()
+    for (const r of sica.retailers) {
+      byId.set(r.retailer_id, r)
+      for (const nm of [r.legal_name, r.dba]) { const n = normCustomer(nm); if (n && !byName.has(n)) byName.set(n, r) }
+    }
+    for (const c of customers) {
+      const key = c.account ? c.account.id : c.key
+      const ov = sica.overrides?.[key]
+      let r = null
+      if (ov) r = ov.retailer_id ? (byId.get(ov.retailer_id) || null) : null
+      else r = findAccount(c.account?.name || c.name, byName)
+      if (r) out.set(c.key, r)
+    }
+    return out
+  }, [sica, customers])
+
   // Most-recent contact per account (notes are stored newest-first).
   const lastContactByKey = useMemo(() => {
     const m = {}
@@ -211,17 +246,26 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
     const listTotal = customers.reduce((s, c) => s + c.total, 0)
     const past91 = customers.reduce((s, c) => s + c.buckets.d91, 0)
     let followup = 0
+    let atRisk = 0, atRiskExposure = 0, worse = 0
     for (const c of customers) {
       const last = lastContactByKey[c.key]
       const d = last ? relDays(last) : null
       if (d == null || d >= 14) followup += 1
+      // SICA-driven: exposure to high-risk accounts (our own balance), and how
+      // many accounts' scores rose vs last year.
+      const r = sicaByKey.get(c.key)
+      if (r) {
+        if (r.sicadex_cm != null && r.sicadex_cm >= 60) { atRisk += 1; atRiskExposure += c.total }
+        if (scoreRose(r.sicadex_variance_smly)) worse += 1
+      }
     }
     return {
       listTotal, count: customers.length,
       past91, past91Pct: listTotal ? Math.round((past91 / listTotal) * 100) : 0,
-      followup,
+      followup, atRisk, atRiskExposure: Math.round(atRiskExposure), worse,
+      hasSica: sicaByKey.size > 0,
     }
-  }, [customers, lastContactByKey])
+  }, [customers, lastContactByKey, sicaByKey])
 
   // The per-invoice aging buckets come from the FULL parsed aging rows. If only the
   // older "open invoices" payload is stored (an upload from before this page existed),
@@ -258,12 +302,28 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
         </div>
       )}
 
+      {/* SICA sync bar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="text-xs text-muted-foreground">
+          {sica?.available && kpis.hasSica
+            ? <>SICA credit scores {sica.lastSync ? <>synced <b className="text-foreground">{new Date(sica.lastSync).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</b></> : 'connected'}</>
+            : <span className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-full bg-amber-500" /> SICA credit scores not connected yet — deploy <code className="text-[11px]">sync-sica</code> and refresh</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          {sicaError && <span className="text-xs text-red-600 max-w-md truncate" title={sicaError}>{sicaError}</span>}
+          <Button variant="outline" size="sm" onClick={refreshScores} disabled={refreshing} className="gap-1.5 h-8 text-xs">
+            <RefreshCw className={`size-3.5 ${refreshing ? 'animate-spin' : ''}`} /> {refreshing ? 'Refreshing…' : 'Refresh scores'}
+          </Button>
+        </div>
+      </div>
+
       {/* KPI strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
         <Kpi label="Outstanding (list)" value={fmt(kpis.listTotal)} sub={`${kpis.count} ${kpis.count === 1 ? 'customer' : 'customers'} owing`} />
         <Kpi label="91+ days" value={fmt(kpis.past91)} sub={`${kpis.past91Pct}% of the list`} alert />
+        <Kpi label="At-risk exposure" value={kpis.hasSica ? fmt(kpis.atRiskExposure) : '—'} sub={kpis.hasSica ? `${kpis.atRisk} high-risk (SICA 60+)` : 'needs SICA scores'} alert={kpis.hasSica && kpis.atRisk > 0} />
+        <Kpi label="Trending worse" value={kpis.hasSica ? String(kpis.worse) : '—'} sub={kpis.hasSica ? 'SICA rising vs last yr' : 'needs SICA scores'} alert={kpis.hasSica && kpis.worse > 0} />
         <Kpi label="Needs follow-up" value={String(kpis.followup)} sub="no contact in 14+ days" />
-        <Kpi label="As of" value={asOf || '—'} sub="latest A/R aging upload" muted />
       </div>
 
       {/* Territory pills */}
@@ -302,12 +362,13 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
                   <th className="text-left font-semibold px-4 py-2.5">Customer</th>
                   <th className="text-left font-semibold px-4 py-2.5">Aging</th>
                   <th className="text-right font-semibold px-4 py-2.5">91+ / Total</th>
+                  <th className="text-left font-semibold px-4 py-2.5">SICA</th>
                   <th className="text-right font-semibold px-4 py-2.5">Last contact</th>
                 </tr>
               </thead>
               <tbody>
                 {visible.length === 0 && (
-                  <tr><td colSpan={4} className="text-center text-muted-foreground py-8">No customers match this filter.</td></tr>
+                  <tr><td colSpan={5} className="text-center text-muted-foreground py-8">No customers match this filter.</td></tr>
                 )}
                 {visible.map((c) => {
                   const isSel = c.key === selKey
@@ -317,7 +378,7 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
                   return (
                     <FragmentRow
                       key={c.key}
-                      c={c} isSel={isSel} isOpen={isOpen} lastIso={last} lastDays={d}
+                      c={c} isSel={isSel} isOpen={isOpen} lastIso={last} lastDays={d} sica={sicaByKey.get(c.key)}
                       onSelect={() => setSelKey(c.key)}
                       onToggle={() => toggleExpand(c.key)}
                     />
@@ -349,6 +410,8 @@ export default function CollectionsView({ agingRows, agingOpen, asOf, accounts =
             <DetailPanel
               c={selected}
               record={recordFor(selected.key)}
+              sica={sicaByKey.get(selected.key)}
+              sicaAvailable={!!sica?.available}
               onAdd={(t) => addNote(selected.key, t)}
               onEdit={(i, t) => editNote(selected.key, i, t)}
               onDelete={(i) => delNote(selected.key, i)}
@@ -400,8 +463,31 @@ function AgingBar({ buckets, total }) {
   )
 }
 
+// SICAdex score chip: colored by risk band + a rise/fall arrow vs last year.
+function ScoreChip({ retailer, size = 'sm' }) {
+  if (!retailer || retailer.sicadex_cm == null) return <span className="text-muted-foreground">—</span>
+  const rk = sicaRisk(retailer.sicadex_cm)
+  const rose = scoreRose(retailer.sicadex_variance_smly)
+  const v = retailer.sicadex_variance_smly
+  const pad = size === 'lg' ? 'text-sm px-2.5 py-1' : 'text-xs px-2 py-0.5'
+  return (
+    <span
+      className={`inline-flex items-center gap-1 font-bold rounded-full tabular-nums ${pad}`}
+      style={{ background: rk.bg, color: rk.fg, border: `1px solid ${rk.border}` }}
+      title={`${rk.tier} — SICAdex ${retailer.sicadex_cm} (higher = worse)`}
+    >
+      {retailer.sicadex_cm}
+      {v != null && v !== 0 && (
+        rose
+          ? <TrendingUp className="size-3 text-[#b91c1c]" />
+          : <TrendingDown className="size-3 text-[#16a34a]" />
+      )}
+    </span>
+  )
+}
+
 // A customer row + its expandable invoice sub-row.
-function FragmentRow({ c, isSel, isOpen, lastIso, lastDays, onSelect, onToggle }) {
+function FragmentRow({ c, isSel, isOpen, lastIso, lastDays, sica, onSelect, onToggle }) {
   return (
     <>
       <tr
@@ -432,6 +518,7 @@ function FragmentRow({ c, isSel, isOpen, lastIso, lastDays, onSelect, onToggle }
           <span className={`font-semibold tabular-nums ${c.buckets.d91 > 0 ? 'text-[#b91c1c]' : ''}`}>{fmt(c.buckets.d91)}</span>
           <br /><span className="text-[11px] text-muted-foreground tabular-nums">{fmt(c.total)} total</span>
         </td>
+        <td className="px-4 py-3"><ScoreChip retailer={sica} /></td>
         <td className="px-4 py-3 text-right whitespace-nowrap">
           {lastIso ? (
             <>
@@ -443,7 +530,7 @@ function FragmentRow({ c, isSel, isOpen, lastIso, lastDays, onSelect, onToggle }
       </tr>
       {isOpen && (
         <tr className="bg-muted/30">
-          <td colSpan={4} className="px-0 py-0">
+          <td colSpan={5} className="px-0 py-0">
             <div className="px-6 py-3 pl-12">
               {c.invoices.length === 0 ? (
                 <div className="text-xs text-muted-foreground py-1">No open invoices in the aging report.</div>
@@ -485,7 +572,7 @@ const QUICK_ACTIONS = [
   { icon: Check, label: 'Payment received', text: 'Payment received' },
 ]
 
-function DetailPanel({ c, record, onAdd, onEdit, onDelete, onPlan, onTerms, onEarlyShip }) {
+function DetailPanel({ c, record, sica, sicaAvailable, onAdd, onEdit, onDelete, onPlan, onTerms, onEarlyShip }) {
   const [draft, setDraft] = useState('')
   const submit = () => { onAdd(draft); setDraft('') }
   const oldest = BUCKET_META.slice().reverse().find((b) => (c.buckets[b.key] || 0) > 0.005)
@@ -512,6 +599,31 @@ function DetailPanel({ c, record, onAdd, onEdit, onDelete, onPlan, onTerms, onEa
           {record.earlyShip ? <Check className="size-3.5" /> : <Truck className="size-3.5" />}
           {record.earlyShip ? 'Qualifies for Early Ship' : 'Does not qualify for Early Ship'}
         </button>
+      </div>
+
+      {/* SICA credit card */}
+      <div className="px-4 pb-3">
+        <div className="rounded-lg border px-3 py-2.5" style={sica?.sicadex_cm != null ? { background: 'linear-gradient(180deg,#005b5b0a,#005b5b03)', borderColor: '#005b5b2e' } : undefined}>
+          <div className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">SICA credit score · higher = more risk</div>
+          {sica?.sicadex_cm != null ? (
+            <>
+              <div className="flex items-baseline gap-2 mt-1.5">
+                <ScoreChip retailer={sica} size="lg" />
+                <span className="text-xs text-muted-foreground">{sicaRisk(sica.sicadex_cm)?.tier}</span>
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-1.5">
+                {sica.sicadex_avg_12mth != null && <>12-mo avg {sica.sicadex_avg_12mth} · </>}
+                {scoreRose(sica.sicadex_variance_smly) ? 'trending worse (score rising)' : 'trending better (score falling)'} vs last yr
+                {sica.member_count != null && <><br />Based on {sica.member_count.toLocaleString()} reporting {sica.member_count === 1 ? 'member' : 'members'}</>}
+                <br />Matched: <span className="text-foreground">{sica.dba || sica.legal_name}</span>
+              </div>
+            </>
+          ) : (
+            <div className="text-xs text-muted-foreground mt-1.5">
+              {sicaAvailable ? 'No SICA match for this account.' : 'SICA not connected yet — deploy sync-sica and refresh scores.'}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 px-4 pb-4">
