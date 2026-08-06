@@ -58,15 +58,34 @@ export async function loadSica() {
 // the function defaults to US (2). Throws with a readable message on failure
 // (e.g. the function isn't deployed yet).
 export async function refreshSica() {
-  const { data, error } = await supabase.functions.invoke('sync-sica', { body: {} })
-  if (error) {
-    // functions.invoke collapses any non-2xx into a generic "returned a non-2xx
-    // status code" message; the function's real error is in the response body, so
-    // dig it out and surface that instead.
-    let detail = ''
-    try { detail = (await error.context?.json?.())?.error } catch { /* body wasn't JSON */ }
-    throw new Error(detail || error.message || 'SICA sync failed — check the sync-sica function logs.')
+  // A full sync (3 SICA calls + upserts) can run longer than the Supabase client's
+  // default 15s fetch abort — which surfaces as "Failed to send a request to the
+  // Edge Function" even though the sync completes server-side. So call the function
+  // with our own fetch and a generous timeout instead of supabase.functions.invoke.
+  const url = import.meta.env.VITE_SUPABASE_URL
+  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY
+  const { data: { session } } = await supabase.auth.getSession()
+  const token = session?.access_token || anon
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 90000)
+  try {
+    const res = await fetch(`${url}/functions/v1/sync-sica`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: anon, Authorization: `Bearer ${token}` },
+      body: '{}',
+      signal: controller.signal,
+    })
+    let body = {}
+    try { body = await res.json() } catch { /* non-JSON response */ }
+    if (!res.ok) throw new Error(body.error || `sync-sica returned ${res.status}`)
+    return body
+  } catch (e) {
+    if (e?.name === 'AbortError') {
+      throw new Error('The sync is taking a while — it may still finish in the background. Reload in a minute to see updated scores.')
+    }
+    throw e
+  } finally {
+    clearTimeout(timer)
   }
-  if (data?.error) throw new Error(data.error)
-  return data
 }
