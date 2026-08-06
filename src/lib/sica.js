@@ -59,7 +59,14 @@ export async function loadSica() {
 // (e.g. the function isn't deployed yet).
 export async function refreshSica() {
   const { data, error } = await supabase.functions.invoke('sync-sica', { body: {} })
-  if (error) throw new Error(error.message || 'SICA sync failed — is the sync-sica function deployed?')
+  if (error) {
+    // functions.invoke collapses any non-2xx into a generic "returned a non-2xx
+    // status code" message; the function's real error is in the response body, so
+    // dig it out and surface that instead.
+    let detail = ''
+    try { detail = (await error.context?.json?.())?.error } catch { /* body wasn't JSON */ }
+    throw new Error(detail || error.message || 'SICA sync failed — check the sync-sica function logs.')
+  }
   if (data?.error) throw new Error(data.error)
   return data
 }
