@@ -23,7 +23,7 @@ const corsHeaders = {
 
 // Roles permitted to email a rep their commission report — keeps this from being
 // an open relay; only signed-in portal admins can trigger a send.
-const ALLOWED_ROLES = ['master_admin', 'admin', 'brand_admin', 'manager']
+const ALLOWED_ROLES = ['master_admin', 'admin', 'brand_admin', 'manager', 'accounting']
 
 const FROM_EMAIL = 'accounting@foundrydist.com'
 const FROM_NAME = 'Foundry Distribution'
