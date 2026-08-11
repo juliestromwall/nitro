@@ -270,6 +270,43 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
 
   const selected = useMemo(() => customers.find((c) => c.key === selKey) || null, [customers, selKey])
 
+  // The bucket the amount column shows: the selected filter, or 91+ when "all".
+  const activeBucket = bucketFilter === 'all' ? 'd91' : bucketFilter
+  const activeBucketLabel = BUCKET_META.find((b) => b.key === activeBucket)?.short || '91+'
+
+  // Per-bucket totals across the currently-visible rows (for the worklist footer).
+  const bucketTotals = useMemo(() => {
+    const t = { current: 0, d1_30: 0, d31_60: 0, d61_90: 0, d91: 0, total: 0 }
+    for (const c of visible) {
+      for (const b of BUCKET_META) t[b.key] += c.buckets[b.key] || 0
+      t.total += c.total
+    }
+    return t
+  }, [visible])
+
+  // Customers needing follow-up (no contact, or 14+ days) — never-contacted first,
+  // then most overdue. Powers the clickable "Needs follow-up" KPI.
+  const followupList = useMemo(() => {
+    const out = []
+    for (const c of customers) {
+      const last = lastContactByKey[c.key]
+      const d = last ? relDays(last) : null
+      if (d == null || d >= 14) out.push({ c, days: d })
+    }
+    out.sort((a, b) => {
+      if (a.days == null && b.days == null) return b.c.total - a.c.total
+      if (a.days == null) return -1
+      if (b.days == null) return 1
+      return b.days - a.days
+    })
+    return out
+  }, [customers, lastContactByKey])
+
+  const [followupOpen, setFollowupOpen] = useState(false)
+  const jumpToCustomer = (key) => {
+    setTerrFilter('all'); setBucketFilter('all'); setSelKey(key); setFollowupOpen(false)
+  }
+
   // ── KPIs ───────────────────────────────────────────────────────────────
   const kpis = useMemo(() => {
     const listTotal = customers.reduce((s, c) => s + c.total, 0)
@@ -352,8 +389,35 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
         <Kpi label="91+ days" value={fmt(kpis.past91)} sub={`${kpis.past91Pct}% of the list`} alert />
         <Kpi label="At-risk exposure" value={kpis.hasSica ? fmt(kpis.atRiskExposure) : '—'} sub={kpis.hasSica ? `${kpis.atRisk} high-risk (SICA 60+)` : 'needs SICA scores'} alert={kpis.hasSica && kpis.atRisk > 0} />
         <Kpi label="Trending worse" value={kpis.hasSica ? String(kpis.worse) : '—'} sub={kpis.hasSica ? 'SICA rising vs last yr' : 'needs SICA scores'} alert={kpis.hasSica && kpis.worse > 0} />
-        <Kpi label="Needs follow-up" value={String(kpis.followup)} sub="no contact in 14+ days" />
+        <Kpi
+          label="Needs follow-up" value={String(kpis.followup)} sub="no contact in 14+ days"
+          onClick={followupList.length ? () => setFollowupOpen((v) => !v) : undefined}
+          open={followupOpen}
+        />
       </div>
+
+      {/* Needs-follow-up drilldown */}
+      {followupOpen && followupList.length > 0 && (
+        <div className="rounded-lg border bg-card overflow-hidden -mt-1">
+          <div className="flex items-center justify-between px-4 py-2.5 border-b">
+            <h3 className="text-sm font-semibold">Needs follow-up <span className="text-muted-foreground font-normal">· {followupList.length}</span></h3>
+            <button onClick={() => setFollowupOpen(false)} className="text-xs text-muted-foreground hover:text-foreground">Close</button>
+          </div>
+          <div className="max-h-72 overflow-y-auto divide-y">
+            {followupList.map(({ c, days }) => (
+              <button key={c.key} onClick={() => jumpToCustomer(c.key)} className="w-full text-left px-4 py-2.5 hover:bg-muted/50 flex items-center justify-between gap-3">
+                <span className="min-w-0">
+                  <span className="font-medium truncate block">{c.name}</span>
+                  <span className="text-[11px] text-muted-foreground">{c.territory || 'Unmatched'} · {fmt(c.total)} owed</span>
+                </span>
+                <span className="text-xs text-right shrink-0">
+                  {days == null ? <span className="text-[#b91c1c] font-medium">never contacted</span> : <><span className="font-semibold">{days}d</span><span className="text-muted-foreground"> since contact</span></>}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Territory pills */}
       <div className="flex items-center gap-x-3 gap-y-2 flex-wrap">
@@ -390,7 +454,7 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
                 <tr className="text-[10px] uppercase tracking-wide text-muted-foreground">
                   <th className="text-left font-semibold px-4 py-2.5">Customer</th>
                   <th className="text-left font-semibold px-4 py-2.5">Aging</th>
-                  <th className="text-right font-semibold px-4 py-2.5">91+ / Total</th>
+                  <th className="text-right font-semibold px-4 py-2.5">{activeBucketLabel} / Total</th>
                   <th className="text-left font-semibold px-4 py-2.5">SICA</th>
                   <th className="text-right font-semibold px-4 py-2.5">Last contact</th>
                 </tr>
@@ -408,20 +472,46 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
                     <FragmentRow
                       key={c.key}
                       c={c} isSel={isSel} isOpen={isOpen} lastIso={last} lastDays={d} sica={sicaByKey.get(c.key)}
+                      activeBucket={activeBucket} activeBucketLabel={activeBucketLabel}
                       onSelect={() => setSelKey(c.key)}
                       onToggle={() => toggleExpand(c.key)}
                     />
                   )
                 })}
               </tbody>
+              {visible.length > 0 && (
+                <tfoot>
+                  <tr className="border-t-2 bg-muted/40 font-semibold text-xs">
+                    <td className="px-4 py-2.5" colSpan={2}>
+                      Totals · {visible.length} {visible.length === 1 ? 'customer' : 'customers'}
+                    </td>
+                    <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                      <span className="tabular-nums text-[#b91c1c]">{fmt(bucketTotals[activeBucket])}</span>
+                      <br /><span className="text-[11px] text-muted-foreground tabular-nums">{fmt(bucketTotals.total)} total</span>
+                    </td>
+                    <td colSpan={2}></td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
-          <div className="flex gap-3 px-4 py-2.5 border-t text-[10px] text-muted-foreground flex-wrap">
+          <div className="flex gap-x-4 gap-y-1.5 px-4 py-2.5 border-t text-[11px] flex-wrap items-center">
             {BUCKET_META.map((b) => (
-              <span key={b.key} className="inline-flex items-center gap-1.5">
-                <i className="inline-block size-2 rounded-sm" style={{ background: b.color }} />{b.label}
-              </span>
+              <button
+                key={b.key}
+                onClick={() => setBucketFilter(b.key)}
+                className={`inline-flex items-center gap-1.5 rounded px-1 -mx-1 hover:bg-muted ${activeBucket === b.key ? 'font-semibold' : ''}`}
+                title={`Show ${b.label} in the amount column`}
+              >
+                <i className="inline-block size-2 rounded-sm" style={{ background: b.color }} />
+                <span className="text-muted-foreground">{b.label}</span>
+                <span className="tabular-nums" style={{ color: bucketTotals[b.key] > 0 ? b.color : undefined }}>{fmt(bucketTotals[b.key])}</span>
+              </button>
             ))}
+            <span className="inline-flex items-center gap-1.5 ml-auto">
+              <span className="text-muted-foreground uppercase tracking-wide text-[10px] font-semibold">Total</span>
+              <span className="font-semibold tabular-nums">{fmt(bucketTotals.total)}</span>
+            </span>
           </div>
         </div>
 
@@ -459,14 +549,25 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
   )
 }
 
-function Kpi({ label, value, sub, alert, muted }) {
-  return (
-    <div className="rounded-lg border bg-card px-4 py-3">
-      <div className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground">{label}</div>
+function Kpi({ label, value, sub, alert, muted, onClick, open }) {
+  const inner = (
+    <>
+      <div className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground inline-flex items-center gap-1">
+        {label}
+        {onClick && <ChevronDown className={`size-3 transition-transform ${open ? 'rotate-180 text-[#005b5b]' : ''}`} />}
+      </div>
       <div className={`text-xl font-bold mt-1.5 tabular-nums ${alert ? 'text-[#b91c1c]' : muted ? 'text-foreground' : ''}`}>{value}</div>
       <div className="text-[11px] text-muted-foreground mt-0.5">{sub}</div>
-    </div>
+    </>
   )
+  if (onClick) {
+    return (
+      <button onClick={onClick} className={`rounded-lg border bg-card px-4 py-3 text-left transition-colors hover:border-[#005b5b] ${open ? 'border-[#005b5b] ring-1 ring-[#005b5b]/20' : ''}`}>
+        {inner}
+      </button>
+    )
+  }
+  return <div className="rounded-lg border bg-card px-4 py-3">{inner}</div>
 }
 
 function TerrPill({ on, label, title, count, onClick }) {
@@ -520,7 +621,8 @@ function ScoreChip({ retailer, size = 'sm' }) {
 }
 
 // A customer row + its expandable invoice sub-row.
-function FragmentRow({ c, isSel, isOpen, lastIso, lastDays, sica, onSelect, onToggle }) {
+function FragmentRow({ c, isSel, isOpen, lastIso, lastDays, sica, activeBucket = 'd91', onSelect, onToggle }) {
+  const bucketAmt = c.buckets[activeBucket] || 0
   return (
     <>
       <tr
@@ -548,7 +650,7 @@ function FragmentRow({ c, isSel, isOpen, lastIso, lastDays, sica, onSelect, onTo
         </td>
         <td className="px-4 py-3"><AgingBar buckets={c.buckets} total={c.total} /></td>
         <td className="px-4 py-3 text-right whitespace-nowrap">
-          <span className={`font-semibold tabular-nums ${c.buckets.d91 > 0 ? 'text-[#b91c1c]' : ''}`}>{fmt(c.buckets.d91)}</span>
+          <span className={`font-semibold tabular-nums ${bucketAmt > 0 ? 'text-[#b91c1c]' : 'text-muted-foreground'}`}>{fmt(bucketAmt)}</span>
           <br /><span className="text-[11px] text-muted-foreground tabular-nums">{fmt(c.total)} total</span>
         </td>
         <td className="px-4 py-3"><ScoreChip retailer={sica} /></td>
@@ -835,14 +937,14 @@ function DetailPanel({ c, record, sica, sicaAvailable, sicaOverride, sicaRetaile
           {record.notes.length === 0 && <li className="py-3 text-xs text-muted-foreground">No notes yet — log your first contact above.</li>}
           {record.notes.map((n, i) => (
             <li key={i} className="flex gap-3 py-2.5 group">
-              <span className="w-12 shrink-0 text-[11px] font-semibold text-[#005b5b] tabular-nums">{shortDate(n.ts)}</span>
+              <span className="w-12 shrink-0 text-xs font-semibold text-[#005b5b] tabular-nums mt-0.5">{shortDate(n.ts)}</span>
               <span
                 contentEditable
                 suppressContentEditableWarning
                 spellCheck={false}
                 onBlur={(e) => onEdit(i, e.currentTarget.textContent.trim())}
                 onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() } }}
-                className="flex-1 text-xs rounded px-1.5 py-0.5 -mx-1.5 hover:bg-muted focus:outline-none focus:bg-background focus:ring-1 focus:ring-[#005b5b]"
+                className="flex-1 text-sm leading-relaxed rounded px-1.5 py-0.5 -mx-1.5 hover:bg-muted focus:outline-none focus:bg-background focus:ring-1 focus:ring-[#005b5b]"
               >{n.text}</span>
               <button
                 onClick={() => onDelete(i)}
