@@ -4851,22 +4851,42 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
     try {
       const pdf = exportRepReportPDF({ ...exportArgs, returnBase64: true })
       const xlsx = exportRepReportXLSX({ ...exportArgs, returnBase64: true })
-      const { data, error: fnError } = await supabase.functions.invoke('email-rep-report', {
-        body: {
-          repName: rep?.name || '',
-          repEmail: to.trim(),
-          subject: subject.trim() || 'Your commission report',
-          message,
-          pdfBase64: pdf.base64, pdfFilename: pdf.filename,
-          xlsxBase64: xlsx.base64, xlsxFilename: xlsx.filename,
-        },
-      })
-      if (fnError) throw new Error(fnError.message || 'Send failed')
-      if (data?.error) throw new Error(data.error)
+      // Direct fetch with a generous timeout instead of supabase.functions.invoke:
+      // sending (token exchange + Gmail upload with attachments) can run past the
+      // client's default 15s abort, which otherwise reads as the opaque
+      // "Failed to send a request to the Edge Function". Also surfaces the
+      // function's real error from the response body.
+      const base = import.meta.env.VITE_SUPABASE_URL
+      const anon = import.meta.env.VITE_SUPABASE_ANON_KEY
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token || anon
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 120000)
+      let res
+      try {
+        res = await fetch(`${base}/functions/v1/email-rep-report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: anon, Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            repName: rep?.name || '',
+            repEmail: to.trim(),
+            subject: subject.trim() || 'Your commission report',
+            message,
+            pdfBase64: pdf.base64, pdfFilename: pdf.filename,
+            xlsxBase64: xlsx.base64, xlsxFilename: xlsx.filename,
+          }),
+          signal: controller.signal,
+        })
+      } finally { clearTimeout(timer) }
+      let body = {}
+      try { body = await res.json() } catch { /* non-JSON response */ }
+      if (!res.ok) throw new Error(body.error || `Send failed (${res.status})`)
       setStatus('sent')
     } catch (e) {
       setStatus('error')
-      setError(e?.message || 'Failed to send. Please try again.')
+      setError(e?.name === 'AbortError'
+        ? 'The send timed out. The email may still go through — check the rep’s inbox, or try again.'
+        : (e?.message || 'Failed to send. Please try again.'))
     }
   }
 
