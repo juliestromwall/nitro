@@ -33,6 +33,7 @@ import { computeCollectedCommission } from '@/lib/collectedCommission'
 import { loadCollected, saveCollected, clearCollected } from '@/lib/collectedStore'
 import { parseArAging, openInvoicesFromAging } from '@/lib/arAgingParser'
 import { loadArAging, saveArAging, clearArAging } from '@/lib/arAgingStore'
+import { loadEmailLog, saveEmailLog } from '@/lib/emailLog'
 import CollectionsView from './CollectionsView'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
@@ -196,6 +197,17 @@ function PaymentsTracker() {
   // in the page header row next to the "<Rep> — Commission Ledger" title.
   const [ledgerActions, setLedgerActions] = useState(null)
   const registerLedgerActions = useCallback((a) => setLedgerActions(a), [])
+  // When each rep was last emailed their report → "Last emailed …" note.
+  const [emailLog, setEmailLog] = useState({})
+  useEffect(() => { loadEmailLog().then(setEmailLog).catch(() => {}) }, [])
+  const onEmailSent = useCallback((repId) => {
+    if (!repId) return
+    setEmailLog((prev) => {
+      const next = { ...prev, [repId]: new Date().toISOString() }
+      saveEmailLog(next).catch(() => {})
+      return next
+    })
+  }, [])
   const [selectedBrandId, setSelectedBrandId] = useState(null)
   const [expandedPayouts, setExpandedPayouts] = useState({})
 
@@ -1654,16 +1666,23 @@ function PaymentsTracker() {
           </div>
         )}
         {view === 'rep-ledger' && ledgerActions && (
-          <div className="flex gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={ledgerActions.pdf}>
-              <FileSpreadsheet className="size-4 mr-1.5" /> PDF
-            </Button>
-            <Button variant="outline" size="sm" onClick={ledgerActions.xlsx}>
-              <FileSpreadsheet className="size-4 mr-1.5" /> XLSX
-            </Button>
-            <Button size="sm" onClick={ledgerActions.email} className="bg-[#005b5b] hover:bg-[#004848]">
-              <Mail className="size-4 mr-1.5" /> Email
-            </Button>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={ledgerActions.pdf}>
+                <FileSpreadsheet className="size-4 mr-1.5" /> PDF
+              </Button>
+              <Button variant="outline" size="sm" onClick={ledgerActions.xlsx}>
+                <FileSpreadsheet className="size-4 mr-1.5" /> XLSX
+              </Button>
+              <Button size="sm" onClick={ledgerActions.email} className="bg-[#005b5b] hover:bg-[#004848]">
+                <Mail className="size-4 mr-1.5" /> Email
+              </Button>
+            </div>
+            <span className="text-[11px] text-muted-foreground">
+              {selectedRep && emailLog[selectedRep.id]
+                ? <>Last emailed {new Date(emailLog[selectedRep.id]).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</>
+                : 'Not emailed yet'}
+            </span>
           </div>
         )}
       </div>
@@ -1924,6 +1943,7 @@ function PaymentsTracker() {
           paymentDatesByInvoiceNum={paymentDatesByInvoiceNum}
           paymentEventsByInvoiceNum={paymentEventsByInvoiceNum}
           settlementEventsByInvoiceNum={settlementEventsByInvoiceNum}
+          onEmailSent={onEmailSent}
           onAddPayout={() => openRecordPayout(selectedRep.id)}
           onEditPayout={openEditPayout}
           onDeletePayout={deleteCommissionPayout}
@@ -4824,7 +4844,7 @@ function PortalMigrateButton() {
 // =====================================================================
 // EmailReportModal — email the rep's PDF + XLSX report from accounting@
 // =====================================================================
-function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
+function EmailReportModal({ open, onOpenChange, rep, exportArgs, onSent }) {
   const [to, setTo] = useState('')
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
@@ -4882,6 +4902,7 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
       try { body = await res.json() } catch { /* non-JSON response */ }
       if (!res.ok) throw new Error(body.error || `Send failed (${res.status})`)
       setStatus('sent')
+      onSent?.(rep?.id)
     } catch (e) {
       setStatus('error')
       setError(e?.name === 'AbortError'
@@ -4946,7 +4967,7 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, collectedEvents, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, settlementEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
+function RepLedgerView({ rep, aggregate, summary, collectedEvents, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, settlementEventsByInvoiceNum, onEmailSent, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, availableWas: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   // Correct each invoice's paid status/openBalance from the settlement engine —
   // the payment data is the source of truth. A date-filtered invoices export can
@@ -5322,7 +5343,7 @@ function RepLedgerView({ rep, aggregate, summary, collectedEvents, payouts, repA
         </CardHeader>
       </Card>
 
-      <EmailReportModal open={emailOpen} onOpenChange={setEmailOpen} rep={rep} exportArgs={exportArgs} />
+      <EmailReportModal open={emailOpen} onOpenChange={setEmailOpen} rep={rep} exportArgs={exportArgs} onSent={onEmailSent} />
 
       {/* Summary cards: the three pieces of info Tony's monthly report needs */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 ${safeSummary.owesFoundry > 0 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
