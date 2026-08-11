@@ -4,7 +4,7 @@
 
 export const REPS = [
   { id: 'rep-adam',                name: 'Adam Stromwall',      email: 'adam@foundrydist.com', agency: 'Stromwall Group, LLC' },
-  { id: 'rep-rob',                 name: 'Rob Aragon',          email: 'rob@somethingclever.com', agency: 'Something Clever' },
+  { id: 'rep-rob',                 name: 'Rob Aragon',          email: 'rob@somethingcleverpnw.com', agency: 'Something Clever' },
   { id: 'rep-jason',               name: 'Jason Martin',        email: 'jmartin@gmail.com', agency: 'Blue Collar' },
   { id: 'rep-kathy-karlovic',      name: 'Kathy Karlovic',      email: 'kkarlovic530@gmail.com', agency: '' },
   { id: 'rep-steve-clare',         name: 'Steve Clare',         email: 'dontclare@me.com', agency: "Don't Clare At Me" },
