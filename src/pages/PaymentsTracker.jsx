@@ -1064,7 +1064,7 @@ function PaymentsTracker() {
       }
       ev.paymentAmount += e.lineNet || 0
       ev.commissionForEvent += e.commission || 0
-      ev.lines.push({ brand: e.brand, commission: e.commission || 0, lineNet: e.lineNet || 0, isRental: e.isRental })
+      ev.lines.push({ brand: e.brand, commission: e.commission || 0, lineNet: e.lineNet || 0, isRental: e.isRental, skuSeason: e.skuSeason })
     }
     const arr = [...byInvoice.values()]
     for (const ev of arr) ev.amount = ev.paymentAmount
