@@ -56,16 +56,22 @@ export function buildSicaResolver(sica) {
 export async function loadSica() {
   const empty = { retailers: [], overrides: {}, lastSync: null, available: false }
   try {
-    const [latestRes, matchRes, logRes] = await Promise.all([
+    const [latestRes, matchRes, logRes, retRes] = await Promise.all([
       supabase.from('sica_latest').select('*'),
       supabase.from('sica_account_matches').select('account_key, retailer_id, confirmed'),
       supabase.from('sica_sync_log').select('status, finished_at').eq('status', 'ok').order('finished_at', { ascending: false }).limit(1),
+      // The SICA account number isn't in the sica_latest view — pull it from the
+      // base table and merge it onto each retailer by id.
+      supabase.from('sica_retailers').select('retailer_id, sica_account_number'),
     ])
     if (latestRes.error) return empty
     const overrides = {}
     for (const m of matchRes.data || []) overrides[m.account_key] = m
+    const acctByRetailer = new Map()
+    if (!retRes.error) for (const r of retRes.data || []) acctByRetailer.set(r.retailer_id, r.sica_account_number)
+    const retailers = (latestRes.data || []).map((r) => ({ ...r, sica_account_number: acctByRetailer.get(r.retailer_id) ?? null }))
     return {
-      retailers: latestRes.data || [],
+      retailers,
       overrides,
       lastSync: logRes.data?.[0]?.finished_at || null,
       available: true,
