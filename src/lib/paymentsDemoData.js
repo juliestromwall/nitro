@@ -581,6 +581,7 @@ export const ACCOUNTS = [
   {"id": "acct-470", "name": "Goldsmiths (WSR)", "territory": "SOCAL / AZ", "contactId": "3954", "firstName": "Danielle", "lastName": "Goldsmith", "email": "danielle@goldsmithssports.com", "phone": "909-866-2728"},
   {"id": "acct-471", "name": "Donut Shoppe - Nando Alcocer", "territory": "NORCAL", "contactId": "7021", "firstName": "Nando", "lastName": "Alcocer", "email": "nando@donutshoppeculture.com"},
   {"id": "acct-472", "name": "Topside / Satellite Outpost - Clare Dreyer", "territory": "PNW", "contactId": "6592", "firstName": "Clare", "lastName": "Dreyer", "email": "clare.dreyer@gmail.com"},
+  {"id": "acct-473", "name": "Tenney Resorts and Recreation - Steven Kelly", "territory": "NEW ENGLAND", "contactId": "6996", "firstName": "Steven", "lastName": "Kelly", "email": "skelly@skitenney.com", "phone": "617-594-1001"}
 ]
 
 // Distinct territory list (for filters / dropdowns)
