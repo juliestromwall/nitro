@@ -9,6 +9,7 @@
 // See docs/sica-integration-spec.md.
 
 import { supabase } from './supabase'
+import { normCustomer, findAccount } from './commissionEngine'
 
 // SICAdex: 1 = best, 100 = worst (a weighted avg of members' AR aging on a
 // retailer). Risk tiers use the mockup's illustrative thresholds.
@@ -27,6 +28,26 @@ const SCORE_ROSE_WHEN_VARIANCE_NEGATIVE = true
 export function scoreRose(variance) {
   if (variance == null) return null
   return SCORE_ROSE_WHEN_VARIANCE_NEGATIVE ? variance < 0 : variance > 0
+}
+
+// Build an account → matched SICA retailer resolver from loaded SICA data. Mirrors
+// the Collections matcher: a saved override wins (null retailer_id = explicit "no
+// match"); otherwise the same fuzzy name match the commission engine uses, against
+// SICA legal names + DBAs. Returns (accountKey, accountName) => retailer | null.
+export function buildSicaResolver(sica) {
+  const byId = new Map(), byName = new Map()
+  for (const r of sica?.retailers || []) {
+    byId.set(r.retailer_id, r)
+    for (const nm of [r.legal_name, r.dba]) {
+      const n = normCustomer(nm)
+      if (n && !byName.has(n)) byName.set(n, r)
+    }
+  }
+  return (accountKey, accountName) => {
+    const ov = sica?.overrides?.[accountKey]
+    if (ov) return ov.retailer_id ? (byId.get(ov.retailer_id) || null) : null
+    return findAccount(accountName, byName) || null
+  }
 }
 
 // Load latest score + overdue per retailer, the human match overrides, and the
