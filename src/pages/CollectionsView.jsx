@@ -828,11 +828,12 @@ function DetailPanel({ c, record, sica, sicaAvailable, sicaOverride, sicaRetaile
                       {scoreRose(sica.sicadex_variance_smly) ? 'trending worse (score rising)' : 'trending better (score falling)'} vs last yr
                       {sica.member_count != null && <><br />Based on {sica.member_count.toLocaleString()} reporting {sica.member_count === 1 ? 'member' : 'members'}</>}
                       <br />Matched{sicaMatchConfirmed ? ' (confirmed)' : ''}: <span className="text-foreground">{sica.dba || sica.legal_name}</span>
+                      {sica.sica_account_number && <> · SICA acct <span className="text-foreground">#{sica.sica_account_number}</span></>}
                     </div>
                   </>
                 ) : (
                   <div className="text-[11px] text-muted-foreground mt-1.5">
-                    Matched{sicaMatchConfirmed ? ' (confirmed)' : ''} to <span className="text-foreground">{sica.dba || sica.legal_name}</span> — no score (SICA shows N/A).
+                    Matched{sicaMatchConfirmed ? ' (confirmed)' : ''} to <span className="text-foreground">{sica.dba || sica.legal_name}</span>{sica.sica_account_number ? ` (SICA acct #${sica.sica_account_number})` : ''} — no score (SICA shows N/A).
                   </div>
                 )
               ) : (
