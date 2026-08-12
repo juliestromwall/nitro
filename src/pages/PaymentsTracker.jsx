@@ -34,6 +34,8 @@ import { loadCollected, saveCollected, clearCollected } from '@/lib/collectedSto
 import { parseArAging, openInvoicesFromAging } from '@/lib/arAgingParser'
 import { loadArAging, saveArAging, clearArAging } from '@/lib/arAgingStore'
 import { loadEmailLog, saveEmailLog } from '@/lib/emailLog'
+import { loadSica, buildSicaResolver } from '@/lib/sica'
+import SicaScoreChip from '@/components/SicaScoreChip'
 import CollectionsView from './CollectionsView'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
@@ -2260,6 +2262,13 @@ function TerritoryTile({ territory, stats, onClick }) {
 function AccountsView({ accounts, accountTotals, accountOpenBalances, invoiceNumsByAccountId = {}, unmatchedSummary, fuzzyMatchedSummary = [], territoryStats = {}, search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
   const [unmatchedOpen, setUnmatchedOpen] = useState(false)
   const [fuzzyOpen, setFuzzyOpen] = useState(false)
+  // SICA credit scores per account (same matcher + overrides as Collections).
+  // Loads independently; most accounts show "—" (SICA only covers retailers
+  // Foundry reports AR for). Coerce the account id to string to match the
+  // sica_account_matches key.
+  const [sica, setSica] = useState(null)
+  useEffect(() => { loadSica().then(setSica).catch(() => {}) }, [])
+  const resolveSica = useMemo(() => buildSicaResolver(sica), [sica])
   const fuzzyTotal = useMemo(
     () => (fuzzyMatchedSummary || []).reduce((s, f) => s + (f.total || 0), 0),
     [fuzzyMatchedSummary]
@@ -2490,6 +2499,7 @@ function AccountsView({ accounts, accountTotals, accountOpenBalances, invoiceNum
                   <thead>
                     <tr className="bg-muted/30 text-xs uppercase text-muted-foreground border-b">
                       <th className="py-2 px-4 text-left font-medium">Account</th>
+                      <th className="py-2 px-4 text-left font-medium">SICA</th>
                       <th className="py-2 px-4 text-left font-medium">Contact</th>
                       <th className="py-2 px-4 text-left font-medium">Email</th>
                       <th className="py-2 px-4 text-left font-medium">Phone</th>
@@ -2503,6 +2513,7 @@ function AccountsView({ accounts, accountTotals, accountOpenBalances, invoiceNum
                       return (
                         <tr key={a.id} onClick={() => onSelect(a.id)} className="border-b last:border-0 cursor-pointer hover:bg-muted/30">
                           <td className="py-2.5 px-4 font-medium">{a.name}</td>
+                          <td className="py-2.5 px-4"><SicaScoreChip retailer={resolveSica(String(a.id), a.name)} /></td>
                           <td className="py-2.5 px-4 text-xs text-muted-foreground">{contact || '—'}</td>
                           <td className="py-2.5 px-4 text-xs text-muted-foreground">{a.email || '—'}</td>
                           <td className="py-2.5 px-4 text-xs text-muted-foreground">{a.phone || '—'}</td>
