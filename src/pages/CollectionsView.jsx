@@ -102,7 +102,7 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
   const customers = useMemo(() => {
     const rows = (agingRows && agingRows.length)
       ? agingRows
-      : (agingOpen || []).map((o) => ({ customer: o.customer, num: o.num, openBalance: o.openBalance, type: 'Invoice', bucket: null }))
+      : (agingOpen || []).map((o) => ({ customer: o.customer, num: o.num, openBalance: o.openBalance, dueDate: o.dueDate, type: 'Invoice', bucket: null }))
     const byKey = new Map()
     for (const r of rows) {
       if (!r.customer || REP_RE.test(r.customer)) continue
@@ -125,6 +125,7 @@ export default function CollectionsView({ agingRows, agingOpen, accounts = [], l
         g.invoices.set(r.num, {
           num: r.num,
           date: r.date || prev?.date || null,
+          dueDate: r.dueDate || prev?.dueDate || null,
           openBalance: (prev?.openBalance || 0) + bal,
           bucket: r.bucket || prev?.bucket || null,
           brands: brandsByInvoiceNum[r.num] || [],
@@ -672,13 +673,14 @@ function FragmentRow({ c, isSel, isOpen, lastIso, lastDays, sica, activeBucket =
                 <div className="text-xs text-muted-foreground py-1">No open invoices in the aging report.</div>
               ) : (
                 <>
-                  <div className="grid grid-cols-[110px_92px_1fr_120px_100px] gap-3 text-[10px] uppercase tracking-wide text-muted-foreground font-semibold pb-1.5">
-                    <span>Invoice</span><span>Date</span><span>Brand</span><span>Aging</span><span className="text-right">Open</span>
+                  <div className="grid grid-cols-[110px_92px_92px_1fr_120px_100px] gap-3 text-[10px] uppercase tracking-wide text-muted-foreground font-semibold pb-1.5">
+                    <span>Invoice</span><span>Date</span><span>Due</span><span>Brand</span><span>Aging</span><span className="text-right">Open</span>
                   </div>
                   {c.invoices.map((iv) => (
-                    <div key={iv.num} className="grid grid-cols-[110px_92px_1fr_120px_100px] gap-3 items-center py-1.5 border-t text-xs">
+                    <div key={iv.num} className="grid grid-cols-[110px_92px_92px_1fr_120px_100px] gap-3 items-center py-1.5 border-t text-xs">
                       <span className="font-semibold tabular-nums">{iv.num}</span>
                       <span className="tabular-nums text-muted-foreground whitespace-nowrap">{iv.date || '—'}</span>
+                      <span className="tabular-nums text-muted-foreground whitespace-nowrap">{iv.dueDate || '—'}</span>
                       <span className="flex flex-wrap gap-1">
                         {iv.brands.length ? iv.brands.map((b) => (
                           <span key={b} className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
