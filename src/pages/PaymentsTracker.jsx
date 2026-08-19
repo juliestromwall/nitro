@@ -35,6 +35,7 @@ import { parseSalesDetail, mergeCollectedLines } from '@/lib/salesDetailParser'
 import { computeCollectedCommission } from '@/lib/collectedCommission'
 import { loadCollected, saveCollected, clearCollected } from '@/lib/collectedStore'
 import { parseArAging, openInvoicesFromAging } from '@/lib/arAgingParser'
+import { collectedPaymentMethod } from '@/lib/paymentMethod'
 import { loadArAging, saveArAging, clearArAging } from '@/lib/arAgingStore'
 import { loadEmailLog, saveEmailLog } from '@/lib/emailLog'
 import { loadSica, buildSicaResolver } from '@/lib/sica'
@@ -1119,9 +1120,17 @@ function PaymentsTracker() {
       ev.lines.push({ brand: e.brand, commission: e.commission || 0, lineNet: e.lineNet || 0, isRental: e.isRental, skuSeason: e.skuSeason })
     }
     const arr = [...byInvoice.values()]
-    for (const ev of arr) ev.amount = ev.paymentAmount
+    for (const ev of arr) {
+      ev.amount = ev.paymentAmount
+      // How the money arrived (Check / Sky ACH / WSR …) isn't in the cash-basis
+      // report, so join it from the payments-transaction data by invoice number
+      // — the same source the legacy ledger path uses. Without this the method
+      // pill silently disappeared the moment a rep's ledger switched to the
+      // collected path, because it was hardcoded empty above.
+      ev.paymentMethod = collectedPaymentMethod(paymentEventsByInvoiceNum?.get(ev.invoiceNum), ev.paymentDate)
+    }
     return arr
-  }, [collectedCommission, selectedRepId])
+  }, [collectedCommission, selectedRepId, paymentEventsByInvoiceNum])
 
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
