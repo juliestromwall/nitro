@@ -15,7 +15,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { useCompanies } from '@/context/CompanyContext'
 import JSZip from 'jszip'
 import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, TERRITORIES, STARTING_ADJUSTMENTS, ADJUSTMENT_ANCHOR, ADJUSTMENT_ANCHORS, LEDGER_PAID_SINCE_DEFAULT, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
-import { computeCommissions, aggregateByRep } from '@/lib/commissionEngine'
+import { computeCommissions, aggregateByRep, normCustomer } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { shouldIgnoreCustomer, isWsrPostPaymentCustomer } from '@/lib/customerIgnoreList'
 import { matchMemberToAccount } from '@/lib/wsrMatch'
@@ -35,6 +35,7 @@ import { parseSalesDetail, mergeCollectedLines } from '@/lib/salesDetailParser'
 import { computeCollectedCommission } from '@/lib/collectedCommission'
 import { loadCollected, saveCollected, clearCollected } from '@/lib/collectedStore'
 import { parseArAging, openInvoicesFromAging } from '@/lib/arAgingParser'
+import { paymentMethodForEvent, paymentsByCustomer } from '@/lib/paymentMethod'
 import { loadArAging, saveArAging, clearArAging } from '@/lib/arAgingStore'
 import { loadEmailLog, saveEmailLog } from '@/lib/emailLog'
 import { loadSica, buildSicaResolver } from '@/lib/sica'
@@ -1104,6 +1105,11 @@ function PaymentsTracker() {
   // shape the ledger's visiblePaymentEvents uses (amount = paymentAmount so the
   // brand-subtotal fraction is 1). Drives the correct per-rep split in the table
   // + "Earned by brand", replacing the settlement inference. null → old path.
+  // Payments indexed by customer, for the method fallback in repCollectedEvents
+  // when the invoice-level auto-match didn't resolve (credit memos push the
+  // payment outside its $5 tolerance — see paymentMethod.js).
+  const paymentsByCust = useMemo(() => paymentsByCustomer(paymentsTx, normCustomer), [paymentsTx])
+
   const repCollectedEvents = useMemo(() => {
     if (!collectedCommission || !selectedRepId) return null
     const byInvoice = new Map()
@@ -1119,9 +1125,21 @@ function PaymentsTracker() {
       ev.lines.push({ brand: e.brand, commission: e.commission || 0, lineNet: e.lineNet || 0, isRental: e.isRental, skuSeason: e.skuSeason })
     }
     const arr = [...byInvoice.values()]
-    for (const ev of arr) ev.amount = ev.paymentAmount
+    for (const ev of arr) {
+      ev.amount = ev.paymentAmount
+      // How the money arrived (Check / Sky ACH / WSR …) isn't in the cash-basis
+      // report, so join it from the payments-transaction data by invoice number
+      // — the same source the legacy ledger path uses. Without this the method
+      // pill silently disappeared the moment a rep's ledger switched to the
+      // collected path, because it was hardcoded empty above.
+      ev.paymentMethod = paymentMethodForEvent({
+        invoiceEvents: paymentEventsByInvoiceNum?.get(ev.invoiceNum),
+        customerPayments: paymentsByCust?.get(normCustomer(ev.customer || '')),
+        paymentDate: ev.paymentDate,
+      })
+    }
     return arr
-  }, [collectedCommission, selectedRepId])
+  }, [collectedCommission, selectedRepId, paymentEventsByInvoiceNum, paymentsByCust])
 
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
