@@ -10,7 +10,7 @@
 
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { collectedPaymentMethod } from './paymentMethod.js'
+import { collectedPaymentMethod, paymentsByCustomer, paymentMethodForEvent } from './paymentMethod.js'
 
 test('no payment data means no pill, not a blank one', () => {
   assert.equal(collectedPaymentMethod(undefined, '08/14/2026'), '')
@@ -69,4 +69,67 @@ test('falls back to every known method when no payment matches the date', () => 
   ]
   assert.equal(collectedPaymentMethod(events, '12/25/2026'), 'Check')
   assert.equal(collectedPaymentMethod(events, ''), 'Check')
+})
+
+// ── Customer+day fallback ─────────────────────────────────────────────────
+// Needed because the invoice→payment auto-matcher compares a payment to the
+// invoice total within $5, and credit memos push it outside that window.
+
+const NORM = (s) => String(s || '').toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
+
+test('indexes payments by customer, ignoring non-payment rows', () => {
+  const tx = [
+    { customer: 'EVO INC.', date: '08/13/2026', type: 'Payment', amount: 66779.96, method: 'ACH' },
+    { customer: 'EVO INC.', date: '04/28/2026', type: 'Invoice', amount: 67453.2, method: 'ACH' },
+    { customer: 'EVO INC.', date: '02/20/2026', type: 'Credit Memo', amount: -91.8, method: 'ACH' },
+    { customer: 'Other Co', date: '08/13/2026', type: 'Payment', amount: 10, method: 'Check' },
+    { customer: 'No Method', date: '08/13/2026', type: 'Payment', amount: 10, method: '' },
+  ]
+  const idx = paymentsByCustomer(tx, NORM)
+  assert.equal(idx.size, 2, 'only customers with a real payment method')
+  assert.equal(idx.get(NORM('EVO INC.')).length, 1, 'the invoice and credit memo rows are not payments')
+  assert.equal(idx.get(NORM('EVO INC.'))[0].method, 'ACH')
+})
+
+test("EVO's credit-memo case: no invoice match, method still found", () => {
+  // SI-127329 — invoiced 67,453.20, credited 673.24, paid 66,779.96. The
+  // matcher's $5 tolerance can't bridge that, so invoiceEvents is empty.
+  const customerPayments = [{ date: '08/13/2026', amount: 66779.96, method: 'ACH' }]
+  assert.equal(
+    paymentMethodForEvent({ invoiceEvents: [], customerPayments, paymentDate: '08/13/2026' }),
+    'ACH',
+  )
+})
+
+test('the invoice-level match always outranks the fallback', () => {
+  // A precise link must never be overridden by the weaker customer+day key.
+  assert.equal(
+    paymentMethodForEvent({
+      invoiceEvents: [{ date: '08/13/2026', method: 'Check' }],
+      customerPayments: [{ date: '08/13/2026', method: 'ACH' }],
+      paymentDate: '08/13/2026',
+    }),
+    'Check',
+  )
+})
+
+test('the fallback cannot invent a method from another day', () => {
+  const customerPayments = [{ date: '07/01/2026', method: 'ACH' }]
+  assert.equal(
+    paymentMethodForEvent({ invoiceEvents: [], customerPayments, paymentDate: '08/13/2026' }),
+    '',
+    'a payment on a different day says nothing about this one',
+  )
+})
+
+test('two methods from one customer on one day are both shown', () => {
+  const customerPayments = [
+    { date: '08/13/2026', method: 'Check' },
+    { date: '08/13/2026', method: 'ACH' },
+  ]
+  assert.equal(
+    paymentMethodForEvent({ invoiceEvents: [], customerPayments, paymentDate: '08/13/2026' }),
+    'Check / ACH',
+    'ambiguous is shown as ambiguous rather than guessed',
+  )
 })
