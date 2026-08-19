@@ -5576,6 +5576,12 @@ function RepLedgerView({ rep, aggregate, summary, collectedEvents, payouts, repA
   const exportArgs = {
     rep, summary: safeSummary, byInvoice, payouts, paidSince, territories, groupByCustomer,
     brandSubtotals, repAccountInvoices, anchor, paymentDatesByInvoiceNum,
+    // The collected (cash-basis) events are the authoritative record of WHICH
+    // invoices were paid and when — the same source the Available total is
+    // built from. Without them the statement's paid-invoice section is gated on
+    // invoice status plus the payment auto-matcher, and can come back empty
+    // while the summary above it reports real earnings.
+    collectedEvents,
   }
 
   // Surface the export/email actions to the page header. Handlers read the
