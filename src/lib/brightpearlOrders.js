@@ -56,6 +56,11 @@ const CODE_TYPES = {
   NP: ORDER_TYPE.PROMO, AP: ORDER_TYPE.PROMO, EP: ORDER_TYPE.PROMO,
   CP: ORDER_TYPE.PROMO, LP: ORDER_TYPE.PROMO,
   NPD: ORDER_TYPE.PROMO, APD: ORDER_TYPE.PROMO,
+  // L1's brand letter carries a DIGIT, so its codes are L1B / L1IS / L1P
+  // rather than LB / LIS / LP. Missing these classed real L1 orders as
+  // uncoded and parked their commission in review.
+  L1B: ORDER_TYPE.PREBOOK, L1IS: ORDER_TYPE.ATS, L1P: ORDER_TYPE.PROMO,
+  L1W: ORDER_TYPE.WARRANTY, L1CO: ORDER_TYPE.CLOSEOUT,
   // Warranty — no commission.
   NW: ORDER_TYPE.WARRANTY, AW: ORDER_TYPE.WARRANTY,
   EW: ORDER_TYPE.WARRANTY, CW: ORDER_TYPE.WARRANTY,
@@ -73,37 +78,45 @@ export function isNonCommissionable(orderType) {
 }
 
 // ── Ref parsing ───────────────────────────────────────────────────────────
-// Two shapes appear in real data, plus junk. Both are matched ANYWHERE in the
-// string, because some Refs carry a prefix ("REVIEW DEALER APP: US - AB-2027…").
-//   1. CODE-YEAR   e.g. "US - NB-2027 PO#…"  (the convention)
-//   2. YEAR-CODE   e.g. "US - 2026-NIS-DAVE BENDER"  (transposed, but valid)
-// "US" itself is never a type code — it's the country prefix — so it is skipped.
-const RE_CODE_YEAR = /\b([A-Z]{1,4})\s*-\s*(20\d{2})/
-const RE_YEAR_CODE = /\b(20\d{2})\s*-\s*([A-Z]{1,4})\b/
+// Real Refs vary more than the convention suggests. All of these are valid and
+// all appear in production data:
+//
+//   US - NB-2027 PO# 4532139166             the convention
+//   US - L1IS-2026 PO#2526 Sale Rack        L1's brand letter carries a DIGIT
+//   US - AB - SPRING 2026 PO#OR-1095198     words between the code and the year
+//   US - 2026-NIS-DAVE BENDER               year and code transposed
+//   REVIEW DEALER APP: US - AB-2027 PO#x    prefixed with unrelated text
+//   NW promo- Ellery Srofe                  no country prefix, no year at all
+//
+// So rather than pin the code to a position or require it to sit next to the
+// year, TOKENIZE and take the first token that is a KNOWN code. The legend is a
+// closed set, which is what makes this safe: free text like "Tone Stallone hat
+// promo" or "TONY FAMILY GEAR" yields no known token and stays UNCODED. An
+// earlier position-based regex silently misclassified every L1 order and every
+// "AB - SPRING" order as uncoded, parking real commission in review.
+const NOT_A_CODE = new Set(['US', 'PO', 'CA', 'INV', 'SI', 'USA'])
 
-const NOT_A_CODE = new Set(['US', 'PO', 'CA', 'INV', 'SI'])
+const RE_YEAR = /\b(20\d{2})\b/
 
 /**
  * Pull the type code and season year out of a Brightpearl Ref.
- * @returns { code, year } — code is null when the Ref doesn't follow convention.
+ * @returns { code, year } — code is null when no known code token is present.
  */
 export function parseOrderRef(ref) {
   const s = String(ref || '').toUpperCase()
   if (!s.trim()) return { code: null, year: null }
 
-  // Try CODE-YEAR first, skipping the "US -" country prefix and other noise.
-  let rest = s
-  for (let guard = 0; guard < 4; guard++) {
-    const m = RE_CODE_YEAR.exec(rest)
-    if (!m) break
-    if (!NOT_A_CODE.has(m[1])) return { code: m[1], year: m[2] }
-    rest = rest.slice(m.index + m[0].length)
+  const year = (RE_YEAR.exec(s) || [])[1] || null
+
+  // Split on anything that isn't alphanumeric, so "L1IS-2026", "AB - SPRING"
+  // and "PO#NB" all surrender their tokens.
+  for (const tok of s.split(/[^A-Z0-9]+/)) {
+    if (!tok || NOT_A_CODE.has(tok)) continue
+    if (Object.prototype.hasOwnProperty.call(CODE_TYPES, tok)) {
+      return { code: tok, year }
+    }
   }
-
-  const m2 = RE_YEAR_CODE.exec(s)
-  if (m2 && !NOT_A_CODE.has(m2[2])) return { code: m2[2], year: m2[1] }
-
-  return { code: null, year: null }
+  return { code: null, year }
 }
 
 /**

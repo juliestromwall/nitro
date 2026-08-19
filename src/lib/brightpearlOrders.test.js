@@ -23,6 +23,37 @@ test('recovers Refs that deviate from the convention', () => {
   assert.equal(parseOrderRef('US - 2026-NIS-DAVE BENDER').code, 'NIS')
   // Lower case.
   assert.equal(parseOrderRef('us - nco-2026 po#123').code, 'NCO')
+  // No year at all.
+  assert.equal(parseOrderRef('NW promo- Ellery Srofe').code, 'NW')
+})
+
+test("L1's codes carry a digit — L1IS/L1B/L1P, not LIS/LB/LP", () => {
+  // Regression: a position-based regex of [A-Z]{1,4} skipped every L1 order and
+  // classed it uncoded, parking real commission in the review queue.
+  assert.equal(orderTypeOfRef('US - L1IS-2026 PO#2526 Sale Rack'), ORDER_TYPE.ATS)
+  assert.equal(orderTypeOfRef('US - L1B-2026 PO#l1fill'), ORDER_TYPE.PREBOOK)
+  assert.equal(orderTypeOfRef('US - L1P-2026 Brad Alband'), ORDER_TYPE.PROMO)
+})
+
+test('the code need not sit next to the year', () => {
+  // Real Autumn pre-books are written "US - AB - SPRING 2026 PO#…".
+  assert.equal(orderTypeOfRef('US - AB - SPRING 2026 PO#OR-1095198'), ORDER_TYPE.PREBOOK)
+  assert.equal(orderTypeOfRef('US - AB - SPRING 2026 PO#Spring hats 2526'), ORDER_TYPE.PREBOOK)
+})
+
+test('free text yields no code even when it contains letters that look like one', () => {
+  // The legend is a closed set, which is what keeps the token scan safe.
+  for (const ref of [
+    'US - Tone Stallone hat promo',
+    'tone stallone spring hat',
+    '2026 - TONY FAMILY GEAR 2',
+    '2026 - Credit Card fees',
+    'US - 2027 AUTUMN SAMPLES BILL',
+    'ChesterBowlFFPromoEvent',
+    'New England Summit Registration Trade',
+  ]) {
+    assert.equal(orderTypeOfRef(ref), ORDER_TYPE.UNCODED, ref)
+  }
 })
 
 test('classifies each code group', () => {

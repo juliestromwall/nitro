@@ -2975,7 +2975,7 @@ function CollectedCommissionPanel({ result }) {
       </div>
       {result.commissionReview > 0 && (
         <p className="px-4 py-2 text-xs text-amber-700 border-t bg-amber-50/60">
-          {result.commissionReview} line{result.commissionReview === 1 ? '' : 's'} couldn't be routed (unknown SKU or unmatched customer) — excluded from the totals above.
+          {result.commissionReview} line{result.commissionReview === 1 ? '' : 's'} couldn't be routed (unknown SKU, unmatched customer, or a Brightpearl Ref with no order code) — excluded from the totals above.
         </p>
       )}
     </div>
@@ -3172,8 +3172,16 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
 // NIS/AIS = ATS, NCO/NC = closeout, NP/AP = promo, NW/AW = warranty).
 function BpOrdersUploader({ orders, meta, orderTypes, onPickFile, onClear, error, lastImport, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const [showUncoded, setShowUncoded] = useState(false)
   const total = orders ? Object.keys(orders).length : 0
   const tally = (t) => Object.values(orderTypes || {}).filter((x) => x === t).length
+  // The actual review queue: orders whose Ref carries no code, so the engine
+  // can't tell what they are. Listed here (rather than only counted) because
+  // the fix is to correct the Ref in Brightpearl — which needs the invoice
+  // number, the customer, and the offending Ref in front of you.
+  const uncodedRows = useMemo(() => Object.values(orders || {})
+    .filter((r) => r?.orderType === ORDER_TYPE.UNCODED)
+    .sort((a, b) => (b.paid || 0) - (a.paid || 0)), [orders])
   const blurb = (
     <>
       <p className="font-medium mb-1">Brightpearl order types</p>
@@ -3197,9 +3205,13 @@ function BpOrdersUploader({ orders, meta, orderTypes, onPickFile, onClear, error
           {tally(ORDER_TYPE.CLOSEOUT)} closeout · {tally(ORDER_TYPE.PROMO) + tally(ORDER_TYPE.WARRANTY)} no-commission
         </span>
         {uncoded > 0 && (
-          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700">
-            {uncoded} need review
-          </span>
+          <button
+            type="button"
+            onClick={() => setShowUncoded((v) => !v)}
+            className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 cursor-pointer"
+          >
+            {uncoded} need review {showUncoded ? '▲' : '▼'}
+          </button>
         )}
         {meta && <span className="text-xs text-muted-foreground">• {meta.fileName}</span>}
         <span className="ml-auto flex items-center gap-2">
@@ -3213,6 +3225,39 @@ function BpOrdersUploader({ orders, meta, orderTypes, onPickFile, onClear, error
           <UploadHistoryMenu entries={history} />
         </span>
         {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Merged {lastImport.added.toLocaleString()} orders from {lastImport.fileName} ({total} total stored).</p>}
+        {showUncoded && uncodedRows.length > 0 && (
+          <div className="basis-full mt-2 border-t pt-2">
+            <p className="text-xs text-muted-foreground mb-2">
+              These invoices earn no commission until their Ref is corrected in Brightpearl to the
+              <span className="font-medium"> {'US - <CODE>-<YEAR>'} </span>
+              convention (e.g. <span className="font-mono">US - NB-2027 PO#1234</span>). They are flagged, not zeroed.
+            </p>
+            <div className="max-h-64 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <tr className="border-b">
+                    <th className="text-left font-semibold py-1">Invoice</th>
+                    <th className="text-left font-semibold py-1">SO</th>
+                    <th className="text-left font-semibold py-1">Customer</th>
+                    <th className="text-left font-semibold py-1">Ref as entered</th>
+                    <th className="text-right font-semibold py-1">Collected</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uncodedRows.map((r) => (
+                    <tr key={r.invoice} className="border-b last:border-0">
+                      <td className="py-1 font-semibold tabular-nums whitespace-nowrap">{r.invoice}</td>
+                      <td className="py-1 tabular-nums text-muted-foreground">{r.orderId || '—'}</td>
+                      <td className="py-1 truncate max-w-[16rem]">{r.customer || '—'}</td>
+                      <td className="py-1 font-mono text-[11px] text-muted-foreground truncate max-w-[18rem]">{r.ref || '(blank)'}</td>
+                      <td className="py-1 text-right tabular-nums">{r.paid ? fmt(r.paid) : "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
       </div>
     )
