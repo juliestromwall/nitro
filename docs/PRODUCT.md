@@ -55,6 +55,9 @@
 | Rental | Rental equipment orders (boards, boots, bindings) |
 | Retail | Retail/demo product orders |
 | Order Type | Rental or Retail classification |
+| Brightpearl Order Type | What KIND of order an invoice came from, read from the Brightpearl `Ref` code: **pre-book** (Jan–Feb booking, codes NB/AB/EB/NRB), **ATS** (available-to-ship / in-stock, NIS/AIS/EIS/CIS), **closeout** (NCO/NC), **promo** (NP/AP/EP/CP/LP/NPD), **warranty** (NW/AW). Drives commission: promo and warranty earn nothing, closeout earns half rate, pre-book and ATS earn full. |
+| Ref code | The Brightpearl sales-order reference, e.g. `US - NB-2027 PO# 4532139166` — country prefix, `<BRAND><TYPE>-<SEASON>`, then the customer PO. It is the DURABLE carrier of order type: Brightpearl's "2027 Booking" tag is overwritten with "Invoiced" at invoicing and no tag history is kept, so the Ref is the only thing that survives. |
+| Uncoded order | An invoice whose Ref does not follow the code convention. Flagged for review rather than silently paid or zeroed, so a mistyped Ref is visible instead of quietly costing a rep. |
 | Stage | Order status — "Order Placed", "Partially Shipped", "Short Shipped", and "Canceled" are permanent defaults; custom stages can be added per company. Canceled and Short Shipped orders are excluded from all totals and commission. |
 | Invoice | A shipment invoice managed at the account-group level (all orders for the same account in a season). Each invoice has a number, amount, and optional document. Stored on the first order in the group. |
 | Pending Amount | The difference between account group total and sum of invoice amounts — indicates unshipped/uninvoiced inventory. |

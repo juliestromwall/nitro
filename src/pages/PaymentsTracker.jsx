@@ -22,6 +22,9 @@ import { matchMemberToAccount } from '@/lib/wsrMatch'
 import { loadLineItems, saveLineItems as idbSaveLineItems, clearLineItems as idbClearLineItems } from '@/lib/lineItemsStore'
 import { loadPaymentsTx, savePaymentsTx as idbSavePaymentsTx, clearPaymentsTx as idbClearPaymentsTx } from '@/lib/paymentsStore'
 import { loadBpOverrides, mergeBpOverrides as idbMergeBpOverrides, clearBpOverrides as idbClearBpOverrides } from '@/lib/bpOverridesStore'
+import { loadBpOrders, mergeBpOrders as idbMergeBpOrders, clearBpOrders as idbClearBpOrders, omitBpOrders as idbOmitBpOrders, unomitBpOrder as idbUnomitBpOrder, orderTypeMap } from '@/lib/bpOrdersStore'
+import { parseBrightpearlOrders, ORDER_TYPE } from '@/lib/brightpearlOrders'
+import { ORDER_TYPE_RULES_EFFECTIVE } from '@/lib/commissionRules'
 import { loadWsrRemittances, addWsrRemittance as idbAddWsrRemittance, clearWsrRemittances as idbClearWsrRemittances } from '@/lib/wsrRemittanceStore'
 import { exportRepReportPDF, exportRepReportXLSX } from '@/lib/repReport'
 import { supabase } from '@/lib/supabase'
@@ -529,6 +532,40 @@ function PaymentsTracker() {
     setBpOverridesMetaState(null)
     idbClearBpOverrides().catch(() => {})
   }
+
+  // Brightpearl order metadata (order type, SO number, PO) keyed by invoice.
+  // Drives the order-type commission rules: promo/warranty earn nothing,
+  // closeout earns half, off-convention Refs are flagged for review.
+  const [bpOrders, setBpOrdersState] = useState({})
+  const [bpOrdersMeta, setBpOrdersMetaState] = useState(null)
+  const [bpOmitted, setBpOmittedState] = useState({})
+  useEffect(() => {
+    loadBpOrders().then(({ orders, meta, omitted }) => {
+      setBpOrdersState(orders)
+      setBpOrdersMetaState(meta)
+      setBpOmittedState(omitted || {})
+    }).catch(() => {})
+  }, [])
+  const mergeBpOrdersState = async (byInvoice, meta) => {
+    const merged = await idbMergeBpOrders(byInvoice, meta)
+    setBpOrdersState(merged)
+    setBpOrdersMetaState(meta)
+  }
+  const clearBpOrdersState = () => {
+    setBpOrdersState({})
+    setBpOrdersMetaState(null)
+    setBpOmittedState({})
+    idbClearBpOrders().catch(() => {})
+  }
+  const omitBpOrdersState = async (invoiceNums) => {
+    const next = await idbOmitBpOrders(invoiceNums, new Date().toISOString())
+    setBpOmittedState(next)
+  }
+  const unomitBpOrderState = async (invoiceNum) => {
+    const next = await idbUnomitBpOrder(invoiceNum)
+    setBpOmittedState(next)
+  }
+  const bpOrderTypes = useMemo(() => orderTypeMap(bpOrders, bpOmitted), [bpOrders, bpOmitted])
 
   // WSR ACH payment remittances — one upload per check. Dedupe by checkNumber.
   const [wsrRemittances, setWsrRemittancesState] = useState([])
@@ -1046,8 +1083,9 @@ function PaymentsTracker() {
     })
     return computeCollectedCommission({
       lines, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+      orderTypes: bpOrderTypes,
     })
-  }, [collectedLines, recoverWsrCustomer])
+  }, [collectedLines, recoverWsrCustomer, bpOrderTypes])
   const collectedEarnedSinceAnchorByRep = useMemo(() => {
     if (!collectedCommission) return null
     const out = {}
@@ -1892,6 +1930,14 @@ function PaymentsTracker() {
           bpOverridesAppliedCount={bpOverridesAppliedCount}
           onMergeBpOverrides={mergeBpOverridesState}
           onClearBpOverrides={clearBpOverridesState}
+          bpOrders={bpOrders}
+          bpOrdersMeta={bpOrdersMeta}
+          bpOrderTypes={bpOrderTypes}
+          bpOmitted={bpOmitted}
+          onMergeBpOrders={mergeBpOrdersState}
+          onClearBpOrders={clearBpOrdersState}
+          onOmitBpOrders={omitBpOrdersState}
+          onUnomitBpOrder={unomitBpOrderState}
           wsrRemittances={wsrRemittances}
           wsrAttributedCount={wsrRemittanceAppliedCount}
           onAddWsrRemittance={addWsrRemittanceState}
@@ -2943,7 +2989,7 @@ function CollectedCommissionPanel({ result }) {
       </div>
       {result.commissionReview > 0 && (
         <p className="px-4 py-2 text-xs text-amber-700 border-t bg-amber-50/60">
-          {result.commissionReview} line{result.commissionReview === 1 ? '' : 's'} couldn't be routed (unknown SKU or unmatched customer) — excluded from the totals above.
+          {result.commissionReview} line{result.commissionReview === 1 ? '' : 's'} couldn't be routed (unknown SKU, unmatched customer, or a Brightpearl Ref with no order code) — excluded from the totals above.
         </p>
       )}
     </div>
@@ -3134,6 +3180,180 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
   )
 }
 
+// Brightpearl order export — the source of each invoice's ORDER TYPE.
+// Brightpearl's "2027 Booking" tag is overwritten with "Invoiced" at invoicing
+// and no history is kept, so the durable signal is the Ref code (NB/AB = pre-book,
+// NIS/AIS = ATS, NCO/NC = closeout, NP/AP = promo, NW/AW = warranty).
+function BpOrdersUploader({ orders, meta, orderTypes, omitted = {}, onOmit, onUnomit, onPickFile, onClear, error, lastImport, history = [] }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const [showUncoded, setShowUncoded] = useState(false)
+  const total = orders ? Object.keys(orders).length : 0
+  const tally = (t) => Object.values(orderTypes || {}).filter((x) => x === t).length
+  // The actual review queue: orders whose Ref carries no code, so the engine
+  // can't tell what they are. Listed here (rather than only counted) because
+  // the fix is to correct the Ref in Brightpearl — which needs the invoice
+  // number, the customer, and the offending Ref in front of you.
+  // Split the uncoded set: still-open ones nag in the review queue; dismissed
+  // ones are kept visible (collapsed) so a wrong call can be undone.
+  const allUncoded = useMemo(() => Object.values(orders || {})
+    .filter((r) => r?.orderType === ORDER_TYPE.UNCODED)
+    .sort((a, b) => (b.paid || 0) - (a.paid || 0)), [orders])
+  const uncodedRows = useMemo(() => allUncoded.filter((r) => !omitted?.[r.invoice]), [allUncoded, omitted])
+  const omittedRows = useMemo(() => allUncoded.filter((r) => omitted?.[r.invoice]), [allUncoded, omitted])
+  const blurb = (
+    <>
+      <p className="font-medium mb-1">Brightpearl order types</p>
+      <p>Tells the engine what KIND of order each invoice came from. Promo and warranty earn no commission, closeout earns half rate, pre-book and ATS earn full.</p>
+      <p className="mt-1 text-muted-foreground">Read from the Ref code (NB/AB pre-book, NIS/AIS ATS, NCO closeout, NP/AP promo, NW warranty). Refs that don't follow the convention are flagged for review, never silently zeroed.</p>
+      <p className="mt-1 text-muted-foreground">Applies to payments from {ORDER_TYPE_RULES_EFFECTIVE} onward — earlier commission is left as settled.</p>
+    </>
+  )
+  if (total > 0) {
+    const uncoded = tally(ORDER_TYPE.UNCODED)
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          BP order types:
+          <InfoTip>{blurb}</InfoTip>
+        </span>
+        <span className="font-medium">{total.toLocaleString()}</span>
+        <span className="text-muted-foreground">invoices typed</span>
+        <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+          {tally(ORDER_TYPE.CLOSEOUT)} closeout · {tally(ORDER_TYPE.PROMO) + tally(ORDER_TYPE.WARRANTY)} no-commission
+        </span>
+        {uncoded > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowUncoded((v) => !v)}
+            className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 cursor-pointer"
+          >
+            {uncoded} need review {showUncoded ? '▲' : '▼'}
+          </button>
+        )}
+        {meta && <span className="text-xs text-muted-foreground">• {meta.fileName}</span>}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">
+              <Upload className="size-3.5" /> Merge another file
+            </span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
+        </span>
+        {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Merged {lastImport.added.toLocaleString()} orders from {lastImport.fileName} ({total} total stored).</p>}
+        {showUncoded && uncodedRows.length > 0 && (
+          <div className="basis-full mt-2 border-t pt-2">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <p className="text-xs text-muted-foreground">
+                These invoices earn no commission until their Ref is corrected in Brightpearl to the
+                <span className="font-medium"> {'US - <CODE>-<YEAR>'} </span>
+                convention (e.g. <span className="font-mono">US - NB-2027 PO#1234</span>). They are flagged, not zeroed.
+                <span className="block mt-0.5">Reviewed one and it genuinely earns nothing? <span className="font-medium">Omit</span> it — it stops asking, and stays undoable below.</span>
+              </p>
+              {uncodedRows.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0"
+                  onClick={() => onOmit?.(uncodedRows.map((r) => r.invoice))}
+                >
+                  Omit all {uncodedRows.length}
+                </Button>
+              )}
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <tr className="border-b">
+                    <th className="text-left font-semibold py-1">Invoice</th>
+                    <th className="text-left font-semibold py-1">SO</th>
+                    <th className="text-left font-semibold py-1">Customer</th>
+                    <th className="text-left font-semibold py-1">Ref as entered</th>
+                    <th className="text-right font-semibold py-1">Collected</th>
+                    <th className="py-1"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uncodedRows.map((r) => (
+                    <tr key={r.invoice} className="border-b last:border-0">
+                      <td className="py-1 font-semibold tabular-nums whitespace-nowrap">{r.invoice}</td>
+                      <td className="py-1 tabular-nums text-muted-foreground">{r.orderId || '—'}</td>
+                      <td className="py-1 truncate max-w-[16rem]">{r.customer || '—'}</td>
+                      <td className="py-1 font-mono text-[11px] text-muted-foreground truncate max-w-[18rem]">{r.ref || '(blank)'}</td>
+                      <td className="py-1 text-right tabular-nums">{r.paid ? fmt(r.paid) : '—'}</td>
+                      <td className="py-1 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onOmit?.([r.invoice])}
+                          className="text-[10px] uppercase font-semibold text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded border border-input hover:bg-muted"
+                        >
+                          Omit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {uncodedRows.length === 0 && (
+                    <tr><td colSpan={6} className="py-2 text-center text-muted-foreground">Nothing left to review.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {omittedRows.length > 0 && (
+              <details className="mt-2">
+                <summary className="text-xs text-muted-foreground cursor-pointer">
+                  {omittedRows.length} omitted after review — earn no commission
+                </summary>
+                <table className="w-full text-xs mt-1">
+                  <tbody>
+                    {omittedRows.map((r) => (
+                      <tr key={r.invoice} className="border-b last:border-0 text-muted-foreground">
+                        <td className="py-1 tabular-nums whitespace-nowrap">{r.invoice}</td>
+                        <td className="py-1 truncate max-w-[14rem]">{r.customer || '—'}</td>
+                        <td className="py-1 font-mono text-[11px] truncate max-w-[16rem]">{r.ref || '(blank)'}</td>
+                        <td className="py-1 text-right tabular-nums">{r.paid ? fmt(r.paid) : '—'}</td>
+                        <td className="py-1 text-right">
+                          <button
+                            type="button"
+                            onClick={() => onUnomit?.(r.invoice)}
+                            className="text-[10px] uppercase font-semibold hover:text-foreground px-1.5 py-0.5 rounded border border-input hover:bg-muted"
+                          >
+                            Undo
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            )}
+          </div>
+        )}
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Brightpearl order types
+        <InfoTip>{blurb}</InfoTip>
+      </p>
+      <p className="text-sm text-muted-foreground mb-4">Tells the engine what kind of order each invoice came from. Promo and warranty earn nothing, closeout earns half rate. Export invoiced sales orders from Brightpearl; files accumulate.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> Choose Brightpearl Orders CSV
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected columns: Order ID, Invoice, Ref (Order Notes optional)</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
 function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, wsrAttributedCount = 0, onPickFile, onClear, error, lastImport, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   if (remittances.length > 0) {
@@ -3210,6 +3430,7 @@ function InvoicesView({
   lineItems, lineItemsMeta, onSaveLineItems, onAppendLineItems, onClearLineItems, lineItemsStorageError, lastLineItemsImport,
   paymentsTx = [], paymentsTxMeta, onSavePaymentsTx, onClearPaymentsTx,
   bpOverrides = {}, bpOverridesMeta, bpOverridesAppliedCount = 0, onMergeBpOverrides, onClearBpOverrides,
+  bpOrders = {}, bpOrdersMeta, bpOrderTypes = {}, bpOmitted = {}, onMergeBpOrders, onClearBpOrders, onOmitBpOrders, onUnomitBpOrder,
   wsrRemittances = [], wsrAttributedCount = 0, onAddWsrRemittance, onClearWsrRemittances,
   selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
   uploadLog = [], recordUpload, onCollectedLines, onClearCollected, collectedLoaded,
@@ -3712,6 +3933,7 @@ function InvoicesView({
       // this is the payoff: what each rep is owed from what was actually collected.
       const commission = computeCollectedCommission({
         lines: result.lines, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+        orderTypes: bpOrderTypes,
       })
       const repRows = {}
       for (const e of commission.entries) {
@@ -3820,6 +4042,33 @@ function InvoicesView({
     setConfirmAction({
       message: 'This action will clear all uploaded BP invoice overrides, are you sure you want to proceed?',
       onConfirm: () => { onClearBpOverrides(); setBpError(null); setLastBpImport(null) },
+    })
+  }
+
+  // ===== Brightpearl order export (order types) =====
+  const [bpOrdersError, setBpOrdersError] = useState(null)
+  const [lastBpOrdersImport, setLastBpOrdersImport] = useState(null)
+  const handleBpOrdersFile = async (file) => {
+    setBpOrdersError(null)
+    try {
+      const text = await file.text()
+      const { byInvoice, counts, skipped } = parseBrightpearlOrders(text)
+      const added = Object.keys(byInvoice).length
+      if (added === 0) {
+        throw new Error(skipped > 0
+          ? `No invoiced orders found — all ${skipped} rows are still open (no invoice number yet).`
+          : 'No orders found in this file.')
+      }
+      const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), counts, rowCount: added }
+      await onMergeBpOrders(byInvoice, meta)
+      setLastBpOrdersImport({ fileName: file.name, added, totalAfter: Object.keys({ ...bpOrders, ...byInvoice }).length })
+      recordUpload?.('bp_orders', file.name, 'merge', added)
+    } catch (e) { setBpOrdersError(e.message || 'Failed to parse Brightpearl order export') }
+  }
+  const clearBpOrdersConfirm = () => {
+    setConfirmAction({
+      message: 'This action will clear all uploaded Brightpearl order types, are you sure you want to proceed?',
+      onConfirm: () => { onClearBpOrders(); setBpOrdersError(null); setLastBpOrdersImport(null) },
     })
   }
 
@@ -4392,6 +4641,20 @@ function InvoicesView({
         error={bpError}
         lastImport={lastBpImport}
         history={historyFor('bp_overrides')}
+      />
+
+      <BpOrdersUploader
+        orders={bpOrders}
+        meta={bpOrdersMeta}
+        orderTypes={bpOrderTypes}
+        omitted={bpOmitted}
+        onOmit={onOmitBpOrders}
+        onUnomit={onUnomitBpOrder}
+        onPickFile={handleBpOrdersFile}
+        onClear={clearBpOrdersConfirm}
+        error={bpOrdersError}
+        lastImport={lastBpOrdersImport}
+        history={historyFor('bp_orders')}
       />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
