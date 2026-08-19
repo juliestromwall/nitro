@@ -14,7 +14,7 @@
 // See docs/commission-attribution-spec.md.
 
 import { computeCommissions, aggregateByRep } from './commissionEngine.js'
-import { seasonOf, seasonRateMultiplier } from './commissionRules.js'
+import { seasonOf, combinedRateMultiplier, ORDER_TYPE_RULES_EFFECTIVE } from './commissionRules.js'
 
 /**
  * @param lines           parser output `lines` (from parseSalesDetail): each
@@ -24,7 +24,14 @@ import { seasonOf, seasonRateMultiplier } from './commissionRules.js'
  * @param season          active selling season for the rate tables
  * @returns { byRep, entries, excluded, unmatchedCustomers, reviewCount }
  */
-export function computeCollectedCommission({ lines = [], accounts = [], repTerritories = {}, season = '2025-26' } = {}) {
+export function computeCollectedCommission({
+  lines = [],
+  accounts = [],
+  repTerritories = {},
+  season = '2025-26',
+  orderTypes = {},
+  orderTypeCutoff = ORDER_TYPE_RULES_EFFECTIVE,
+} = {}) {
   const invoicesByNum = new Map()
   const lineItems = []
   for (const l of lines) {
@@ -38,14 +45,21 @@ export function computeCollectedCommission({ lines = [], accounts = [], repTerri
   }
   const invoices = [...invoicesByNum.values()]
 
-  const result = computeCommissions({ invoices, lineItems, accounts, repTerritories, season })
+  const result = computeCommissions({ invoices, lineItems, accounts, repTerritories, season, orderTypes, orderTypeCutoff })
 
-  // The engine computes BASE commission and defers the older-season HALF-rate to
-  // here (see makeCommissionEntry) — "older" depends on the payment date, which
-  // the cash-basis report gives us per line (carried as invoiceDate). Apply it.
+  // The engine computes BASE commission and defers BOTH half-rate rules to here
+  // (see makeCommissionEntry): the older-season rule because "older" depends on
+  // the payment date, which the cash-basis report gives us per line (carried as
+  // invoiceDate), and the closeout rule so it lands in the same place. They go
+  // through combinedRateMultiplier together, which floors at 0.5 — a closeout
+  // line carrying carry-over SKUs pays half, never a quarter.
   const entries = result.entries.map((e) => {
     if (e.needsReview || !e.repId) return e
-    const mult = seasonRateMultiplier(e.skuSeason, seasonOf(e.invoiceDate))
+    const mult = combinedRateMultiplier({
+      skuSeason: e.skuSeason,
+      refSeason: seasonOf(e.invoiceDate),
+      isCloseout: e.isCloseout,
+    })
     if (mult === 1) return e
     return {
       ...e,

@@ -44,6 +44,56 @@ export function seasonRateMultiplier(skuSeason, refSeason) {
   return compareSeasons(skuSeason, refSeason) < 0 ? 0.5 : 1
 }
 
+// Closeout orders (Brightpearl Ref code NCO / NC) pay half rate on everything.
+export const CLOSEOUT_RATE_MULTIPLIER = 0.5
+
+// The two half-rate rules — closeout and older-season — MUST NOT STACK.
+// A line that qualifies for either, or for both, pays 0.5x base and no lower;
+// an 8% NITRO line pays 4%, never 2% (Tony, 2026-08-19). Hence Math.min rather
+// than multiplication. Every caller goes through here so the guarantee holds in
+// one place instead of being re-derived at each site.
+export function combinedRateMultiplier({ skuSeason, refSeason, isCloseout = false } = {}) {
+  return Math.min(
+    seasonRateMultiplier(skuSeason, refSeason),
+    isCloseout ? CLOSEOUT_RATE_MULTIPLIER : 1,
+  )
+}
+
+// Order-type rules (promo/warranty earn nothing, closeout earns half) apply
+// FORWARD ONLY: they rate lines PAID on or after this date, leaving already
+// settled commission untouched rather than clawing back past payouts.
+// Same spirit as ADJUSTMENT_ANCHOR in paymentsDemoData.js.
+export const ORDER_TYPE_RULES_EFFECTIVE = '2026-08-19'
+
+// Normalize a date to sortable YYYY-MM-DD. Dates reach the engine in BOTH
+// shapes — ISO from the A/R aging, US M/D/YYYY from the QBO cash-basis report —
+// so a naive string compare would silently exempt every US-formatted row.
+// Mirrors seasonOf's parsing to avoid a timezone day-shift.
+export function toIsoDate(dateInput) {
+  if (!dateInput) return null
+  const s = String(dateInput).trim()
+  let mo
+  if ((mo = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) {
+    return `${mo[1]}-${mo[2].padStart(2, '0')}-${mo[3].padStart(2, '0')}`
+  }
+  if ((mo = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/))) {
+    return `${mo[3]}-${mo[1].padStart(2, '0')}-${mo[2].padStart(2, '0')}`
+  }
+  const d = dateInput instanceof Date ? dateInput : new Date(s)
+  if (isNaN(d.getTime())) return null
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// True when a payment/invoice date falls under the order-type rules. An absent
+// or unparseable date is treated as in-scope: new uploads always carry one, and
+// defaulting the other way would silently exempt rows.
+export function orderTypeRulesApply(dateInput, effective = ORDER_TYPE_RULES_EFFECTIVE) {
+  if (!effective) return true
+  const d = toIsoDate(dateInput)
+  if (!d) return true
+  return d >= effective
+}
+
 // Layered model — most specific wins at lookup time:
 //   1. Customer + Rep + Brand override   (CUSTOMER_OVERRIDES, rare)
 //   2. Customer + Brand override         (CUSTOMER_OVERRIDES, common — e.g. Backcountry.com)

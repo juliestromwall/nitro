@@ -22,6 +22,9 @@ import { matchMemberToAccount } from '@/lib/wsrMatch'
 import { loadLineItems, saveLineItems as idbSaveLineItems, clearLineItems as idbClearLineItems } from '@/lib/lineItemsStore'
 import { loadPaymentsTx, savePaymentsTx as idbSavePaymentsTx, clearPaymentsTx as idbClearPaymentsTx } from '@/lib/paymentsStore'
 import { loadBpOverrides, mergeBpOverrides as idbMergeBpOverrides, clearBpOverrides as idbClearBpOverrides } from '@/lib/bpOverridesStore'
+import { loadBpOrders, mergeBpOrders as idbMergeBpOrders, clearBpOrders as idbClearBpOrders, orderTypeMap } from '@/lib/bpOrdersStore'
+import { parseBrightpearlOrders, ORDER_TYPE } from '@/lib/brightpearlOrders'
+import { ORDER_TYPE_RULES_EFFECTIVE } from '@/lib/commissionRules'
 import { loadWsrRemittances, addWsrRemittance as idbAddWsrRemittance, clearWsrRemittances as idbClearWsrRemittances } from '@/lib/wsrRemittanceStore'
 import { exportRepReportPDF, exportRepReportXLSX } from '@/lib/repReport'
 import { supabase } from '@/lib/supabase'
@@ -529,6 +532,29 @@ function PaymentsTracker() {
     setBpOverridesMetaState(null)
     idbClearBpOverrides().catch(() => {})
   }
+
+  // Brightpearl order metadata (order type, SO number, PO) keyed by invoice.
+  // Drives the order-type commission rules: promo/warranty earn nothing,
+  // closeout earns half, off-convention Refs are flagged for review.
+  const [bpOrders, setBpOrdersState] = useState({})
+  const [bpOrdersMeta, setBpOrdersMetaState] = useState(null)
+  useEffect(() => {
+    loadBpOrders().then(({ orders, meta }) => {
+      setBpOrdersState(orders)
+      setBpOrdersMetaState(meta)
+    }).catch(() => {})
+  }, [])
+  const mergeBpOrdersState = async (byInvoice, meta) => {
+    const merged = await idbMergeBpOrders(byInvoice, meta)
+    setBpOrdersState(merged)
+    setBpOrdersMetaState(meta)
+  }
+  const clearBpOrdersState = () => {
+    setBpOrdersState({})
+    setBpOrdersMetaState(null)
+    idbClearBpOrders().catch(() => {})
+  }
+  const bpOrderTypes = useMemo(() => orderTypeMap(bpOrders), [bpOrders])
 
   // WSR ACH payment remittances — one upload per check. Dedupe by checkNumber.
   const [wsrRemittances, setWsrRemittancesState] = useState([])
@@ -1046,8 +1072,9 @@ function PaymentsTracker() {
     })
     return computeCollectedCommission({
       lines, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+      orderTypes: bpOrderTypes,
     })
-  }, [collectedLines, recoverWsrCustomer])
+  }, [collectedLines, recoverWsrCustomer, bpOrderTypes])
   const collectedEarnedSinceAnchorByRep = useMemo(() => {
     if (!collectedCommission) return null
     const out = {}
@@ -1892,6 +1919,11 @@ function PaymentsTracker() {
           bpOverridesAppliedCount={bpOverridesAppliedCount}
           onMergeBpOverrides={mergeBpOverridesState}
           onClearBpOverrides={clearBpOverridesState}
+          bpOrders={bpOrders}
+          bpOrdersMeta={bpOrdersMeta}
+          bpOrderTypes={bpOrderTypes}
+          onMergeBpOrders={mergeBpOrdersState}
+          onClearBpOrders={clearBpOrdersState}
           wsrRemittances={wsrRemittances}
           wsrAttributedCount={wsrRemittanceAppliedCount}
           onAddWsrRemittance={addWsrRemittanceState}
@@ -3134,6 +3166,77 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
   )
 }
 
+// Brightpearl order export — the source of each invoice's ORDER TYPE.
+// Brightpearl's "2027 Booking" tag is overwritten with "Invoiced" at invoicing
+// and no history is kept, so the durable signal is the Ref code (NB/AB = pre-book,
+// NIS/AIS = ATS, NCO/NC = closeout, NP/AP = promo, NW/AW = warranty).
+function BpOrdersUploader({ orders, meta, orderTypes, onPickFile, onClear, error, lastImport, history = [] }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const total = orders ? Object.keys(orders).length : 0
+  const tally = (t) => Object.values(orderTypes || {}).filter((x) => x === t).length
+  const blurb = (
+    <>
+      <p className="font-medium mb-1">Brightpearl order types</p>
+      <p>Tells the engine what KIND of order each invoice came from. Promo and warranty earn no commission, closeout earns half rate, pre-book and ATS earn full.</p>
+      <p className="mt-1 text-muted-foreground">Read from the Ref code (NB/AB pre-book, NIS/AIS ATS, NCO closeout, NP/AP promo, NW warranty). Refs that don't follow the convention are flagged for review, never silently zeroed.</p>
+      <p className="mt-1 text-muted-foreground">Applies to payments from {ORDER_TYPE_RULES_EFFECTIVE} onward — earlier commission is left as settled.</p>
+    </>
+  )
+  if (total > 0) {
+    const uncoded = tally(ORDER_TYPE.UNCODED)
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          BP order types:
+          <InfoTip>{blurb}</InfoTip>
+        </span>
+        <span className="font-medium">{total.toLocaleString()}</span>
+        <span className="text-muted-foreground">invoices typed</span>
+        <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+          {tally(ORDER_TYPE.CLOSEOUT)} closeout · {tally(ORDER_TYPE.PROMO) + tally(ORDER_TYPE.WARRANTY)} no-commission
+        </span>
+        {uncoded > 0 && (
+          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700">
+            {uncoded} need review
+          </span>
+        )}
+        {meta && <span className="text-xs text-muted-foreground">• {meta.fileName}</span>}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">
+              <Upload className="size-3.5" /> Merge another file
+            </span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
+        </span>
+        {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Merged {lastImport.added.toLocaleString()} orders from {lastImport.fileName} ({total} total stored).</p>}
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Brightpearl order types
+        <InfoTip>{blurb}</InfoTip>
+      </p>
+      <p className="text-sm text-muted-foreground mb-4">Tells the engine what kind of order each invoice came from. Promo and warranty earn nothing, closeout earns half rate. Export invoiced sales orders from Brightpearl; files accumulate.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> Choose Brightpearl Orders CSV
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected columns: Order ID, Invoice, Ref (Order Notes optional)</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
 function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, wsrAttributedCount = 0, onPickFile, onClear, error, lastImport, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   if (remittances.length > 0) {
@@ -3210,6 +3313,7 @@ function InvoicesView({
   lineItems, lineItemsMeta, onSaveLineItems, onAppendLineItems, onClearLineItems, lineItemsStorageError, lastLineItemsImport,
   paymentsTx = [], paymentsTxMeta, onSavePaymentsTx, onClearPaymentsTx,
   bpOverrides = {}, bpOverridesMeta, bpOverridesAppliedCount = 0, onMergeBpOverrides, onClearBpOverrides,
+  bpOrders = {}, bpOrdersMeta, bpOrderTypes = {}, onMergeBpOrders, onClearBpOrders,
   wsrRemittances = [], wsrAttributedCount = 0, onAddWsrRemittance, onClearWsrRemittances,
   selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
   uploadLog = [], recordUpload, onCollectedLines, onClearCollected, collectedLoaded,
@@ -3712,6 +3816,7 @@ function InvoicesView({
       // this is the payoff: what each rep is owed from what was actually collected.
       const commission = computeCollectedCommission({
         lines: result.lines, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+        orderTypes: bpOrderTypes,
       })
       const repRows = {}
       for (const e of commission.entries) {
@@ -3820,6 +3925,33 @@ function InvoicesView({
     setConfirmAction({
       message: 'This action will clear all uploaded BP invoice overrides, are you sure you want to proceed?',
       onConfirm: () => { onClearBpOverrides(); setBpError(null); setLastBpImport(null) },
+    })
+  }
+
+  // ===== Brightpearl order export (order types) =====
+  const [bpOrdersError, setBpOrdersError] = useState(null)
+  const [lastBpOrdersImport, setLastBpOrdersImport] = useState(null)
+  const handleBpOrdersFile = async (file) => {
+    setBpOrdersError(null)
+    try {
+      const text = await file.text()
+      const { byInvoice, counts, skipped } = parseBrightpearlOrders(text)
+      const added = Object.keys(byInvoice).length
+      if (added === 0) {
+        throw new Error(skipped > 0
+          ? `No invoiced orders found — all ${skipped} rows are still open (no invoice number yet).`
+          : 'No orders found in this file.')
+      }
+      const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), counts, rowCount: added }
+      await onMergeBpOrders(byInvoice, meta)
+      setLastBpOrdersImport({ fileName: file.name, added, totalAfter: Object.keys({ ...bpOrders, ...byInvoice }).length })
+      recordUpload?.('bp_orders', file.name, 'merge', added)
+    } catch (e) { setBpOrdersError(e.message || 'Failed to parse Brightpearl order export') }
+  }
+  const clearBpOrdersConfirm = () => {
+    setConfirmAction({
+      message: 'This action will clear all uploaded Brightpearl order types, are you sure you want to proceed?',
+      onConfirm: () => { onClearBpOrders(); setBpOrdersError(null); setLastBpOrdersImport(null) },
     })
   }
 
@@ -4392,6 +4524,17 @@ function InvoicesView({
         error={bpError}
         lastImport={lastBpImport}
         history={historyFor('bp_overrides')}
+      />
+
+      <BpOrdersUploader
+        orders={bpOrders}
+        meta={bpOrdersMeta}
+        orderTypes={bpOrderTypes}
+        onPickFile={handleBpOrdersFile}
+        onClear={clearBpOrdersConfirm}
+        error={bpOrdersError}
+        lastImport={lastBpOrdersImport}
+        history={historyFor('bp_orders')}
       />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
