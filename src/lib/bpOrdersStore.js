@@ -14,7 +14,6 @@
 //   meta:   { uploadedAt, fileName, counts, rowCount }
 
 import { pget, pset, pdel } from './portalStore'
-import { ORDER_TYPE } from './brightpearlOrders'
 
 const KEY_ORDERS = 'bp_orders'
 const KEY_META = 'bp_orders_meta'
@@ -77,14 +76,7 @@ export async function clearBpOrders() {
   try { await pdel(KEY_OMITTED) } catch { /* already gone or offline */ }
 }
 
-// The engine wants a flat { invoiceNum: orderType } map, not the full records.
-// A dismissed invoice reports OMITTED, which is non-commissionable and — unlike
-// UNCODED — no longer asks to be reviewed.
-export function orderTypeMap(orders, omitted = {}) {
-  const out = {}
-  for (const [invoice, rec] of Object.entries(orders || {})) {
-    if (!rec?.orderType) continue
-    out[invoice] = omitted?.[invoice] ? ORDER_TYPE.OMITTED : rec.orderType
-  }
-  return out
-}
+// orderTypeMap moved to brightpearlOrders.js — it is pure order-type logic
+// with no persistence concern, and living here made it untestable (this module
+// pulls in Supabase). Re-exported so existing imports keep working.
+export { orderTypeMap } from './brightpearlOrders'

@@ -7,6 +7,7 @@ import {
   poNumberFromRef,
   isNonCommissionable,
   parseBrightpearlOrders,
+  orderTypeMap,
 } from './brightpearlOrders.js'
 
 test('reads the type code out of a conventional Ref', () => {
@@ -129,4 +130,24 @@ test('an omitted order is non-commissionable and no longer asks for review', () 
   assert.notEqual(ORDER_TYPE.OMITTED, ORDER_TYPE.PROMO)
   // Still non-commissionable is NOT the same as review-worthy.
   assert.equal(isNonCommissionable(ORDER_TYPE.UNCODED), false)
+})
+
+test('weekly appends: a later export corrects an earlier classification', () => {
+  // Exports are appended weekly and the incoming file wins, so a Ref fixed in
+  // Brightpearl must actually take effect downstream.
+  const wk1 = { 'SI-1': { invoice:'SI-1', orderType: ORDER_TYPE.UNCODED, ref: 'tony friends order' } }
+  const wk2 = { 'SI-1': { invoice:'SI-1', orderType: ORDER_TYPE.PREBOOK, ref: 'US - NB-2027 PO#fixed' } }
+  assert.equal(orderTypeMap({ ...wk1, ...wk2 })['SI-1'], ORDER_TYPE.PREBOOK)
+})
+
+test('an omit does NOT outlive the Ref being fixed', () => {
+  // The bug this guards: omit SI-1 while uncoded, then correct its Ref upstream.
+  // If the stale omit won, the order would never pay commission again and
+  // nothing on screen would say why.
+  const omitted = { 'SI-1': { at: '2026-08-19' } }
+  const uncoded = { 'SI-1': { invoice:'SI-1', orderType: ORDER_TYPE.UNCODED, ref: 'tony friends order' } }
+  const fixed = { 'SI-1': { invoice:'SI-1', orderType: ORDER_TYPE.PREBOOK, ref: 'US - NB-2027 PO#fixed' } }
+
+  assert.equal(orderTypeMap(uncoded, omitted)['SI-1'], ORDER_TYPE.OMITTED, 'holds while still uncoded')
+  assert.equal(orderTypeMap(fixed, omitted)['SI-1'], ORDER_TYPE.PREBOOK, 'yields once the Ref is corrected')
 })

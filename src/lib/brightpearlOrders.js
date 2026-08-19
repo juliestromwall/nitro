@@ -143,6 +143,25 @@ export function poNumberFromRef(ref) {
   return m ? m[1].trim() : ''
 }
 
+// The engine wants a flat { invoiceNum: orderType } map, not the full records.
+// A dismissed invoice reports OMITTED, which is non-commissionable and — unlike
+// UNCODED — no longer asks to be reviewed.
+//
+// An omit only holds while the order is STILL uncoded. Exports are appended
+// weekly, so an invoice omitted this week may reappear next week with its Ref
+// corrected in Brightpearl. A stale omit must not outrank the fix: it would
+// suppress a now-classifiable order forever and quietly cost a rep the
+// commission, with nothing on screen to show why.
+export function orderTypeMap(orders, omitted = {}) {
+  const out = {}
+  for (const [invoice, rec] of Object.entries(orders || {})) {
+    if (!rec?.orderType) continue
+    const stillUncoded = rec.orderType === ORDER_TYPE.UNCODED
+    out[invoice] = (stillUncoded && omitted?.[invoice]) ? ORDER_TYPE.OMITTED : rec.orderType
+  }
+  return out
+}
+
 // ── CSV ───────────────────────────────────────────────────────────────────
 const norm = (s) => String(s || '').trim().toLowerCase().replace(/\s+/g, ' ')
 
