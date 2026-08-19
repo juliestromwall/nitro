@@ -36,6 +36,7 @@ import { computeCollectedCommission } from '@/lib/collectedCommission'
 import { loadCollected, saveCollected, clearCollected } from '@/lib/collectedStore'
 import { parseArAging, openInvoicesFromAging } from '@/lib/arAgingParser'
 import { paymentMethodForEvent, paymentsByCustomer } from '@/lib/paymentMethod'
+import { matchPaymentsToInvoices } from '@/lib/paymentMatcher'
 import { loadArAging, saveArAging, clearArAging } from '@/lib/arAgingStore'
 import { loadEmailLog, saveEmailLog } from '@/lib/emailLog'
 import { loadSica, buildSicaResolver } from '@/lib/sica'
@@ -776,160 +777,13 @@ function PaymentsTracker() {
   //      Phase C — small subset of distinct payments sums to paid portion
   // Anything we can't resolve stays absent (strict no-manual-data policy).
   // ───────────────────────────────────────────────────────────────────
-  const paymentEventsByInvoiceNum = useMemo(() => {
-    const result = new Map()
-    const add = (num, ev) => {
-      if (!result.has(num)) result.set(num, [])
-      result.get(num).push(ev)
-    }
-    // 1. WSR remittance — push each line as an event.
-    for (const [num, events] of wsrInvoicePayments.entries()) {
-      for (const ev of events) add(num, { date: ev.checkDate, amount: ev.amountPaid || 0, source: 'wsr', method: 'WSR' })
-    }
-    if (!paymentsTx?.length || !invoices?.length) {
-      for (const arr of result.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-      return result
-    }
-    const norm = (s) => String(s || '')
-      .toUpperCase()
-      .replace(/['']/g, '')
-      .replace(/\([^)]*\)/g, '')
-      .replace(/\s+-\s.*$/, '')
-      .replace(/[^A-Z0-9 ]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-    const paymentsByCust = new Map()
-    for (const tx of paymentsTx) {
-      if (tx.type !== 'Payment') continue
-      if (!tx.customer || !tx.date) continue
-      const k = norm(tx.customer)
-      if (!paymentsByCust.has(k)) paymentsByCust.set(k, [])
-      paymentsByCust.get(k).push(tx)
-    }
-    for (const arr of paymentsByCust.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-    const invoicesByCust = new Map()
-    for (const inv of invoices) {
-      if (!inv.customer || !inv.num || !inv.amount) continue
-      const paidPortion = (inv.amount || 0) - (inv.openBalance || 0)
-      if (paidPortion <= 0.005) continue
-      if (result.has(inv.num)) continue   // WSR already covers this invoice
-      const k = norm(inv.customer)
-      if (!invoicesByCust.has(k)) invoicesByCust.set(k, [])
-      invoicesByCust.get(k).push({ ...inv, paidPortion })
-    }
-    for (const [custKey, invs] of invoicesByCust.entries()) {
-      const payments = paymentsByCust.get(custKey) || []
-      if (!payments.length) continue
-      invs.sort((a, b) => b.paidPortion - a.paidPortion)
-      const used = new Set()
-      // Phase A: single-payment match.
-      for (const inv of invs) {
-        const target = inv.paidPortion
-        let bestIdx = -1, bestDiff = Infinity
-        for (let i = 0; i < payments.length; i++) {
-          if (used.has(i)) continue
-          const diff = Math.abs((payments[i].amount || 0) - target)
-          if (diff <= 5 && diff < bestDiff) { bestIdx = i; bestDiff = diff }
-        }
-        if (bestIdx >= 0) {
-          const p = payments[bestIdx]
-          add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-single', method: p.method || '' })
-          used.add(bestIdx)
-        }
-      }
-      // Phase B: N identical installments sum to paid portion.
-      for (const inv of invs) {
-        if (result.has(inv.num)) continue
-        const target = inv.paidPortion
-        const byAmt = new Map()
-        for (let i = 0; i < payments.length; i++) {
-          if (used.has(i)) continue
-          const cents = Math.round((payments[i].amount || 0) * 100)
-          if (!byAmt.has(cents)) byAmt.set(cents, [])
-          byAmt.get(cents).push(i)
-        }
-        for (const [cents, indices] of byAmt) {
-          const amt = cents / 100
-          if (amt <= 0) continue
-          const n = Math.round(target / amt)
-          if (n < 2 || n > indices.length) continue
-          if (Math.abs(n * amt - target) > 5) continue
-          for (let j = 0; j < n; j++) {
-            const p = payments[indices[j]]
-            add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-installments', method: p.method || '' })
-            used.add(indices[j])
-          }
-          break
-        }
-      }
-      // Phase C: small subset of distinct payments summing to paid portion.
-      for (const inv of invs) {
-        if (result.has(inv.num)) continue
-        const target = inv.paidPortion
-        const available = []
-        for (let i = 0; i < payments.length; i++) if (!used.has(i)) available.push(i)
-        if (available.length === 0 || available.length > 12) continue
-        const n = available.length
-        let bestMask = 0, bestDiff = Infinity, bestCount = Infinity
-        for (let mask = 1; mask < (1 << n); mask++) {
-          let sum = 0, count = 0
-          for (let i = 0; i < n; i++) {
-            if (mask & (1 << i)) { sum += payments[available[i]].amount || 0; count++ }
-          }
-          const diff = Math.abs(sum - target)
-          if (diff <= 5 && (diff < bestDiff || (diff === bestDiff && count < bestCount))) {
-            bestMask = mask
-            bestDiff = diff
-            bestCount = count
-          }
-        }
-        if (bestMask) {
-          for (let i = 0; i < n; i++) {
-            if (bestMask & (1 << i)) {
-              const idx = available[i]
-              const p = payments[idx]
-              add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-subset', method: p.method || '' })
-              used.add(idx)
-            }
-          }
-        }
-      }
-      // Phase D: one payment settles a GROUP of invoices (a single lump-sum
-      // check covering several invoices at once — the inverse of Phase C).
-      // Match an unused payment to a subset of still-unmatched invoices whose
-      // paid portions sum to the payment amount, then date each of those
-      // invoices to that payment. Without this, a customer who clears several
-      // invoices with one check leaves them all unmatched (no payment date),
-      // and their commission never flows into the rep's earned/available.
-      for (let pi = 0; pi < payments.length; pi++) {
-        if (used.has(pi)) continue
-        const payAmt = payments[pi].amount || 0
-        if (payAmt <= 0) continue
-        const open = invs.filter(inv => !result.has(inv.num))
-        if (open.length < 2 || open.length > 14) continue   // single-invoice case is Phase A's job
-        const m = open.length
-        let bestMask = 0, bestDiff = Infinity, bestCount = -1
-        for (let mask = 1; mask < (1 << m); mask++) {
-          let sum = 0, count = 0
-          for (let i = 0; i < m; i++) if (mask & (1 << i)) { sum += open[i].paidPortion; count++ }
-          if (count < 2) continue   // need 2+ invoices to be a "group"
-          const diff = Math.abs(sum - payAmt)
-          // Prefer the closest sum; break ties toward covering MORE invoices.
-          if (diff <= 5 && (diff < bestDiff || (diff === bestDiff && count > bestCount))) {
-            bestMask = mask; bestDiff = diff; bestCount = count
-          }
-        }
-        if (bestMask) {
-          for (let i = 0; i < m; i++) {
-            if (bestMask & (1 << i)) add(open[i].num, { date: payments[pi].date, amount: open[i].paidPortion, source: 'auto-group', method: payments[pi].method || '' })
-          }
-          used.add(pi)
-        }
-      }
-    }
-    for (const arr of result.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-    return result
-  }, [paymentsTx, invoices, wsrInvoicePayments])
+  // Payment→invoice matching lives in src/lib/paymentMatcher.js so its phases
+  // can be tested — it decides which invoices show a payment date and method,
+  // and it feeds the rep statement.
+  const paymentEventsByInvoiceNum = useMemo(
+    () => matchPaymentsToInvoices({ paymentsTx, invoices, wsrInvoicePayments }),
+    [paymentsTx, invoices, wsrInvoicePayments],
+  )
 
   // Backwards-compatible single-date lookup — uses the LATEST event date.
   const paymentDatesByInvoiceNum = useMemo(() => {
