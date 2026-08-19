@@ -8,6 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { computeCollectedCommission } from './collectedCommission.js'
+import { ORDER_TYPE_RULES_EFFECTIVE, orderTypeRulesApply } from './commissionRules.js'
 
 const accounts = [{ id: 'a1', name: 'Test Shop', territory: 'SOCAL / AZ' }]
 const repTerritories = { 'rep-carter-katz': ['SOCAL / AZ'], 'rep-steve-clare': ['SOCAL / AZ'] }
@@ -120,11 +121,26 @@ test('closeout and carry-over do NOT stack — the floor is half, never a quarte
 })
 
 test('the rules are forward-only — lines paid before the cutoff keep old treatment', () => {
-  const orderTypes = { 'SI-OLD': 'promo', 'SI-NEW': 'promo' }
-  const { entries } = run([line('SI-OLD', AUTUMN_CURRENT, BEFORE), line('SI-NEW', AUTUMN_CURRENT, AFTER)], orderTypes)
+  // An EXPLICIT cutoff, so this tests the mechanism rather than whatever
+  // ORDER_TYPE_RULES_EFFECTIVE happens to be set to today.
+  const { entries } = computeCollectedCommission({
+    lines: [line('SI-OLD', AUTUMN_CURRENT, BEFORE), line('SI-NEW', AUTUMN_CURRENT, AFTER)],
+    accounts, repTerritories, season: '2025-26',
+    orderTypes: { 'SI-OLD': 'promo', 'SI-NEW': 'promo' },
+    orderTypeCutoff: '2026-08-10',
+  })
   const old = entries.find((e) => e.invoiceNum === 'SI-OLD')
   assert.ok(old && old.commission > 0, 'already-settled promo commission is left alone')
   assert.equal(entries.filter((e) => e.invoiceNum === 'SI-NEW').length, 0, 'new promo earns nothing')
+})
+
+test('the shipped cutoff reaches the 8.2-8.15 collection period', () => {
+  // Guards the reason the constant is 8/1/26 rather than the day it was written:
+  // SI-127329 (the EVO closeout) was collected in that period and must be caught.
+  assert.equal(ORDER_TYPE_RULES_EFFECTIVE, '2026-08-01')
+  assert.equal(orderTypeRulesApply('08/14/2026'), true, 'a mid-August payment is in scope')
+  assert.equal(orderTypeRulesApply('2026-08-14'), true, 'ISO dates too — both shapes reach the engine')
+  assert.equal(orderTypeRulesApply('07/28/2026'), false, 'late July is left settled')
 })
 
 test('with no order types uploaded the engine is unchanged', () => {

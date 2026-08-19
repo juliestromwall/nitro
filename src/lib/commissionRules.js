@@ -63,7 +63,10 @@ export function combinedRateMultiplier({ skuSeason, refSeason, isCloseout = fals
 // FORWARD ONLY: they rate lines PAID on or after this date, leaving already
 // settled commission untouched rather than clawing back past payouts.
 // Same spirit as ADJUSTMENT_ANCHOR in paymentsDemoData.js.
-export const ORDER_TYPE_RULES_EFFECTIVE = '2026-08-19'
+// Set to 8/1/26 so the correction reaches SI-127329 (the EVO closeout, collected
+// in the 8.2–8.15 period). Rob is the rep it affects and none of it has been
+// paid out yet. Reps paid since 8/1 are unaffected — verified, see the PR.
+export const ORDER_TYPE_RULES_EFFECTIVE = '2026-08-01'
 
 // Normalize a date to sortable YYYY-MM-DD. Dates reach the engine in BOTH
 // shapes — ISO from the A/R aging, US M/D/YYYY from the QBO cash-basis report —
