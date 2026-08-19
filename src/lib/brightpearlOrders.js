@@ -40,6 +40,10 @@ export const ORDER_TYPE = {
   PROMO: 'promo',
   WARRANTY: 'warranty',
   UNCODED: 'uncoded',
+  // An uncoded order Tony has since reviewed and dismissed. Distinct from
+  // UNCODED so it stops nagging in the review queue, and distinct from PROMO so
+  // the reason it earns nothing stays honest — it was judged, not classified.
+  OMITTED: 'omitted',
 }
 
 const CODE_TYPES = {
@@ -70,8 +74,8 @@ const CODE_TYPES = {
   NRO: ORDER_TYPE.PROMO, ARO: ORDER_TYPE.PROMO, NOS: ORDER_TYPE.PROMO,
 }
 
-// Codes that earn nothing at all.
-const NON_COMMISSIONABLE = new Set([ORDER_TYPE.PROMO, ORDER_TYPE.WARRANTY])
+// Types that earn nothing at all.
+const NON_COMMISSIONABLE = new Set([ORDER_TYPE.PROMO, ORDER_TYPE.WARRANTY, ORDER_TYPE.OMITTED])
 
 export function isNonCommissionable(orderType) {
   return NON_COMMISSIONABLE.has(orderType)

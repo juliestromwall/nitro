@@ -119,3 +119,14 @@ test('parses a Brightpearl export and indexes it by invoice number', () => {
 test('rejects a CSV that is not a Brightpearl order export', () => {
   assert.throws(() => parseBrightpearlOrders('Date,Customer,Amount\n1/1/26,Bob,10'), /Brightpearl/)
 })
+
+test('an omitted order is non-commissionable and no longer asks for review', () => {
+  // Tony reviews an uncoded invoice, decides it genuinely earns nothing, and
+  // omits it. It must stop nagging AND stop paying — but stay distinguishable
+  // from promo, because the reason it earns nothing is a judgement, not a code.
+  assert.equal(isNonCommissionable(ORDER_TYPE.OMITTED), true)
+  assert.notEqual(ORDER_TYPE.OMITTED, ORDER_TYPE.UNCODED)
+  assert.notEqual(ORDER_TYPE.OMITTED, ORDER_TYPE.PROMO)
+  // Still non-commissionable is NOT the same as review-worthy.
+  assert.equal(isNonCommissionable(ORDER_TYPE.UNCODED), false)
+})

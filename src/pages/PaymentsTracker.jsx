@@ -22,7 +22,7 @@ import { matchMemberToAccount } from '@/lib/wsrMatch'
 import { loadLineItems, saveLineItems as idbSaveLineItems, clearLineItems as idbClearLineItems } from '@/lib/lineItemsStore'
 import { loadPaymentsTx, savePaymentsTx as idbSavePaymentsTx, clearPaymentsTx as idbClearPaymentsTx } from '@/lib/paymentsStore'
 import { loadBpOverrides, mergeBpOverrides as idbMergeBpOverrides, clearBpOverrides as idbClearBpOverrides } from '@/lib/bpOverridesStore'
-import { loadBpOrders, mergeBpOrders as idbMergeBpOrders, clearBpOrders as idbClearBpOrders, orderTypeMap } from '@/lib/bpOrdersStore'
+import { loadBpOrders, mergeBpOrders as idbMergeBpOrders, clearBpOrders as idbClearBpOrders, omitBpOrders as idbOmitBpOrders, unomitBpOrder as idbUnomitBpOrder, orderTypeMap } from '@/lib/bpOrdersStore'
 import { parseBrightpearlOrders, ORDER_TYPE } from '@/lib/brightpearlOrders'
 import { ORDER_TYPE_RULES_EFFECTIVE } from '@/lib/commissionRules'
 import { loadWsrRemittances, addWsrRemittance as idbAddWsrRemittance, clearWsrRemittances as idbClearWsrRemittances } from '@/lib/wsrRemittanceStore'
@@ -538,10 +538,12 @@ function PaymentsTracker() {
   // closeout earns half, off-convention Refs are flagged for review.
   const [bpOrders, setBpOrdersState] = useState({})
   const [bpOrdersMeta, setBpOrdersMetaState] = useState(null)
+  const [bpOmitted, setBpOmittedState] = useState({})
   useEffect(() => {
-    loadBpOrders().then(({ orders, meta }) => {
+    loadBpOrders().then(({ orders, meta, omitted }) => {
       setBpOrdersState(orders)
       setBpOrdersMetaState(meta)
+      setBpOmittedState(omitted || {})
     }).catch(() => {})
   }, [])
   const mergeBpOrdersState = async (byInvoice, meta) => {
@@ -552,9 +554,18 @@ function PaymentsTracker() {
   const clearBpOrdersState = () => {
     setBpOrdersState({})
     setBpOrdersMetaState(null)
+    setBpOmittedState({})
     idbClearBpOrders().catch(() => {})
   }
-  const bpOrderTypes = useMemo(() => orderTypeMap(bpOrders), [bpOrders])
+  const omitBpOrdersState = async (invoiceNums) => {
+    const next = await idbOmitBpOrders(invoiceNums, new Date().toISOString())
+    setBpOmittedState(next)
+  }
+  const unomitBpOrderState = async (invoiceNum) => {
+    const next = await idbUnomitBpOrder(invoiceNum)
+    setBpOmittedState(next)
+  }
+  const bpOrderTypes = useMemo(() => orderTypeMap(bpOrders, bpOmitted), [bpOrders, bpOmitted])
 
   // WSR ACH payment remittances — one upload per check. Dedupe by checkNumber.
   const [wsrRemittances, setWsrRemittancesState] = useState([])
@@ -1922,8 +1933,11 @@ function PaymentsTracker() {
           bpOrders={bpOrders}
           bpOrdersMeta={bpOrdersMeta}
           bpOrderTypes={bpOrderTypes}
+          bpOmitted={bpOmitted}
           onMergeBpOrders={mergeBpOrdersState}
           onClearBpOrders={clearBpOrdersState}
+          onOmitBpOrders={omitBpOrdersState}
+          onUnomitBpOrder={unomitBpOrderState}
           wsrRemittances={wsrRemittances}
           wsrAttributedCount={wsrRemittanceAppliedCount}
           onAddWsrRemittance={addWsrRemittanceState}
@@ -3170,7 +3184,7 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
 // Brightpearl's "2027 Booking" tag is overwritten with "Invoiced" at invoicing
 // and no history is kept, so the durable signal is the Ref code (NB/AB = pre-book,
 // NIS/AIS = ATS, NCO/NC = closeout, NP/AP = promo, NW/AW = warranty).
-function BpOrdersUploader({ orders, meta, orderTypes, onPickFile, onClear, error, lastImport, history = [] }) {
+function BpOrdersUploader({ orders, meta, orderTypes, omitted = {}, onOmit, onUnomit, onPickFile, onClear, error, lastImport, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   const [showUncoded, setShowUncoded] = useState(false)
   const total = orders ? Object.keys(orders).length : 0
@@ -3179,9 +3193,13 @@ function BpOrdersUploader({ orders, meta, orderTypes, onPickFile, onClear, error
   // can't tell what they are. Listed here (rather than only counted) because
   // the fix is to correct the Ref in Brightpearl — which needs the invoice
   // number, the customer, and the offending Ref in front of you.
-  const uncodedRows = useMemo(() => Object.values(orders || {})
+  // Split the uncoded set: still-open ones nag in the review queue; dismissed
+  // ones are kept visible (collapsed) so a wrong call can be undone.
+  const allUncoded = useMemo(() => Object.values(orders || {})
     .filter((r) => r?.orderType === ORDER_TYPE.UNCODED)
     .sort((a, b) => (b.paid || 0) - (a.paid || 0)), [orders])
+  const uncodedRows = useMemo(() => allUncoded.filter((r) => !omitted?.[r.invoice]), [allUncoded, omitted])
+  const omittedRows = useMemo(() => allUncoded.filter((r) => omitted?.[r.invoice]), [allUncoded, omitted])
   const blurb = (
     <>
       <p className="font-medium mb-1">Brightpearl order types</p>
@@ -3227,11 +3245,24 @@ function BpOrdersUploader({ orders, meta, orderTypes, onPickFile, onClear, error
         {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Merged {lastImport.added.toLocaleString()} orders from {lastImport.fileName} ({total} total stored).</p>}
         {showUncoded && uncodedRows.length > 0 && (
           <div className="basis-full mt-2 border-t pt-2">
-            <p className="text-xs text-muted-foreground mb-2">
-              These invoices earn no commission until their Ref is corrected in Brightpearl to the
-              <span className="font-medium"> {'US - <CODE>-<YEAR>'} </span>
-              convention (e.g. <span className="font-mono">US - NB-2027 PO#1234</span>). They are flagged, not zeroed.
-            </p>
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <p className="text-xs text-muted-foreground">
+                These invoices earn no commission until their Ref is corrected in Brightpearl to the
+                <span className="font-medium"> {'US - <CODE>-<YEAR>'} </span>
+                convention (e.g. <span className="font-mono">US - NB-2027 PO#1234</span>). They are flagged, not zeroed.
+                <span className="block mt-0.5">Reviewed one and it genuinely earns nothing? <span className="font-medium">Omit</span> it — it stops asking, and stays undoable below.</span>
+              </p>
+              {uncodedRows.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0"
+                  onClick={() => onOmit?.(uncodedRows.map((r) => r.invoice))}
+                >
+                  Omit all {uncodedRows.length}
+                </Button>
+              )}
+            </div>
             <div className="max-h-64 overflow-y-auto">
               <table className="w-full text-xs">
                 <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -3241,6 +3272,7 @@ function BpOrdersUploader({ orders, meta, orderTypes, onPickFile, onClear, error
                     <th className="text-left font-semibold py-1">Customer</th>
                     <th className="text-left font-semibold py-1">Ref as entered</th>
                     <th className="text-right font-semibold py-1">Collected</th>
+                    <th className="py-1"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -3250,12 +3282,52 @@ function BpOrdersUploader({ orders, meta, orderTypes, onPickFile, onClear, error
                       <td className="py-1 tabular-nums text-muted-foreground">{r.orderId || '—'}</td>
                       <td className="py-1 truncate max-w-[16rem]">{r.customer || '—'}</td>
                       <td className="py-1 font-mono text-[11px] text-muted-foreground truncate max-w-[18rem]">{r.ref || '(blank)'}</td>
-                      <td className="py-1 text-right tabular-nums">{r.paid ? fmt(r.paid) : "—"}</td>
+                      <td className="py-1 text-right tabular-nums">{r.paid ? fmt(r.paid) : '—'}</td>
+                      <td className="py-1 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onOmit?.([r.invoice])}
+                          className="text-[10px] uppercase font-semibold text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded border border-input hover:bg-muted"
+                        >
+                          Omit
+                        </button>
+                      </td>
                     </tr>
                   ))}
+                  {uncodedRows.length === 0 && (
+                    <tr><td colSpan={6} className="py-2 text-center text-muted-foreground">Nothing left to review.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
+            {omittedRows.length > 0 && (
+              <details className="mt-2">
+                <summary className="text-xs text-muted-foreground cursor-pointer">
+                  {omittedRows.length} omitted after review — earn no commission
+                </summary>
+                <table className="w-full text-xs mt-1">
+                  <tbody>
+                    {omittedRows.map((r) => (
+                      <tr key={r.invoice} className="border-b last:border-0 text-muted-foreground">
+                        <td className="py-1 tabular-nums whitespace-nowrap">{r.invoice}</td>
+                        <td className="py-1 truncate max-w-[14rem]">{r.customer || '—'}</td>
+                        <td className="py-1 font-mono text-[11px] truncate max-w-[16rem]">{r.ref || '(blank)'}</td>
+                        <td className="py-1 text-right tabular-nums">{r.paid ? fmt(r.paid) : '—'}</td>
+                        <td className="py-1 text-right">
+                          <button
+                            type="button"
+                            onClick={() => onUnomit?.(r.invoice)}
+                            className="text-[10px] uppercase font-semibold hover:text-foreground px-1.5 py-0.5 rounded border border-input hover:bg-muted"
+                          >
+                            Undo
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            )}
           </div>
         )}
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
@@ -3358,7 +3430,7 @@ function InvoicesView({
   lineItems, lineItemsMeta, onSaveLineItems, onAppendLineItems, onClearLineItems, lineItemsStorageError, lastLineItemsImport,
   paymentsTx = [], paymentsTxMeta, onSavePaymentsTx, onClearPaymentsTx,
   bpOverrides = {}, bpOverridesMeta, bpOverridesAppliedCount = 0, onMergeBpOverrides, onClearBpOverrides,
-  bpOrders = {}, bpOrdersMeta, bpOrderTypes = {}, onMergeBpOrders, onClearBpOrders,
+  bpOrders = {}, bpOrdersMeta, bpOrderTypes = {}, bpOmitted = {}, onMergeBpOrders, onClearBpOrders, onOmitBpOrders, onUnomitBpOrder,
   wsrRemittances = [], wsrAttributedCount = 0, onAddWsrRemittance, onClearWsrRemittances,
   selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
   uploadLog = [], recordUpload, onCollectedLines, onClearCollected, collectedLoaded,
@@ -4575,6 +4647,9 @@ function InvoicesView({
         orders={bpOrders}
         meta={bpOrdersMeta}
         orderTypes={bpOrderTypes}
+        omitted={bpOmitted}
+        onOmit={onOmitBpOrders}
+        onUnomit={onUnomitBpOrder}
         onPickFile={handleBpOrdersFile}
         onClear={clearBpOrdersConfirm}
         error={bpOrdersError}
