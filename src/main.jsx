@@ -23,6 +23,7 @@ import Login from './pages/Login'
 import InvitePage from './pages/marketing/InvitePage'
 import AccountingInvitePage from './pages/marketing/AccountingInvitePage'
 import SharePage from './pages/SharePage'
+import EnvBanner from './components/EnvBanner'
 
 // Clean up OAuth error params before React mounts (prevents router crash from invalid hash selectors)
 if (window.location.search.includes('error=') || window.location.hash.includes('error=')) {
@@ -32,6 +33,9 @@ if (window.location.search.includes('error=') || window.location.hash.includes('
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
+    {/* Sits above everything, including login and marketing pages, so there's
+        no route where you can miss which environment you're on. */}
+    <EnvBanner />
     <BrowserRouter>
       <AuthProvider>
         <Routes>
