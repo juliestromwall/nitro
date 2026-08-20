@@ -21,7 +21,30 @@ async function callFn(name, body) {
     },
     body: JSON.stringify(body ?? {}),
   })
-  const json = await res.json().catch(() => ({}))
+  let json = await res.json().catch(() => ({}))
+
+  // A 401 here means the JWT we sent was rejected. Try one forced refresh —
+  // ensureFreshSession only acts when the token is near expiry, and says
+  // nothing when the refresh itself fails — then retry once.
+  if (res.status === 401) {
+    const { data: refreshed } = await supabase.auth.refreshSession()
+    const newToken = refreshed?.session?.access_token
+    if (newToken) {
+      const retry = await fetch(`${supabaseUrl}/functions/v1/${name}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${newToken}`,
+          apikey: anonKey,
+        },
+        body: JSON.stringify(body ?? {}),
+      })
+      json = await retry.json().catch(() => ({}))
+      if (retry.ok) return json
+    }
+    throw new Error('Your session has expired — please sign out and sign in again.')
+  }
+
   if (!res.ok) throw new Error(json.error || `${name} failed`)
   return json
 }
