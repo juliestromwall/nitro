@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react'
-import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info } from 'lucide-react'
+import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info, Truck } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -1880,6 +1880,12 @@ function PaymentsTracker() {
           onClearBpOrders={clearBpOrdersState}
           onOmitBpOrders={omitBpOrdersState}
           onUnomitBpOrder={unomitBpOrderState}
+          shipSnapshot={shipSnapshot}
+          shipMeta={shipMeta}
+          shipError={shipError}
+          shipBusy={shipBusy}
+          onPickShippingFile={handleShippingFile}
+          onClearShipping={clearShippingSnapshotState}
           wsrRemittances={wsrRemittances}
           wsrAttributedCount={wsrRemittanceAppliedCount}
           onAddWsrRemittance={addWsrRemittanceState}
@@ -3296,6 +3302,80 @@ function BpOrdersUploader({ orders, meta, orderTypes, omitted = {}, onOmit, onUn
   )
 }
 
+// Warehouse shipping snapshot — the two Brightpearl exports behind the Shipping
+// tab. Two files, uploaded one after the other; which is which is decided by
+// CONTENT (are the rows tagged Invoiced?), not filename.
+function ShippingUploader({ snapshot, meta, onPickFile, onClear, error, busy, history = [] }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const openN = snapshot?.openOrders?.length || 0
+  const shipN = snapshot?.shipped?.length || 0
+  const blurb = (
+    <>
+      <p className="font-medium mb-1">Warehouse shipping</p>
+      <p>Two Brightpearl order exports taken the same day: every order EXCEPT invoiced, and the invoiced orders WITH the Tax date column.</p>
+      <p className="mt-1 text-muted-foreground">Tax date is the ship date. &ldquo;Date created&rdquo; is when the order was written — for a pre-book that is months earlier, so it must not be used.</p>
+      <p className="mt-1 text-muted-foreground">Each upload REPLACES its half. An order that moved from Printed to Invoiced has to leave the open set.</p>
+    </>
+  )
+  if (openN || shipN) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <Truck className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          Shipping snapshot:
+          <InfoTip>{blurb}</InfoTip>
+        </span>
+        <span className="font-medium">{(openN + shipN).toLocaleString()}</span>
+        <span className="text-muted-foreground">orders</span>
+        <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+          {openN.toLocaleString()} open · {shipN.toLocaleString()} invoiced
+        </span>
+        {!shipN && (
+          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700">
+            invoiced export still needed
+          </span>
+        )}
+        {!openN && (
+          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700">
+            open-orders export still needed
+          </span>
+        )}
+        {meta?.openFile && <span className="text-xs text-muted-foreground">• {meta.openFile}</span>}
+        {meta?.shippedFile && <span className="text-xs text-muted-foreground">• {meta.shippedFile}</span>}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} disabled={busy} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">
+              <Upload className="size-3.5" /> {busy ? 'Reading…' : 'Upload export'}
+            </span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
+        </span>
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <Truck className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Warehouse shipping
+        <InfoTip>{blurb}</InfoTip>
+      </p>
+      <p className="text-sm text-muted-foreground mb-4">Drives the Shipping tab: what is packed, what has shipped, and what is still waiting. Upload both Brightpearl exports — every order except invoiced, then the invoiced ones with the Tax date column.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> Choose a Brightpearl export
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected columns: Order ID, Ref, Status, Total — plus Tax date on the invoiced export</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
 function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, wsrAttributedCount = 0, onPickFile, onClear, error, lastImport, history = [] }) {
   const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
   if (remittances.length > 0) {
@@ -3373,6 +3453,7 @@ function InvoicesView({
   paymentsTx = [], paymentsTxMeta, onSavePaymentsTx, onClearPaymentsTx,
   bpOverrides = {}, bpOverridesMeta, bpOverridesAppliedCount = 0, onMergeBpOverrides, onClearBpOverrides,
   bpOrders = {}, bpOrdersMeta, bpOrderTypes = {}, bpOmitted = {}, onMergeBpOrders, onClearBpOrders, onOmitBpOrders, onUnomitBpOrder,
+  shipSnapshot, shipMeta, shipError, shipBusy, onPickShippingFile, onClearShipping,
   wsrRemittances = [], wsrAttributedCount = 0, onAddWsrRemittance, onClearWsrRemittances,
   selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
   uploadLog = [], recordUpload, onCollectedLines, onClearCollected, collectedLoaded,
@@ -4597,6 +4678,16 @@ function InvoicesView({
         error={bpOrdersError}
         lastImport={lastBpOrdersImport}
         history={historyFor('bp_orders')}
+      />
+
+      <ShippingUploader
+        snapshot={shipSnapshot}
+        meta={shipMeta}
+        onPickFile={onPickShippingFile}
+        onClear={onClearShipping}
+        error={shipError}
+        busy={shipBusy}
+        history={historyFor('shipping')}
       />
 
       {error && <p className="text-sm text-red-600">{error}</p>}

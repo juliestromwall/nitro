@@ -4,7 +4,8 @@
 // (foundry-hub/scripts/build-shipping.mjs). This one is behind the app's login
 // and shows everything: pipeline value, revenue by brand, season totals.
 //
-// Fed by two Brightpearl exports uploaded together on Data Uploads.
+// Fed by two Brightpearl exports. They can be uploaded here or from the
+// Data Uploads tab — both routes call the same handler.
 
 import { useMemo, useState } from 'react'
 import { Package, Printer, Truck, Upload, Trash2 } from 'lucide-react'
