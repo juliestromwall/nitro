@@ -42,6 +42,8 @@ import { loadEmailLog, saveEmailLog } from '@/lib/emailLog'
 import { loadSica, buildSicaResolver } from '@/lib/sica'
 import SicaScoreChip from '@/components/SicaScoreChip'
 import CollectionsView from './CollectionsView'
+import ShippingView from './ShippingView'
+import { loadShippingSnapshot, saveShippingSnapshot, clearShippingSnapshot, classifyShippingExport } from '@/lib/shippingStore'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
 
@@ -568,6 +570,53 @@ function PaymentsTracker() {
     setBpOmittedState(next)
   }
   const bpOrderTypes = useMemo(() => orderTypeMap(bpOrders, bpOmitted), [bpOrders, bpOmitted])
+
+  // ── Warehouse shipping snapshot ─────────────────────────────────────────
+  // Two Brightpearl exports, uploaded one after the other. Which is which is
+  // decided by CONTENT (are the rows tagged Invoiced?) rather than filename,
+  // because these exports get renamed constantly. REPLACE, never merge: an
+  // order that moved from Printed to Invoiced this week must leave the open set.
+  const [shipSnapshot, setShipSnapshot] = useState({ openOrders: [], shipped: [] })
+  const [shipMeta, setShipMeta] = useState(null)
+  const [shipError, setShipError] = useState(null)
+  const [shipBusy, setShipBusy] = useState(false)
+  useEffect(() => {
+    loadShippingSnapshot().then(({ openOrders, shipped, meta }) => {
+      setShipSnapshot({ openOrders, shipped })
+      setShipMeta(meta)
+    }).catch(() => {})
+  }, [])
+  const handleShippingFile = async (file) => {
+    setShipError(null); setShipBusy(true)
+    try {
+      const text = await file.text()
+      // requireInvoice:false — open orders have no invoice number yet, and they
+      // are the whole point of the first two pipeline stages.
+      const { rows } = parseBrightpearlOrders(text, { requireInvoice: false })
+      if (!rows.length) throw new Error('No orders found in this file.')
+      const kind = classifyShippingExport(rows)
+      if (kind === 'shipped' && !rows.some((r) => r.taxDate)) {
+        throw new Error('This looks like the invoiced export but has no "Tax date" column — that column is the ship date. Re-export with it included.')
+      }
+      const next = { ...shipSnapshot, [kind === 'shipped' ? 'shipped' : 'openOrders']: rows }
+      const meta = {
+        ...(shipMeta || {}),
+        [kind === 'shipped' ? 'shippedFile' : 'openFile']: file.name,
+        uploadedAt: new Date().toISOString(),
+      }
+      setShipSnapshot(next); setShipMeta(meta)
+      await saveShippingSnapshot(next, meta)
+      recordUpload?.('shipping', file.name, 'replace', rows.length)
+    } catch (e) {
+      setShipError(e.message || 'Failed to read the Brightpearl export')
+    } finally { setShipBusy(false) }
+  }
+  // ShippingView asks for confirmation itself — the shared confirm dialog is
+  // scoped to InvoicesView and isn't reachable from here.
+  const clearShippingSnapshotState = () => {
+    setShipSnapshot({ openOrders: [], shipped: [] }); setShipMeta(null); setShipError(null)
+    clearShippingSnapshot().catch(() => {})
+  }
 
   // WSR ACH payment remittances — one upload per check. Dedupe by checkNumber.
   const [wsrRemittances, setWsrRemittancesState] = useState([])
@@ -1465,7 +1514,7 @@ function PaymentsTracker() {
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-4 space-y-6">
       {/* Top-level tab bar (only on top-level views) */}
-      {(view === 'reps' || view === 'accounts' || view === 'collections' || view === 'invoices') && (
+      {(view === 'reps' || view === 'accounts' || view === 'collections' || view === 'shipping' || view === 'invoices') && (
         <div className="flex items-center gap-2 border-b">
           <button
             onClick={() => setView('reps')}
@@ -1490,6 +1539,14 @@ function PaymentsTracker() {
             }`}
           >
             Collections
+          </button>
+          <button
+            onClick={() => setView('shipping')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              view === 'shipping' ? 'border-[#005b5b] text-[#005b5b]' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Shipping
           </button>
           <button
             onClick={() => setView('invoices')}
@@ -1540,6 +1597,7 @@ function PaymentsTracker() {
           {view === 'reps' && 'Rep Payments'}
           {view === 'accounts' && 'Accounts'}
           {view === 'collections' && 'Collections'}
+          {view === 'shipping' && 'Shipping'}
           {view === 'invoices' && 'Data Uploads'}
           {view === 'rep-ledger' && `${selectedRep?.name} — Commission Ledger`}
           {view === 'brands' && `${selectedRep?.name}`}
@@ -1549,6 +1607,7 @@ function PaymentsTracker() {
         {view === 'reps' && <p className="mt-2 text-muted-foreground">Track commission payments for each rep</p>}
         {view === 'accounts' && <p className="mt-2 text-muted-foreground">{accounts.length} accounts across {new Set(accounts.map(a => a.territory).filter(Boolean)).size} territories</p>}
         {view === 'collections' && <p className="mt-2 text-muted-foreground">Work the past-due list — aging, brands, and notes from your weekly A/R upload{arAgingMeta?.asOf ? ` (as of ${arAgingMeta.asOf})` : ''}</p>}
+        {view === 'shipping' && <p className="mt-2 text-muted-foreground">What the warehouse has packed and shipped each week, and what is still waiting to go out.</p>}
         {view === 'invoices' && <p className="mt-2 text-muted-foreground">Upload QuickBooks invoices, line items, and AR reports</p>}
         {view === 'brands' && <p className="mt-2 text-muted-foreground">Select a brand to view payment history</p>}
         {view === 'ledger' && (
@@ -1768,6 +1827,17 @@ function PaymentsTracker() {
       )}
 
       {/* === COLLECTIONS VIEW === */}
+      {view === 'shipping' && (
+        <ShippingView
+          snapshot={shipSnapshot}
+          meta={shipMeta}
+          onPickFile={handleShippingFile}
+          onClear={clearShippingSnapshotState}
+          error={shipError}
+          busy={shipBusy}
+        />
+      )}
+
       {view === 'collections' && (
         <CollectionsView
           agingRows={arAgingRows}

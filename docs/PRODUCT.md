@@ -55,6 +55,8 @@
 | Rental | Rental equipment orders (boards, boots, bindings) |
 | Retail | Retail/demo product orders |
 | Order Type | Rental or Retail classification |
+| Shipping pipeline | An order's stage in the warehouse, read from its Brightpearl tag: **to print** (`2027 Booking`, `Back order`, `Internal Order US`, `US Promo Order`), **printed** (`Order Printed` — picked and packed), **shipped** (`Invoiced`). Every order sits in exactly one stage. |
+| Tax date | Brightpearl's field for when a shipment actually went out — the only true ship date in the export. Distinct from `Date created`, which is when the ORDER was written; for a pre-book those are a median 180 days apart. |
 | Brightpearl Order Type | What KIND of order an invoice came from, read from the Brightpearl `Ref` code: **pre-book** (Jan–Feb booking, codes NB/AB/EB/NRB), **ATS** (available-to-ship / in-stock, NIS/AIS/EIS/CIS), **closeout** (NCO/NC), **promo** (NP/AP/EP/CP/LP/NPD), **warranty** (NW/AW). Drives commission: promo and warranty earn nothing, closeout earns half rate, pre-book and ATS earn full. |
 | Ref code | The Brightpearl sales-order reference, e.g. `US - NB-2027 PO# 4532139166` — country prefix, `<BRAND><TYPE>-<SEASON>`, then the customer PO. It is the DURABLE carrier of order type: Brightpearl's "2027 Booking" tag is overwritten with "Invoiced" at invoicing and no tag history is kept, so the Ref is the only thing that survives. |
 | Uncoded order | An invoice whose Ref does not follow the code convention. Flagged for review rather than silently paid or zeroed, so a mistyped Ref is visible instead of quietly costing a rep. |

@@ -175,6 +175,10 @@ const COLS = {
   total: ['total'],
   paid: ['paid'],
   dateCreated: ['date created'],
+  // The SHIP date. Only present when the export includes it — "Date created" is
+  // when the ORDER was written, a median 180 days earlier for a pre-book, so the
+  // two must never be confused. Format is "18 Aug 2026".
+  taxDate: ['tax date'],
   notes: ['order notes'],
 }
 
@@ -205,14 +209,14 @@ const money = (s) => {
  *   skipped:   rows with no invoice number (not yet invoiced),
  * }
  */
-export function parseBrightpearlOrders(text) {
+export function parseBrightpearlOrders(text, { requireInvoice = true } = {}) {
   const rows = splitCSVRows(String(text || ''))
   if (!rows.length) return { byInvoice: {}, rows: [], counts: {}, skipped: 0 }
 
   // Strip a BOM if the export carries one.
   const header = parseCSVLine(rows[0].replace(/^\uFEFF/, ''))
   const idx = headerIndex(header)
-  if (idx.invoice == null || idx.ref == null) {
+  if ((idx.invoice == null && requireInvoice) || idx.ref == null) {
     throw new Error('Not a Brightpearl order export — expected "Invoice" and "Ref" columns.')
   }
 
@@ -227,7 +231,10 @@ export function parseBrightpearlOrders(text) {
     const at = (k) => (idx[k] != null ? (cells[idx[k]] || '').trim() : '')
 
     const invoice = at('invoice')
-    if (!invoice) { skipped++; continue }   // still open — no invoice assigned yet
+    // Open orders carry no invoice number yet. The commission path needs one to
+    // key on and skips them; the shipping report wants them, since "not yet
+    // invoiced" is the whole point of its first two pipeline stages.
+    if (!invoice && requireInvoice) { skipped++; continue }
 
     const ref = at('ref')
     const { code } = parseOrderRef(ref)
@@ -240,14 +247,18 @@ export function parseBrightpearlOrders(text) {
       code,
       orderType,
       poNumber: poNumberFromRef(ref),
+      // The Brightpearl TAG — the order's pipeline stage for the shipping report
+      // (2027 Booking / Order Printed / Back order / Invoiced …).
+      status: at('status'),
       customer: at('customer'),
       total: money(at('total')),
       paid: money(at('paid')),
       dateCreated: at('dateCreated'),
+      taxDate: at('taxDate'),
       notes: at('notes'),
     }
     out.push(rec)
-    byInvoice[invoice] = rec
+    if (invoice) byInvoice[invoice] = rec
     counts[orderType] = (counts[orderType] || 0) + 1
   }
 
