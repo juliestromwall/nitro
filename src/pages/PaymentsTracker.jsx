@@ -4,7 +4,7 @@ import { brandLogo } from '@/lib/brandLogos'
 import { fetchConnectedRepProfiles } from '@/lib/payoutAvailability'
 import RepHeaderCard from '@/components/accounting/RepHeaderCard'
 import { useLocation } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info, Clock } from 'lucide-react'
+import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info, Clock, Tag } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -281,6 +281,42 @@ function PaymentsTrackerInner() {
     return totals
   }, [reps, remappedEntries, remappedRepBrands, activeCompanies, brands])
 
+  // Per-rep BRAND overrides, same shape and persistence as territories:
+  // { [repId]: [brandId, ...] }. A rep present here has their list replaced
+  // outright — including Adam, who otherwise inherits every brand by default.
+  // Absent = fall back to the seed REP_BRANDS behaviour.
+  const [brandModalOpen, setBrandModalOpen] = useState(false)
+  const [repBrandOverrides, setRepBrandOverridesState] = useState({})
+  useEffect(() => {
+    pget('rep_brands').then(v => { if (v && typeof v === 'object') setRepBrandOverridesState(v) }).catch(() => {})
+  }, [])
+  const setRepBrandOverrides = (next) => {
+    setRepBrandOverridesState(prev => {
+      const value = typeof next === 'function' ? next(prev) : next
+      pset('rep_brands', value).catch(() => {})
+      return value
+    })
+  }
+  const resetRepBrandOverrides = () => {
+    pdel('rep_brands').catch(() => {})
+    setRepBrandOverridesState({})
+  }
+
+  // Every brand the editor should offer. Built from the canonical BRANDS list
+  // (preferring the matching real company) rather than whatever companies the
+  // current login owns — otherwise the editor can only offer that login's own
+  // brands and silently hides the rest.
+  const editorBrands = useMemo(() => {
+    const list = BRANDS.map((mb) => {
+      const realId = mockBrandToReal[mb.id]
+      const real = realId ? brands.find(b => b.id === realId) : null
+      return real || mb
+    })
+    const seen = new Set(list.map(b => b.id))
+    for (const b of brands) if (!seen.has(b.id)) list.push(b)
+    return list
+  }, [brands, mockBrandToReal])
+
   // Per-rep brand list — used to render brand pills on rep cards.
   // Walks REP_BRANDS pairs; for each, prefer the real Supabase company match,
   // and fall back to the mock BRANDS entry so unmatched brands (e.g. EIVY when
@@ -296,15 +332,20 @@ function PaymentsTrackerInner() {
           return real || BRANDS.find(b => b.id === rb.brandId)
         })
         .filter(Boolean)
-      // Adam (the seed rep) gets ALL the user's real brands by default
+      // Adam (the seed rep) inherits ALL the user's real brands — but only as a
+      // DEFAULT. An explicit override below replaces it, which is the whole
+      // point: that inheritance is what puts brands on him he doesn't sell.
       if (rep.id === 'rep-adam' && activeCompanies?.length) {
         const seen = new Set(list.map(b => b.id))
         for (const b of brands) if (!seen.has(b.id)) list.push(b)
       }
-      map[rep.id] = list
+      const override = repBrandOverrides[rep.id]
+      map[rep.id] = override
+        ? override.map(id => brands.find(b => b.id === id) || BRANDS.find(b => b.id === id)).filter(Boolean)
+        : list
     }
     return map
-  }, [reps, brands, mockBrandToReal, activeCompanies])
+  }, [reps, brands, mockBrandToReal, activeCompanies, repBrandOverrides])
 
   const brandTotals = useMemo(() => {
     const totals = {}
@@ -339,6 +380,7 @@ function PaymentsTrackerInner() {
     pdel('rep_territories').catch(() => {})
     setRepTerritoriesState(REP_TERRITORIES)
   }
+
 
   // Lifted from InvoicesView so other views (e.g. AccountDetailView) can
   // navigate to a specific customer's drill-down. `invoiceDrillHighlight` is
@@ -1631,6 +1673,9 @@ function PaymentsTrackerInner() {
             <Button variant="outline" size="sm" onClick={() => setTerritoryModalOpen(true)}>
               <MapIcon className="size-4 mr-1.5" /> Manage Territories
             </Button>
+            <Button variant="outline" size="sm" onClick={() => setBrandModalOpen(true)}>
+              <Tag className="size-4 mr-1.5" /> Manage Brands
+            </Button>
             <Button variant="outline" size="sm" onClick={() => openRecordPayout()}>
               <Banknote className="size-4 mr-1.5" /> Record Payout
               {commissionPayouts.length > 0 && (
@@ -2195,6 +2240,16 @@ function PaymentsTrackerInner() {
       )}
 
       {/* Tony-portal-level modals (available from reps view) */}
+      <BrandManagerModal
+        open={brandModalOpen}
+        onOpenChange={setBrandModalOpen}
+        reps={reps}
+        brands={editorBrands}
+        brandsByRep={brandsByRep}
+        overrides={repBrandOverrides}
+        onSave={setRepBrandOverrides}
+        onReset={resetRepBrandOverrides}
+      />
       <TerritoryManagerModal
         open={territoryModalOpen}
         onOpenChange={setTerritoryModalOpen}
@@ -6149,6 +6204,102 @@ function TerritoryManagerModal({ open, onOpenChange, reps, accounts, repTerritor
             variant="ghost"
             onClick={() => {
               if (confirm('Reset all territory assignments to defaults? Your local edits will be lost.')) {
+                onReset()
+                onOpenChange(false)
+              }
+            }}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            Reset to defaults
+          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button onClick={() => { onSave(draft); onOpenChange(false) }} className="bg-[#005b5b] hover:bg-[#004848]">
+              Save
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// =====================================================================
+// BrandManagerModal — which brands each rep actually sells
+// =====================================================================
+// Mirrors TerritoryManagerModal. Grid is rep-major (rather than brand-major
+// like territories) because the question here is "what does THIS rep sell",
+// and because reps with a wrong list — Adam inherits every brand by default —
+// are what you come here to fix.
+function BrandManagerModal({ open, onOpenChange, reps, brands, brandsByRep, overrides, onSave, onReset }) {
+  const [draft, setDraft] = useState({})
+
+  // Seed the draft from what each rep currently RESOLVES to, so opening the
+  // dialog shows today's reality rather than an empty grid.
+  useEffect(() => {
+    if (!open) return
+    const seed = {}
+    for (const rep of reps) {
+      seed[rep.id] = overrides[rep.id] ?? (brandsByRep[rep.id] || []).map(b => b.id)
+    }
+    setDraft(seed)
+  }, [open, reps, brandsByRep, overrides])
+
+  const toggle = (repId, brandId) => {
+    setDraft(prev => {
+      const cur = prev[repId] || []
+      const next = cur.includes(brandId) ? cur.filter(b => b !== brandId) : [...cur, brandId]
+      return { ...prev, [repId]: next }
+    })
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Manage Rep Brands</DialogTitle>
+          <DialogDescription>
+            Tick the brands each rep actually sells. Saving pins that rep's list — useful
+            where a rep has picked up brands they don't sell.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2">
+          {reps.map((rep) => {
+            const mine = draft[rep.id] || []
+            return (
+              <div key={rep.id} className="py-3 border-b last:border-0">
+                <div className="flex items-center justify-between gap-3 mb-2">
+                  <div className="text-sm font-medium">{rep.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {mine.length === 0 ? 'no brands' : `${mine.length} brand${mine.length === 1 ? '' : 's'}`}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {brands.map((b) => {
+                    const active = mine.includes(b.id)
+                    return (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => toggle(rep.id, b.id)}
+                        className={`px-3 py-1 text-xs rounded-full font-medium transition-colors whitespace-nowrap ${
+                          active ? 'bg-[#005b5b] text-white' : 'bg-muted text-muted-foreground hover:bg-muted/70'
+                        }`}
+                      >
+                        {b.name}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <DialogFooter className="sm:justify-between">
+          <Button
+            variant="ghost"
+            onClick={() => {
+              if (confirm('Clear all brand overrides and go back to defaults?')) {
                 onReset()
                 onOpenChange(false)
               }
