@@ -1,11 +1,16 @@
 // Accounting ↔ rep connection helpers (Model A: reps own their data, accounting
 // gets cross-user read access via an active accounting_connection).
 import { supabase } from '@/lib/supabase'
+import { ensureFreshSession } from '@/lib/db'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
 const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 async function callFn(name, body) {
+  // Refresh an expiring token first. Without this the edge function rejects a
+  // stale JWT with "Invalid token" — which is what made connected reps look
+  // like they'd vanished.
+  await ensureFreshSession()
   const { data: { session } } = await supabase.auth.getSession()
   const res = await fetch(`${supabaseUrl}/functions/v1/${name}`, {
     method: 'POST',
@@ -30,6 +35,7 @@ export async function createRepInvite(repEmail) {
 
 // All connections for the current accounting user (RLS scopes to own rows).
 export async function fetchConnections() {
+  await ensureFreshSession()
   const { data, error } = await supabase
     .from('accounting_connections')
     .select('*')
@@ -40,6 +46,7 @@ export async function fetchConnections() {
 
 // Pending (unused, unexpired) invites the current accounting user has generated.
 export async function fetchPendingInvites() {
+  await ensureFreshSession()
   const { data, error } = await supabase
     .from('accounting_invites')
     .select('*')

@@ -172,16 +172,75 @@ function PaymentsTrackerInner() {
 
   // Build the brand list from real Supabase companies (the user's actual brands),
   // falling back to hardcoded BRANDS if companies haven't loaded yet.
-  const brands = useMemo(() => {
+  // Brands belong to reps: every rep has their own "Nitro" row, so accounting
+  // sees one company per rep per brand. Collapse them by name into a single
+  // brand here — the underlying rows stay untouched, this is purely how the
+  // accounting side reads. `companyAlias` maps every duplicate's id onto the
+  // canonical one so entries keyed to any copy land on the same brand.
+  const { brands, companyAlias } = useMemo(() => {
     if (!activeCompanies?.length) {
-      return BRANDS.map(b => ({ ...b, defaultRate: rateOverrides[b.id] ?? b.defaultRate }))
+      return {
+        brands: BRANDS.map(b => ({ ...b, defaultRate: rateOverrides[b.id] ?? b.defaultRate })),
+        companyAlias: {},
+      }
     }
-    return activeCompanies.map(c => ({
-      id: String(c.id),
-      name: c.name,
-      defaultRate: rateOverrides[String(c.id)] ?? ((c.commission_percent ?? 7) / 100),
-      logoPath: c.logo_path,
-    }))
+
+    const key = (name) => String(name || '').trim().toLowerCase()
+    const canonical = new Map() // key -> brand
+    const alias = {}
+
+    // Lowest id wins as canonical so the choice is stable across reloads.
+    // Ids are numeric, so compare them numerically — string order would put
+    // "11" before "9".
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : Infinity }
+    const ordered = [...activeCompanies].sort((a, b) =>
+      num(a.id) - num(b.id) || String(a.id).localeCompare(String(b.id)))
+
+    // Reps type the same brand differently ("Nitro", "nitro ", "NITRO"). Show
+    // the spelling most of them used, preferring a properly capitalised one on
+    // a tie rather than whichever row happened to be canonical.
+    const displayName = (names) => {
+      const counts = new Map()
+      for (const n of names) counts.set(n, (counts.get(n) || 0) + 1)
+      const looksTitled = (n) => /^[A-Z]/.test(n) && n !== n.toUpperCase()
+      return [...counts.entries()].sort((a, b) =>
+        b[1] - a[1] ||
+        (looksTitled(b[0]) ? 1 : 0) - (looksTitled(a[0]) ? 1 : 0) ||
+        a[0].localeCompare(b[0])
+      )[0][0]
+    }
+
+    const rawNames = new Map() // key -> trimmed names as typed
+
+    for (const c of ordered) {
+      const k = key(c.name)
+      if (!k) continue
+      if (!rawNames.has(k)) rawNames.set(k, [])
+      rawNames.get(k).push(String(c.name).trim())
+
+      if (!canonical.has(k)) {
+        canonical.set(k, {
+          id: String(c.id),
+          name: String(c.name).trim(),
+          defaultRate: rateOverrides[String(c.id)] ?? ((c.commission_percent ?? 7) / 100),
+          logoPath: c.logo_path,
+          companyIds: [String(c.id)],
+        })
+      } else {
+        const brand = canonical.get(k)
+        brand.companyIds.push(String(c.id))
+        // Keep the first logo we find, so a rep without one doesn't blank it.
+        if (!brand.logoPath && c.logo_path) brand.logoPath = c.logo_path
+      }
+      alias[String(c.id)] = canonical.get(k).id
+    }
+
+    for (const [k, brand] of canonical) brand.name = displayName(rawNames.get(k))
+
+    return {
+      brands: [...canonical.values()].sort((a, b) => a.name.localeCompare(b.name)),
+      companyAlias: alias,
+    }
   }, [activeCompanies, rateOverrides])
 
   // Map mock brand ids → real company ids by name
@@ -197,18 +256,27 @@ function PaymentsTrackerInner() {
   // Remap mock entries' brandIds to real-company ids when possible
   const [entries, setEntries] = useState(ENTRIES)
   const remappedEntries = useMemo(
-    () => entries.map(e => ({ ...e, brandId: mockBrandToReal[e.brandId] || e.brandId })),
-    [entries, mockBrandToReal]
+    () => entries.map(e => {
+      const id = mockBrandToReal[e.brandId] || e.brandId
+      return { ...e, brandId: companyAlias[id] || id }
+    }),
+    [entries, mockBrandToReal, companyAlias]
   )
   const [payouts, setPayouts] = useState(PAYOUTS)
   const remappedPayouts = useMemo(
-    () => payouts.map(p => ({ ...p, brandId: mockBrandToReal[p.brandId] || p.brandId })),
-    [payouts, mockBrandToReal]
+    () => payouts.map(p => {
+      const id = mockBrandToReal[p.brandId] || p.brandId
+      return { ...p, brandId: companyAlias[id] || id }
+    }),
+    [payouts, mockBrandToReal, companyAlias]
   )
   // Remap rep_brands too
   const remappedRepBrands = useMemo(
-    () => REP_BRANDS.map(rb => ({ ...rb, brandId: mockBrandToReal[rb.brandId] || rb.brandId })),
-    [mockBrandToReal]
+    () => REP_BRANDS.map(rb => {
+      const id = mockBrandToReal[rb.brandId] || rb.brandId
+      return { ...rb, brandId: companyAlias[id] || id }
+    }),
+    [mockBrandToReal, companyAlias]
   )
 
   // 'dashboard' is accounting's home tab and the page's landing view.
@@ -327,7 +395,8 @@ function PaymentsTrackerInner() {
       const list = REP_BRANDS
         .filter(rb => rb.repId === rep.id)
         .map(rb => {
-          const realId = mockBrandToReal[rb.brandId]
+          const rawId = mockBrandToReal[rb.brandId]
+          const realId = rawId ? (companyAlias[rawId] || rawId) : null
           const real = realId ? brands.find(b => b.id === realId) : null
           return real || BRANDS.find(b => b.id === rb.brandId)
         })
@@ -341,11 +410,13 @@ function PaymentsTrackerInner() {
       }
       const override = repBrandOverrides[rep.id]
       map[rep.id] = override
-        ? override.map(id => brands.find(b => b.id === id) || BRANDS.find(b => b.id === id)).filter(Boolean)
+        ? [...new Set(override.map(id => companyAlias[id] || id))]
+            .map(id => brands.find(b => b.id === id) || BRANDS.find(b => b.id === id))
+            .filter(Boolean)
         : list
     }
     return map
-  }, [reps, brands, mockBrandToReal, activeCompanies, repBrandOverrides])
+  }, [reps, brands, mockBrandToReal, activeCompanies, repBrandOverrides, companyAlias])
 
   const brandTotals = useMemo(() => {
     const totals = {}
@@ -1809,20 +1880,7 @@ function PaymentsTrackerInner() {
                             '—'
                           ) : (
                             <span className="inline-flex flex-wrap gap-2.5 justify-end items-center">
-                              {repBrandList.map(b => {
-                                const logo = brandLogo(b.name)
-                                return logo ? (
-                                  // dark: the wordmarks are black artwork, so lift them out on dark bg
-                                  <img
-                                    key={b.id} src={logo.src} alt={logo.alt} title={b.name}
-                                    className="h-6 w-auto max-w-[84px] object-contain dark:brightness-0 dark:invert"
-                                  />
-                                ) : (
-                                  <span key={b.id} className="inline-flex items-center gap-1 text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
-                                    {b.name}
-                                  </span>
-                                )
-                              })}
+                              {repBrandList.map(b => <BrandTag key={b.id} name={b.name} size="lg" />)}
                             </span>
                           )}
                         </span>
@@ -2289,6 +2347,29 @@ function PaymentsTrackerInner() {
         onUpdate={updateCommissionPayout}
       />
     </div>
+  )
+}
+
+// Brands are shown as their wordmark wherever we have one, falling back to a
+// text pill so a brand without artwork never renders blank. The wordmarks are
+// black artwork, so they're lifted out on dark backgrounds.
+function BrandTag({ name, size = 'sm' }) {
+  const logo = brandLogo(name)
+  if (!logo) {
+    return (
+      <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b] whitespace-nowrap">
+        {name}
+      </span>
+    )
+  }
+  const dims = size === 'lg' ? 'h-6 max-w-[84px]' : 'h-4 max-w-[64px]'
+  return (
+    <img
+      src={logo.src}
+      alt={logo.alt}
+      title={name}
+      className={`${dims} w-auto object-contain dark:brightness-0 dark:invert`}
+    />
   )
 }
 
@@ -4461,7 +4542,7 @@ function AccountDetailView({ account, entries, reps, brands, invoices = [], line
                           ) : (
                             <div className="flex flex-wrap gap-1">
                               {invBrands.map(b => (
-                                <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
+                                <BrandTag key={b} name={b} />
                               ))}
                             </div>
                           )}
@@ -5207,7 +5288,7 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
                                             ) : (
                                               <div className="flex flex-wrap gap-1">
                                                 {evBrands.map(b => (
-                                                  <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
+                                                  <BrandTag key={b} name={b} />
                                                 ))}
                                                 {(ev.lines || []).some(l => l.isRental) && (
                                                   <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>
@@ -5281,7 +5362,7 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
                           ) : (
                             <div className="flex flex-wrap gap-1">
                               {evBrands.map(b => (
-                                <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
+                                <BrandTag key={b} name={b} />
                               ))}
                               {(ev.lines || []).some(l => l.isRental) && (
                                 <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>
@@ -5403,7 +5484,7 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
                                             ) : (
                                               <div className="flex flex-wrap gap-1">
                                                 {invBrands.map(b => (
-                                                  <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">{b}</span>
+                                                  <BrandTag key={b} name={b} />
                                                 ))}
                                                 {(inv.lines || []).some(l => l.isRental) && (
                                                   <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>

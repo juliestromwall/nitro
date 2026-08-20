@@ -51,8 +51,17 @@ function AccountingReps() {
       const [conns, invites] = await Promise.all([fetchConnections(), fetchPendingInvites()])
       setConnections(conns)
       setPending(invites)
+      // Names are a nicety; the connections themselves are the page. If the
+      // lookup fails, fall back to showing the rows without display names
+      // rather than letting the whole list disappear.
       const repIds = [...new Set(conns.map((c) => c.rep_id))]
-      if (repIds.length) setRepDetails(await fetchRepDetails(repIds))
+      if (repIds.length) {
+        try {
+          setRepDetails(await fetchRepDetails(repIds))
+        } catch (detailErr) {
+          setError(`Connected reps loaded, but their names couldn't be fetched (${detailErr.message}).`)
+        }
+      }
     } catch (err) {
       setError(err.message || 'Failed to load reps.')
     } finally {

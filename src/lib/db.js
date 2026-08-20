@@ -17,7 +17,7 @@ function getStoredExpiry() {
 // Ensure the JWT is fresh before making a DB call.
 // Reads expiry from localStorage (instant) and only calls refreshSession()
 // if we're within 5 minutes of expiry. Has a 5s bail-out timeout.
-async function ensureFreshSession() {
+export async function ensureFreshSession() {
   try {
     const expiresAt = getStoredExpiry()
     if (!expiresAt) return
