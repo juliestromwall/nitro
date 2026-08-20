@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Users, Copy, Check, Trash2, Plus, Link2, RefreshCw, Receipt } from 'lucide-react'
+import { Users, Copy, Check, Trash2, Plus, Link2, RefreshCw, Receipt, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import RepSalesDialog from '@/components/accounting/RepSalesDialog'
 import PayoutRequestsPanel from '@/components/accounting/PayoutRequestsPanel'
+import DropInvoicesDialog from '@/components/accounting/DropInvoicesDialog'
 import { Input } from '@/components/ui/input'
 import {
   fetchConnections, fetchPendingInvites, fetchRepDetails,
@@ -41,6 +42,7 @@ function AccountingReps() {
   const [email, setEmail] = useState('')
   const [creating, setCreating] = useState(false)
   const [salesRep, setSalesRep] = useState(null) // { id, name } whose sales dialog is open
+  const [invoiceRep, setInvoiceRep] = useState(null) // { id, name } whose invoice drop is open
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -181,6 +183,7 @@ function AccountingReps() {
                     </span>
                   )}
                   {c.sharing_enabled && (
+                    <>
                     <Button
                       variant="outline" size="sm"
                       onClick={() => setSalesRep({ id: c.rep_id, name: rep?.name || 'Rep' })}
@@ -189,6 +192,15 @@ function AccountingReps() {
                       <Receipt className="size-4" />
                       <span className="ml-1 hidden sm:inline">View sales</span>
                     </Button>
+                    <Button
+                      variant="outline" size="sm"
+                      onClick={() => setInvoiceRep({ id: c.rep_id, name: rep?.name || 'Rep' })}
+                      title="Drop invoice PDFs onto this rep's sales"
+                    >
+                      <Upload className="size-4" />
+                      <span className="ml-1 hidden sm:inline">Invoices</span>
+                    </Button>
+                    </>
                   )}
                   <Button variant="ghost" size="sm" onClick={() => revoke(c.id)} title="Revoke" className="text-red-600 hover:text-red-700">
                     <Trash2 className="size-4" />
@@ -201,6 +213,13 @@ function AccountingReps() {
       </section>
 
       <PayoutRequestsPanel repDetails={repDetails} onViewSales={setSalesRep} />
+
+      <DropInvoicesDialog
+        repId={invoiceRep?.id}
+        repName={invoiceRep?.name}
+        open={!!invoiceRep}
+        onOpenChange={(o) => { if (!o) setInvoiceRep(null) }}
+      />
 
       <RepSalesDialog
         repId={salesRep?.id}

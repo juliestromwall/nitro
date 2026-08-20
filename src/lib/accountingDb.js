@@ -92,6 +92,16 @@ export async function updateRepCommission(orderId, commissionPct) {
   return callFn('update-rep-commission', { orderId, commissionPct })
 }
 
+// Drop invoice PDFs onto a connected rep's sales.
+//
+// Goes through an edge function because accounting has SELECT-only access to a
+// rep's orders, and storage only allows writing into your own folder — neither
+// the update nor the upload is possible from the browser as accounting.
+// items: [{ orderId, invoiceNumber?, fileName, fileBase64 }]
+export async function dropRepInvoices(repId, items) {
+  return callFn('drop-rep-invoice', { repId, items })
+}
+
 // The shareable link a rep clicks to accept.
 export function inviteLink(code) {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://app.repcommish.com'
