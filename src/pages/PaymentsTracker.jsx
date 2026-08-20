@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react'
 import PublishAvailabilityButton from '@/components/payments/PublishAvailabilityButton'
+import { brandLogo } from '@/lib/brandLogos'
 import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
@@ -32,7 +33,7 @@ import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
 import { CrmProvider, useCrm } from '@/context/CrmContext'
 import { GmailProvider } from '@/context/GmailContext'
-import ComposeDialog from '@/components/gmail/ComposeDialog'
+import ComposeWindow from '@/components/gmail/ComposeWindow'
 import { templateContext } from '@/lib/emailTemplates'
 import AccountsListView from '@/components/accounting/AccountsListView'
 import AccountCrmPanel, { AccountHeaderCard } from '@/components/accounting/AccountCrmPanel'
@@ -105,7 +106,9 @@ function PaymentsTrackerInner() {
   const { activeCompanies } = useCompanies()
   const { todos: crmTodos, contacts: crmContacts, logEmail } = useCrm()
   const openTodoCount = crmTodos.filter(t => !t.done).length
-  const [reps] = useState(REPS)
+  // Alphabetical by name — the source list is in historical order, which makes
+  // a rep hard to find on the cards grid.
+  const [reps] = useState(() => [...REPS].sort((a, b) => a.name.localeCompare(b.name)))
   // Account edits are stored as a patch map over the imported seed list, plus
   // any accounts added in-app. Both persist to portal_data, so an edit sticks
   // across refreshes and is visible to every accounting login — and the seed
@@ -1736,12 +1739,21 @@ function PaymentsTrackerInner() {
                           {repBrandList.length === 0 ? (
                             '—'
                           ) : (
-                            <span className="inline-flex flex-wrap gap-1 justify-end">
-                              {repBrandList.map(b => (
-                                <span key={b.id} className="inline-flex items-center gap-1 text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
-                                  {b.name}
-                                </span>
-                              ))}
+                            <span className="inline-flex flex-wrap gap-2 justify-end items-center">
+                              {repBrandList.map(b => {
+                                const logo = brandLogo(b.name)
+                                return logo ? (
+                                  // dark: the wordmarks are black artwork, so lift them out on dark bg
+                                  <img
+                                    key={b.id} src={logo.src} alt={logo.alt} title={b.name}
+                                    className="h-4 w-auto object-contain dark:brightness-0 dark:invert"
+                                  />
+                                ) : (
+                                  <span key={b.id} className="inline-flex items-center gap-1 text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+                                    {b.name}
+                                  </span>
+                                )
+                              })}
                             </span>
                           )}
                         </span>
@@ -1912,9 +1924,9 @@ function PaymentsTrackerInner() {
         />
       )}
 
-      <ComposeDialog
+      <ComposeWindow
         open={Boolean(compose)}
-        onOpenChange={(v) => { if (!v) setCompose(null) }}
+        onClose={() => setCompose(null)}
         to={compose?.to || ''}
         subject={compose?.subject || ''}
         account={compose?.account}

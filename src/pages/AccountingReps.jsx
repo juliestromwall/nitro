@@ -85,7 +85,12 @@ function AccountingReps() {
     }
   }
 
-  const active = connections.filter((c) => c.status === 'active')
+  // Alphabetical by rep name so the list is scannable; connections arrive
+  // newest-first, which tells you nothing useful once there are 15 of them.
+  const nameFor = (c) => repDetails[c.rep_id]?.name || repDetails[c.rep_id]?.email || ''
+  const active = connections
+    .filter((c) => c.status === 'active')
+    .sort((a, b) => nameFor(a).localeCompare(nameFor(b)))
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-8">

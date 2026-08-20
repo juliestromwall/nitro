@@ -21,7 +21,7 @@ const fmtWhen = (iso) => {
 }
 
 export default function GmailConnectCard() {
-  const { loading, connected, googleEmail, sendAs, connect, disconnect, lastResult, clearLastResult } = useGmail()
+  const { loading, connected, connecting, error, clearError, googleEmail, sendAs, connect, disconnect, lastResult, clearLastResult } = useGmail()
   const { emailLog } = useCrm()
   const [busy, setBusy] = useState(false)
 
@@ -72,9 +72,20 @@ export default function GmailConnectCard() {
             </Button>
           </div>
         ) : (
-          <Button size="sm" onClick={connect}>
-            <Mail className="size-4 mr-1" /> Connect Gmail
-          </Button>
+          <div className="space-y-2">
+            <Button size="sm" onClick={connect} disabled={connecting}>
+              {connecting
+                ? <><Loader2 className="size-4 mr-1 animate-spin" /> Opening Google…</>
+                : <><Mail className="size-4 mr-1" /> Connect Gmail</>}
+            </Button>
+            {error && (
+              <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
+                <span className="min-w-0">{error}</span>
+                <button type="button" onClick={clearError} className="ml-auto underline shrink-0">Dismiss</button>
+              </div>
+            )}
+          </div>
         )}
 
         {connected && emailLog.length > 0 && (

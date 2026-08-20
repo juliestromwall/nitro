@@ -11,7 +11,7 @@ const SPLIT = /[,;]\s*/
 
 const looksLikeEmail = (s) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
 
-export default function RecipientField({ label, value = [], onChange, directory = [], autoFocus }) {
+export default function RecipientField({ label, value = [], onChange, directory = [], autoFocus, bare = false }) {
   const [input, setInput] = useState('')
   const [highlight, setHighlight] = useState(0)
   const [focused, setFocused] = useState(false)
@@ -67,6 +67,68 @@ export default function RecipientField({ label, value = [], onChange, directory 
     if (e.key === 'Backspace' && !input && value.length) {
       onChange(value.slice(0, -1))
     }
+  }
+
+  if (bare) {
+    return (
+      <div className="relative flex items-start gap-3 border-b px-4 py-2" onClick={() => inputRef.current?.focus()}>
+        <span className="text-sm text-muted-foreground w-10 shrink-0 pt-1">{label}</span>
+        <div className="flex-1 min-w-0 flex flex-wrap gap-1.5 items-center cursor-text">
+          {value.map((email) => (
+            <span
+              key={email}
+              className={`inline-flex items-center gap-1 rounded-full pl-2 pr-1 py-0.5 text-xs ${
+                looksLikeEmail(email)
+                  ? 'bg-[#005b5b]/10 text-[#005b5b] dark:bg-[#005b5b]/25 dark:text-[#00b3b3]'
+                  : 'bg-destructive/10 text-destructive'
+              }`}
+              title={looksLikeEmail(email) ? email : `${email} doesn't look like an email address`}
+            >
+              {email}
+              <button type="button" onClick={(e) => { e.stopPropagation(); onChange(value.filter((v) => v !== email)) }} className="hover:opacity-70">
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+          <input
+            ref={inputRef}
+            value={input}
+            autoFocus={autoFocus}
+            onChange={(e) => { setInput(e.target.value); setHighlight(0) }}
+            onKeyDown={onKeyDown}
+            onFocus={() => setFocused(true)}
+            onBlur={() => { setTimeout(() => setFocused(false), 120); commitInput() }}
+            onPaste={(e) => {
+              const text = e.clipboardData.getData('text')
+              if (SPLIT.test(text)) {
+                e.preventDefault()
+                text.split(SPLIT).map((t) => t.trim()).filter(Boolean).forEach(add)
+              }
+            }}
+            className="flex-1 min-w-[140px] bg-transparent text-sm outline-none py-1"
+          />
+        </div>
+        {focused && suggestions.length > 0 && (
+          <div className="absolute left-12 right-4 top-full z-50 rounded-md border bg-popover shadow-lg overflow-hidden">
+            {suggestions.map((s, i) => (
+              <button
+                key={`${s.email}-${i}`}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { add(s.email); inputRef.current?.focus() }}
+                onMouseEnter={() => setHighlight(i)}
+                className={`w-full text-left px-3 py-2 text-sm ${i === highlight ? 'bg-[#005b5b]/10' : ''}`}
+              >
+                <div className="font-medium truncate">{s.name || s.email}</div>
+                <div className="text-xs text-muted-foreground truncate">
+                  {s.email}{s.accountName ? ` · ${s.accountName}` : ''}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    )
   }
 
   return (

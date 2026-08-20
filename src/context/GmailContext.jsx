@@ -14,6 +14,7 @@ export function GmailProvider({ children }) {
   const [status, setStatus] = useState({ connected: false })
   const [sendAs, setSendAs] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   const refresh = useCallback(async () => {
     if (!user) {
@@ -54,17 +55,34 @@ export function GmailProvider({ children }) {
     window.history.replaceState({}, '', window.location.pathname + (qs ? `?${qs}` : ''))
   }, [refresh])
 
-  const connect = useCallback(() => connectGoogle(), [])
+  const [connecting, setConnecting] = useState(false)
+  const connect = useCallback(async () => {
+    setError(null)
+    setConnecting(true)
+    try {
+      // Navigates away on success, so `connecting` stays true deliberately.
+      await connectGoogle()
+    } catch (err) {
+      setConnecting(false)
+      setError(err?.message || 'Could not start Google sign-in.')
+    }
+  }, [])
 
   const disconnect = useCallback(async () => {
-    await disconnectGoogle()
-    setStatus({ connected: false })
-    setSendAs(null)
+    setError(null)
+    try {
+      await disconnectGoogle()
+      setStatus({ connected: false })
+      setSendAs(null)
+    } catch (err) {
+      setError(err?.message || 'Could not disconnect.')
+    }
   }, [])
 
   return (
     <GmailContext.Provider value={{
-      loading, connected: Boolean(status.connected), googleEmail: status.google_email || null,
+      loading, connecting, error, clearError: () => setError(null),
+      connected: Boolean(status.connected), googleEmail: status.google_email || null,
       sendAs, lastResult, clearLastResult: () => setLastResult(null),
       connect, disconnect, refresh,
     }}>
