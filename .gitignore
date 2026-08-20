@@ -44,3 +44,13 @@ ar-collections-mockup.html
 # customer financial data, never commit (the "Invoice data/" folder is ignored
 # wholesale; this catches loose copies left in root).
 *Invoices and Received Payments*.csv
+import-work/
+
+# Customer contact + sales exports dropped in the project root — real customer
+# names/emails and sales figures. Working files, never commit.
+Foundry Distribution*.csv
+Foundry Distribution*.xlsx
+Import-Preview.xlsx
+Rep-Account-Matches-REVIEW.xlsx
+Rep-Matching-Issues.xlsx
+Sales-Orders-Manifest.xlsx
