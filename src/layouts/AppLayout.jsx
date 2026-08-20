@@ -299,8 +299,11 @@ function AppLayout() {
               </NavLink>
             )}
             {canSeePayments && (
+              /* goHome: the accounting page keeps its own view state, so landing
+                 on /app/accounting when already there wouldn't reset it. */
               <NavLink
                 to="/app/accounting"
+                state={{ goHome: true }}
                 title={isAccounting ? 'Home' : 'Accounting'}
                 className={({ isActive }) =>
                   `flex items-center justify-center p-2 rounded-lg transition-colors ${

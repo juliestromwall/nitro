@@ -50,6 +50,26 @@ export async function matchPortalRepsToConnections(portalReps) {
   return { matched, unmatched, connections: conns }
 }
 
+// Profiles (avatar/name/email) for accounting's portal reps that are connected
+// in the app, keyed by PORTAL rep id. Lets accounting-side views show the
+// avatar a rep actually chose instead of a generated initial.
+export async function fetchConnectedRepProfiles(portalReps) {
+  const conns = (await fetchConnections()).filter((c) => c.status === 'active' && c.sharing_enabled)
+  if (!conns.length) return {}
+  const details = await fetchRepDetails([...new Set(conns.map((c) => c.rep_id))])
+  const byEmail = new Map()
+  for (const c of conns) {
+    const d = details[c.rep_id]
+    if (d?.email) byEmail.set(norm(d.email), d)
+  }
+  const out = {}
+  for (const pr of portalReps) {
+    const d = byEmail.get(norm(pr.email))
+    if (d) out[pr.id] = d
+  }
+  return out
+}
+
 // Publish one figure per matched rep. Upsert on (accounting_id, rep_id) so
 // republishing replaces rather than stacking up.
 export async function publishAvailability(rows) {

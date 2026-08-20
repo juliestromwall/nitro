@@ -1,7 +1,10 @@
 import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react'
 import PublishAvailabilityButton from '@/components/payments/PublishAvailabilityButton'
 import { brandLogo } from '@/lib/brandLogos'
-import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info } from 'lucide-react'
+import { fetchConnectedRepProfiles } from '@/lib/payoutAvailability'
+import RepHeaderCard from '@/components/accounting/RepHeaderCard'
+import { useLocation } from 'react-router-dom'
+import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info, Clock } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -109,6 +112,16 @@ function PaymentsTrackerInner() {
   // Alphabetical by name — the source list is in historical order, which makes
   // a rep hard to find on the cards grid.
   const [reps] = useState(() => [...REPS].sort((a, b) => a.name.localeCompare(b.name)))
+  // Avatars a rep picked for themselves, for portal reps who are connected in
+  // the app. Keyed by portal rep id; empty until/unless they connect.
+  const [repProfiles, setRepProfiles] = useState({})
+  useEffect(() => {
+    let cancelled = false
+    fetchConnectedRepProfiles(REPS)
+      .then((p) => { if (!cancelled) setRepProfiles(p) })
+      .catch(() => { /* not connected / table unavailable — initials are the fallback */ })
+    return () => { cancelled = true }
+  }, [])
   // Account edits are stored as a patch map over the imported seed list, plus
   // any accounts added in-app. Both persist to portal_data, so an edit sticks
   // across refreshes and is visible to every accounting login — and the seed
@@ -199,6 +212,7 @@ function PaymentsTrackerInner() {
   )
 
   // 'dashboard' is accounting's home tab and the page's landing view.
+  const location = useLocation()
   const [view, setView] = useState('dashboard') // 'dashboard' | 'reps' | 'accounts' | 'invoices' | 'rep-ledger' | 'brands' | 'ledger' | 'account-detail'
   // Accounts has two presentations of the same list: Tony's territory rollup
   // and a flat A-Z list.
@@ -1338,6 +1352,14 @@ function PaymentsTrackerInner() {
   const goToRep = (repId) => { setSelectedRepId(repId); setView('rep-ledger') }
   const goToBrand = (brandId) => { setSelectedBrandId(brandId); setView('ledger') }
   const goToAccount = (id) => { setSelectedAccountId(id); setView('account-detail') }
+  useEffect(() => {
+    if (location.state?.goHome) {
+      setView('dashboard')
+      setSelectedRepId(null)
+      setSelectedBrandId(null)
+    }
+  }, [location.key, location.state])
+
   const backToReps = () => { setSelectedRepId(null); setSelectedBrandId(null); setView('reps') }
   const backToBrands = () => { setSelectedBrandId(null); setView('brands') }
   const backToAccounts = () => { setSelectedAccountId(null); setView('accounts') }
@@ -1719,11 +1741,13 @@ function PaymentsTrackerInner() {
                 >
                   <CardHeader>
                     <div className="flex items-start justify-between gap-3">
-                      <CardTitle className="flex items-center gap-2 min-w-0">
-                        <div className="w-10 h-10 rounded-full bg-[#005b5b] text-white flex items-center justify-center font-bold shrink-0 shadow-sm">
-                          {rep.name.charAt(0)}
+                      <CardTitle className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-11 h-11 rounded-full bg-[#005b5b] text-white flex items-center justify-center text-lg font-bold shrink-0 shadow-sm overflow-hidden">
+                          {repProfiles[rep.id]?.avatar_url
+                            ? <img src={repProfiles[rep.id].avatar_url} alt="" className="w-full h-full object-cover" />
+                            : rep.name.charAt(0)}
                         </div>
-                        <span className="truncate text-[#005b5b] dark:text-[#00b3b3] group-hover:underline">{rep.name}</span>
+                        <span className="truncate text-xl font-bold leading-tight text-[#005b5b] dark:text-[#00b3b3] group-hover:underline">{rep.name}</span>
                       </CardTitle>
                       <div className="text-right text-xs min-w-0 max-w-[55%]">
                         {rep.agency && <div className="font-medium truncate">{rep.agency}</div>}
@@ -1739,14 +1763,14 @@ function PaymentsTrackerInner() {
                           {repBrandList.length === 0 ? (
                             '—'
                           ) : (
-                            <span className="inline-flex flex-wrap gap-2 justify-end items-center">
+                            <span className="inline-flex flex-wrap gap-2.5 justify-end items-center">
                               {repBrandList.map(b => {
                                 const logo = brandLogo(b.name)
                                 return logo ? (
                                   // dark: the wordmarks are black artwork, so lift them out on dark bg
                                   <img
                                     key={b.id} src={logo.src} alt={logo.alt} title={b.name}
-                                    className="h-4 w-auto object-contain dark:brightness-0 dark:invert"
+                                    className="h-6 w-auto max-w-[84px] object-contain dark:brightness-0 dark:invert"
                                   />
                                 ) : (
                                   <span key={b.id} className="inline-flex items-center gap-1 text-[10px] uppercase font-semibold px-2 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
@@ -1760,7 +1784,9 @@ function PaymentsTrackerInner() {
                       </div>
                       <div className="flex justify-between gap-2">
                         <span className="text-muted-foreground shrink-0">Territories</span>
-                        <span className="font-medium text-right">{territories.length ? territories.join(', ') : '—'}</span>
+                        <span className="font-semibold text-right text-indigo-600 dark:text-indigo-400">
+                          {territories.length ? territories.join(', ') : '—'}
+                        </span>
                       </div>
                       <div className="grid grid-cols-2 gap-2 pt-1">
                         <div className="rounded-lg border bg-muted/30 dark:bg-zinc-800/30 px-2.5 py-2">
@@ -2001,6 +2027,7 @@ function PaymentsTrackerInner() {
       {view === 'rep-ledger' && selectedRep && (
         <RepLedgerView
           rep={selectedRep}
+          avatarUrl={repProfiles[selectedRep.id]?.avatar_url}
           aggregate={aggregatesByRep[selectedRep.id]}
           summary={repSummary[selectedRep.id]}
           payouts={commissionPayouts.filter(p => p.repId === selectedRep.id)}
@@ -4576,7 +4603,7 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
+function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
   const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, shadowAvailable: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
   const byInvoice = aggregate?.byInvoice || {}
 
@@ -4887,50 +4914,34 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
 
   return (
     <>
-      {/* Rep header */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <CardTitle className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-[#005b5b] text-white flex items-center justify-center font-bold text-xl">
-                  {rep.name.charAt(0)}
-                </div>
-                <div>
-                  <div>{rep.name}</div>
-                  {rep.agency && <div className="text-sm font-normal text-muted-foreground">{rep.agency}</div>}
-                </div>
-              </CardTitle>
-              <CardDescription className="mt-2">
-                {rep.email || '—'}
-                {territories?.length > 0 && <> • {territories.join(', ')}</>}
-              </CardDescription>
-            </div>
-          </div>
-        </CardHeader>
-      </Card>
+      {/* Rep header — editable details + note log */}
+      <RepHeaderCard rep={rep} territories={territories} avatarUrl={avatarUrl} />
 
       <EmailReportModal open={emailOpen} onOpenChange={setEmailOpen} rep={rep} exportArgs={exportArgs} />
 
       {/* Summary cards: the three pieces of info Tony's monthly report needs */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 ${safeSummary.owesFoundry > 0 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
-        <Card>
+        <Card className="border-zinc-200 dark:border-zinc-800">
           <CardHeader className="pb-2">
-            <CardDescription>Paid out YTD</CardDescription>
-            <CardTitle className="text-2xl">{fmt(safeSummary.paidOut)}</CardTitle>
+            <CardDescription className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-semibold">
+              <Banknote className="size-3.5 text-zinc-400" />Paid out YTD
+            </CardDescription>
+            <CardTitle className="text-3xl tabular-nums text-muted-foreground">{fmt(safeSummary.paidOut)}</CardTitle>
           </CardHeader>
         </Card>
-        <Card className="border-[#005b5b]">
+        <Card className="border-transparent bg-[#005b5b] text-white shadow-lg shadow-[#005b5b]/20">
           <CardHeader className="pb-2">
-            <CardDescription>Available to collect</CardDescription>
-            <CardTitle className={`text-2xl ${safeSummary.available > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(safeSummary.available)}</CardTitle>
+            <CardDescription className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-semibold text-white/70">
+              <Wallet className="size-3.5" />Available to collect
+            </CardDescription>
+            <CardTitle className="text-3xl tabular-nums text-white">{fmt(safeSummary.available)}</CardTitle>
             {typeof safeSummary.shadowAvailable === 'number' && (() => {
               const delta = safeSummary.shadowAvailable - safeSummary.available
               return (
-                <div className="mt-1 text-xs text-muted-foreground" title="Payment-first + season-aware preview. Not yet the number you pay on.">
-                  Preview: <span className="font-semibold text-foreground">{fmt(safeSummary.shadowAvailable)}</span>
+                <div className="mt-1 text-xs text-white/60" title="Payment-first + season-aware preview. Not yet the number you pay on.">
+                  Preview: <span className="font-semibold text-white">{fmt(safeSummary.shadowAvailable)}</span>
                   {Math.abs(delta) > 0.005 && (
-                    <span className={delta < 0 ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
+                    <span className={delta < 0 ? 'text-red-200 ml-1' : 'text-emerald-200 ml-1'}>
                       ({delta < 0 ? '−' : '+'}{fmt(Math.abs(delta))})
                     </span>
                   )}
@@ -4939,10 +4950,12 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
             })()}
           </CardHeader>
         </Card>
-        <Card>
+        <Card className="border-amber-200 dark:border-amber-900/60 bg-amber-50/40 dark:bg-amber-950/10">
           <CardHeader className="pb-2">
-            <CardDescription>Pending (open invoices)</CardDescription>
-            <CardTitle className="text-2xl text-muted-foreground">{fmt(safeSummary.openCommission)}</CardTitle>
+            <CardDescription className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-semibold text-amber-700 dark:text-amber-400">
+              <Clock className="size-3.5" />Pending (open invoices)
+            </CardDescription>
+            <CardTitle className="text-3xl tabular-nums text-amber-700 dark:text-amber-300">{fmt(safeSummary.openCommission)}</CardTitle>
           </CardHeader>
         </Card>
         {safeSummary.owesFoundry > 0 && (
@@ -4979,7 +4992,12 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
         <CardHeader>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <CardTitle>Payments received on invoices</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <span className="inline-flex items-center justify-center size-7 rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
+                  <Banknote className="size-4" />
+                </span>
+                Payments received on invoices
+              </CardTitle>
               <CardDescription>
                 {groupByCustomer
                   ? `${paidByCustomer.length} ${paidByCustomer.length === 1 ? 'customer' : 'customers'}`
@@ -5245,7 +5263,12 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
       {/* Open invoices */}
       <Card>
         <CardHeader>
-          <CardTitle>Open / unpaid invoices</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <span className="inline-flex items-center justify-center size-7 rounded-lg bg-amber-100 text-amber-700 dark:bg-amber-950/50 dark:text-amber-400">
+              <Clock className="size-4" />
+            </span>
+            Open / unpaid invoices
+          </CardTitle>
           <CardDescription>
             {groupByCustomer
               ? `${openByCustomer.length} ${openByCustomer.length === 1 ? 'customer' : 'customers'} with open invoices`
@@ -5500,7 +5523,12 @@ function RepLedgerView({ rep, aggregate, summary, payouts, repAccountInvoices = 
         <CardHeader>
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div>
-              <CardTitle>Commission payouts</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <span className="inline-flex items-center justify-center size-7 rounded-lg bg-[#005b5b]/10 text-[#005b5b] dark:bg-[#005b5b]/30 dark:text-teal-300">
+                  <Wallet className="size-4" />
+                </span>
+                Commission payouts
+              </CardTitle>
               <CardDescription>
                 {filteredPayouts.length} {filteredPayouts.length === 1 ? 'payment' : 'payments'} in {payoutYear}
                 {filteredPayouts.length > 0 && <> · {fmt(filteredPayoutTotal)} total</>}

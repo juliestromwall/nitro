@@ -10,6 +10,11 @@
 //   crm_todos       Todo[]        — accountId may be null for general to-dos
 //   crm_quick_notes QuickNote[]   — dashboard scratchpad, not account-scoped
 //   crm_email_log   SentEmail[]   — what we've emailed, newest first
+//   crm_rep_profiles { [repId]: RepProfile } — accounting's editable overrides
+//                     (name / business / contact) on top of the portal rep list
+//
+// Rep notes reuse the notes blob under a namespaced key, `rep:<repId>`, so reps
+// and accounts share one implementation rather than two near-identical ones.
 //
 // Writes are optimistic: local state updates immediately, the blob is pushed
 // in the background. `saveError` surfaces a failed push so the UI can warn.
@@ -24,6 +29,7 @@ const KEYS = {
   todos: 'crm_todos',
   quickNotes: 'crm_quick_notes',
   emailLog: 'crm_email_log',
+  repProfiles: 'crm_rep_profiles',
 }
 
 // The log is a rolling window, not an archive — Gmail is the archive. Keeps
@@ -45,6 +51,7 @@ export function CrmProvider({ children }) {
   const [todos, setTodos] = useState([])
   const [quickNotes, setQuickNotes] = useState([])
   const [emailLog, setEmailLog] = useState([])
+  const [repProfiles, setRepProfiles] = useState({})
   const [loading, setLoading] = useState(true)
   const [saveError, setSaveError] = useState(null)
 
@@ -61,11 +68,13 @@ export function CrmProvider({ children }) {
         const t = blobs[KEYS.todos]
         const q = blobs[KEYS.quickNotes]
         const e = blobs[KEYS.emailLog]
+        const rp = blobs[KEYS.repProfiles]
         if (c && typeof c === 'object') setContacts(c)
         if (n && typeof n === 'object') setNotes(n)
         if (Array.isArray(t)) setTodos(t)
         if (Array.isArray(q)) setQuickNotes(q)
         if (Array.isArray(e)) setEmailLog(e)
+        if (rp && typeof rp === 'object') setRepProfiles(rp)
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false) })
@@ -257,6 +266,33 @@ export function CrmProvider({ children }) {
     return out
   }, [contacts, notes, todos, emailLog])
 
+  // ===== Rep profiles =====
+  // Accounting's editable overlay on the portal rep list. Only fields actually
+  // edited are stored; everything else falls back to the underlying rep record,
+  // so a blank override never wipes out real data.
+  const getRepProfile = useCallback((repId) => repProfiles[repId] || {}, [repProfiles])
+
+  const saveRepProfile = useCallback((repId, patch) => {
+    commit(KEYS.repProfiles, setRepProfiles, (prev) => {
+      const next = { ...(prev[repId] || {}) }
+      for (const [k, v] of Object.entries(patch || {})) {
+        const val = typeof v === 'string' ? v.trim() : v
+        if (val === '' || val == null) delete next[k]   // cleared → fall back to the rep record
+        else next[k] = val
+      }
+      return { ...prev, [repId]: next }
+    })
+  }, [commit])
+
+  // Merge an override over a portal rep record.
+  const repWithProfile = useCallback((rep) => {
+    if (!rep) return rep
+    return { ...rep, ...(repProfiles[rep.id] || {}) }
+  }, [repProfiles])
+
+  // Namespaced key so rep notes live in the same blob as account notes.
+  const repNoteKey = (repId) => `rep:${repId}`
+
   const value = {
     loading, saveError,
     contacts, notes, todos, quickNotes, emailLog, countsByAccount,
@@ -265,6 +301,7 @@ export function CrmProvider({ children }) {
     getTodos, addTodo, updateTodo, toggleTodo, deleteTodo,
     addQuickNote, updateQuickNote, deleteQuickNote,
     logEmail, getEmails,
+    repProfiles, getRepProfile, saveRepProfile, repWithProfile, repNoteKey,
   }
 
   return <CrmContext.Provider value={value}>{children}</CrmContext.Provider>
