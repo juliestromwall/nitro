@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from 'react'
+import PublishAvailabilityButton from '@/components/payments/PublishAvailabilityButton'
 import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
@@ -29,6 +30,16 @@ import { recordBalanceSnapshots, loadBalanceSnapshots } from '@/lib/balanceSnaps
 import { computeSettlementEvents } from '@/lib/settlementEngine'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
+import { CrmProvider, useCrm } from '@/context/CrmContext'
+import { GmailProvider } from '@/context/GmailContext'
+import ComposeDialog from '@/components/gmail/ComposeDialog'
+import { templateContext } from '@/lib/emailTemplates'
+import AccountsListView from '@/components/accounting/AccountsListView'
+import AccountCrmPanel, { AccountHeaderCard } from '@/components/accounting/AccountCrmPanel'
+import AccountEditDialog from '@/components/accounting/AccountEditDialog'
+import AccountName from '@/components/accounting/AccountName'
+import { StatTile, MiniStat } from '@/components/accounting/StatTile'
+import AccountingDashboard from '@/components/accounting/AccountingDashboard'
 
 // Loose column-name matcher for QuickBooks-style payment report imports.
 // QB doesn't always label columns the same way, so we accept several variants.
@@ -90,10 +101,57 @@ const fmtDate = (s) => {
 // AR snapshots) persist to Supabase via portal_data (see portalStore.js) so
 // they're shared across logins. Dataset keys are defined at each use site.
 
-function PaymentsTracker() {
+function PaymentsTrackerInner() {
   const { activeCompanies } = useCompanies()
+  const { todos: crmTodos, contacts: crmContacts, logEmail } = useCrm()
+  const openTodoCount = crmTodos.filter(t => !t.done).length
   const [reps] = useState(REPS)
-  const [accounts, setAccounts] = useState(ACCOUNTS)
+  // Account edits are stored as a patch map over the imported seed list, plus
+  // any accounts added in-app. Both persist to portal_data, so an edit sticks
+  // across refreshes and is visible to every accounting login — and the seed
+  // stays the source of truth for fields nobody has touched.
+  const [accountOverrides, setAccountOverridesState] = useState({})
+  const [accountExtras, setAccountExtrasState] = useState([])
+  useEffect(() => {
+    pget('account_overrides').then(v => { if (v && typeof v === 'object') setAccountOverridesState(v) }).catch(() => {})
+    pget('account_extras').then(v => { if (Array.isArray(v)) setAccountExtrasState(v) }).catch(() => {})
+  }, [])
+
+  const accounts = useMemo(() => (
+    [...ACCOUNTS, ...accountExtras].map(a => (
+      accountOverrides[a.id] ? { ...a, ...accountOverrides[a.id] } : a
+    ))
+  ), [accountExtras, accountOverrides])
+
+  const saveAccount = useCallback((id, patch) => {
+    setAccountOverridesState(prev => {
+      const next = { ...prev, [id]: { ...(prev[id] || {}), ...patch } }
+      pset('account_overrides', next).catch(() => {})
+      return next
+    })
+  }, [])
+
+  // Create a new account. Ids are prefixed so they never collide with the
+  // imported seed list, and the record lands in the persisted extras.
+  const createAccount = useCallback((patch) => {
+    const id = `acct-new-${Date.now()}`
+    const acct = { id, territory: null, ...patch }
+    setAccountExtrasState(prev => {
+      const next = [...prev, acct]
+      pset('account_extras', next).catch(() => {})
+      return next
+    })
+    return acct
+  }, [])
+
+  const resetAccount = useCallback((id) => {
+    setAccountOverridesState(prev => {
+      const next = { ...prev }
+      delete next[id]
+      pset('account_overrides', next).catch(() => {})
+      return next
+    })
+  }, [])
   const [rateOverrides, setRateOverrides] = useState({}) // { brandId: rateAsDecimal } — local-only overrides
 
   // Build the brand list from real Supabase companies (the user's actual brands),
@@ -137,7 +195,11 @@ function PaymentsTracker() {
     [mockBrandToReal]
   )
 
-  const [view, setView] = useState('reps') // 'reps' | 'accounts' | 'invoices' | 'rep-ledger' | 'brands' | 'ledger' | 'account-detail'
+  // 'dashboard' is accounting's home tab and the page's landing view.
+  const [view, setView] = useState('dashboard') // 'dashboard' | 'reps' | 'accounts' | 'invoices' | 'rep-ledger' | 'brands' | 'ledger' | 'account-detail'
+  // Accounts has two presentations of the same list: Tony's territory rollup
+  // and a flat A-Z list.
+  const [accountsTab, setAccountsTab] = useState('list') // 'list' | 'territories'
   const [selectedRepId, setSelectedRepId] = useState(null)
   // Rep ledger surfaces its export/email actions here so the buttons can live
   // in the page header row next to the "<Rep> — Commission Ledger" title.
@@ -237,20 +299,6 @@ function PaymentsTracker() {
     }
     return totals
   }, [repBrands, remappedEntries, selectedRepId])
-
-  // Account totals (cross-rep, cross-brand)
-  const accountTotals = useMemo(() => {
-    const t = {}
-    for (const e of remappedEntries) {
-      if (!e.accountId) continue
-      const cur = t[e.accountId] || { entries: 0, paid: 0, commission: 0 }
-      cur.entries += 1
-      cur.paid += e.actualPaid || 0
-      cur.commission += e.commission || 0
-      t[e.accountId] = cur
-    }
-    return t
-  }, [remappedEntries])
 
   const [selectedAccountId, setSelectedAccountId] = useState(null)
   const [accountSearch, setAccountSearch] = useState('')
@@ -617,8 +665,8 @@ function PaymentsTracker() {
   // Recomputes when any input changes. Cheap to render even with thousands of
   // entries because aggregations are memoized too.
   const commissionResult = useMemo(
-    () => computeCommissions({ invoices, lineItems, accounts: ACCOUNTS, repTerritories, season: '2025-26' }),
-    [invoices, lineItems, repTerritories]
+    () => computeCommissions({ invoices, lineItems, accounts, repTerritories, season: '2025-26' }),
+    [invoices, lineItems, accounts, repTerritories]
   )
   const aggregatesByRep = useMemo(
     () => aggregateByRep(commissionResult.entries),
@@ -1270,6 +1318,9 @@ function PaymentsTracker() {
     return stats
   }, [accounts, invoices, lineItems])
 
+  const [editAccountOpen, setEditAccountOpen] = useState(false)
+  const [addAccountOpen, setAddAccountOpen] = useState(false)
+  const [compose, setCompose] = useState(null) // { to, subject, accountName } | null
   const [territoryModalOpen, setTerritoryModalOpen] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [salesImportOpen, setSalesImportOpen] = useState(false)
@@ -1298,7 +1349,11 @@ function PaymentsTracker() {
   const addAccount = (name, territory) => {
     const id = `acct-new-${Date.now()}`
     const acct = { id, name, territory: territory || null }
-    setAccounts(prev => [...prev, acct])
+    setAccountExtrasState(prev => {
+      const next = [...prev, acct]
+      pset('account_extras', next).catch(() => {})
+      return next
+    })
     return acct
   }
 
@@ -1330,6 +1385,51 @@ function PaymentsTracker() {
     }
     return null
   }
+
+  const repNameForTerritory = useCallback((terr) => {
+    const repId = terr ? repForTerritory(terr) : null
+    return repId ? (reps.find(r => r.id === repId)?.name || '') : ''
+    // repForTerritory closes over repTerritories, so that's the real dependency.
+  }, [repTerritories, reps]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Display rep for an account: an explicit per-account assignment wins,
+  // otherwise fall back to whoever covers the territory.
+  const repNameForAccount = useCallback((account) => {
+    if (!account) return ''
+    if (account.repId) return reps.find(r => r.id === account.repId)?.name || ''
+    return repNameForTerritory(account.territory)
+  }, [reps, repNameForTerritory])
+
+  const emailDirectory = useMemo(() => {
+    const seen = new Set()
+    const out = []
+    const push = (email, name, accountName) => {
+      const key = String(email || '').trim().toLowerCase()
+      if (!key || seen.has(key)) return
+      seen.add(key)
+      out.push({ email: email.trim(), name: name || '', accountName: accountName || '' })
+    }
+    for (const a of accounts) {
+      for (const c of crmContacts[a.id] || []) push(c.email, c.name, a.name)
+      push(a.email, [a.firstName, a.lastName].filter(Boolean).join(' '), a.name)
+    }
+    return out
+  }, [accounts, crmContacts])
+
+  // Top-line numbers for the Dashboard tab.
+  const dashboardStats = useMemo(() => {
+    let openBalanceTotal = 0
+    let accountsWithBalance = 0
+    for (const bal of Object.values(accountOpenBalances || {})) {
+      if (bal > 0.005) { openBalanceTotal += bal; accountsWithBalance += 1 }
+    }
+    return {
+      openBalanceTotal,
+      accountsWithBalance,
+      accountCount: accounts.length,
+      territoryCount: new Set(accounts.map(a => a.territory).filter(Boolean)).size,
+    }
+  }, [accountOpenBalances, accounts])
 
   // Bulk-add imported entries: each row already has resolved repId/brandId/accountId
   const applyImportedEntries = (rows) => {
@@ -1374,8 +1474,29 @@ function PaymentsTracker() {
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-4 space-y-6">
       {/* Top-level tab bar (only on top-level views) */}
-      {(view === 'reps' || view === 'accounts' || view === 'invoices') && (
+      {(view === 'dashboard' || view === 'reps' || view === 'accounts' || view === 'invoices') && (
         <div className="flex items-center gap-2 border-b">
+          <button
+            onClick={() => setView('dashboard')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              view === 'dashboard' ? 'border-[#005b5b] text-[#005b5b]' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Dashboard
+            {openTodoCount > 0 && (
+              <span className="ml-1.5 text-[10px] font-semibold rounded-full bg-[#005b5b]/10 text-[#005b5b] px-1.5 py-0.5 tabular-nums">
+                {openTodoCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setView('accounts')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              view === 'accounts' ? 'border-[#005b5b] text-[#005b5b]' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Accounts
+          </button>
           <button
             onClick={() => setView('reps')}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
@@ -1385,20 +1506,12 @@ function PaymentsTracker() {
             Reps
           </button>
           <button
-            onClick={() => setView('accounts')}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              view === 'accounts' ? 'border-[#005b5b] text-[#005b5b]' : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            Accounts <span className="text-xs text-muted-foreground">({accounts.length})</span>
-          </button>
-          <button
             onClick={() => setView('invoices')}
             className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
               view === 'invoices' ? 'border-[#005b5b] text-[#005b5b]' : 'border-transparent text-muted-foreground hover:text-foreground'
             }`}
           >
-            Data Uploads
+            Uploads
           </button>
         </div>
       )}
@@ -1438,16 +1551,18 @@ function PaymentsTracker() {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
         <h1 className="text-3xl font-bold tracking-tight">
+          {view === 'dashboard' && 'Dashboard'}
           {view === 'reps' && 'Rep Payments'}
           {view === 'accounts' && 'Accounts'}
-          {view === 'invoices' && 'Data Uploads'}
+          {view === 'invoices' && 'Uploads'}
           {view === 'rep-ledger' && `${selectedRep?.name} — Commission Ledger`}
           {view === 'brands' && `${selectedRep?.name}`}
           {view === 'ledger' && `${selectedRep?.name} • ${selectedBrand?.name}`}
-          {view === 'account-detail' && selectedAccount?.name}
+          {view === 'account-detail' && <AccountName account={selectedAccount} />}
         </h1>
+        {view === 'dashboard' && <p className="mt-2 text-muted-foreground">To-dos, notes, and where things stand today</p>}
         {view === 'reps' && <p className="mt-2 text-muted-foreground">Track commission payments for each rep</p>}
-        {view === 'accounts' && <p className="mt-2 text-muted-foreground">{accounts.length} accounts across {new Set(accounts.map(a => a.territory).filter(Boolean)).size} territories</p>}
+        {view === 'accounts' && <p className="mt-2 text-muted-foreground">Master account list</p>}
         {view === 'invoices' && <p className="mt-2 text-muted-foreground">Upload QuickBooks invoices, line items, and AR reports</p>}
         {view === 'brands' && <p className="mt-2 text-muted-foreground">Select a brand to view payment history</p>}
         {view === 'ledger' && (
@@ -1462,13 +1577,6 @@ function PaymentsTracker() {
             />
             <span>• All amounts in USD</span>
           </div>
-        )}
-        {view === 'account-detail' && (
-          <p className="mt-2 text-muted-foreground">
-            {selectedAccount?.territory || 'No territory'}
-            {selectedAccount?.email && <> • <a href={`mailto:${selectedAccount.email}`} className="hover:text-foreground">{selectedAccount.email}</a></>}
-            {(selectedAccount?.firstName || selectedAccount?.lastName) && <> • {[selectedAccount.firstName, selectedAccount.lastName].filter(Boolean).join(' ')}</>}
-          </p>
         )}
         </div>
         {view === 'invoices' && (
@@ -1589,6 +1697,11 @@ function PaymentsTracker() {
               )}
             </Card>
           )}
+          <div className="flex justify-end mb-4">
+            {/* Push each rep's Available through to their own dashboard, so they
+                request payouts against our figure rather than their own maths. */}
+            <PublishAvailabilityButton reps={reps} repSummary={repSummary} />
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {reps.map((rep) => {
               const t = repTotals[rep.id]
@@ -1596,14 +1709,18 @@ function PaymentsTracker() {
               const repBrandList = brandsByRep[rep.id] || []
               const summary = repSummary[rep.id] || { earned: 0, paidOut: 0, available: 0, openCommission: 0 }
               return (
-                <Card key={rep.id} onClick={() => goToRep(rep.id)} className="cursor-pointer hover:border-[#005b5b] transition-colors">
+                <Card
+                  key={rep.id}
+                  onClick={() => goToRep(rep.id)}
+                  className="group cursor-pointer shadow-sm hover:shadow-lg hover:-translate-y-0.5 hover:border-[#005b5b] transition-all flex flex-col"
+                >
                   <CardHeader>
                     <div className="flex items-start justify-between gap-3">
                       <CardTitle className="flex items-center gap-2 min-w-0">
-                        <div className="w-10 h-10 rounded-full bg-[#005b5b] text-white flex items-center justify-center font-bold shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-[#005b5b] text-white flex items-center justify-center font-bold shrink-0 shadow-sm">
                           {rep.name.charAt(0)}
                         </div>
-                        <span className="truncate">{rep.name}</span>
+                        <span className="truncate text-[#005b5b] dark:text-[#00b3b3] group-hover:underline">{rep.name}</span>
                       </CardTitle>
                       <div className="text-right text-xs min-w-0 max-w-[55%]">
                         {rep.agency && <div className="font-medium truncate">{rep.agency}</div>}
@@ -1633,17 +1750,37 @@ function PaymentsTracker() {
                         <span className="text-muted-foreground shrink-0">Territories</span>
                         <span className="font-medium text-right">{territories.length ? territories.join(', ') : '—'}</span>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Earned YTD</span>
-                        <span className="font-medium">{fmt(summary.earned)}</span>
+                      <div className="grid grid-cols-2 gap-2 pt-1">
+                        <div className="rounded-lg border bg-muted/30 dark:bg-zinc-800/30 px-2.5 py-2">
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Earned YTD</div>
+                          <div className="font-semibold tabular-nums">{fmt(summary.earned)}</div>
+                        </div>
+                        <div className="rounded-lg border bg-muted/30 dark:bg-zinc-800/30 px-2.5 py-2">
+                          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Paid out YTD</div>
+                          <div className="font-semibold tabular-nums">{fmt(summary.paidOut)}</div>
+                        </div>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Paid out YTD</span>
-                        <span className="font-medium">{fmt(summary.paidOut)}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Available</span>
-                        <span className={`font-bold ${summary.available > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(summary.available)}</span>
+                      <div className={`rounded-lg px-3 py-2.5 flex items-center justify-between gap-2 ${
+                        summary.available > 0.005
+                          ? 'bg-[#005b5b] text-white shadow-sm'
+                          : summary.available < -0.005
+                            ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900'
+                            : 'bg-muted/40 dark:bg-zinc-800/40 border'
+                      }`}>
+                        <span className={`text-[11px] uppercase tracking-wide font-semibold ${
+                          summary.available > 0.005
+                            ? 'text-white/70'
+                            : summary.available < -0.005
+                              ? 'text-red-700 dark:text-red-400'
+                              : 'text-muted-foreground'
+                        }`}>
+                          Available
+                        </span>
+                        <span className={`text-lg font-bold tabular-nums ${
+                          summary.available < -0.005 ? 'text-red-700 dark:text-red-400' : ''
+                        }`}>
+                          {fmt(summary.available)}
+                        </span>
                       </div>
                       {typeof summary.shadowAvailable === 'number' && Math.abs(summary.shadowAvailable - summary.available) > 0.005 && (
                         <div className="flex justify-between text-xs">
@@ -1677,11 +1814,50 @@ function PaymentsTracker() {
         </>
       )}
 
+      {/* === DASHBOARD VIEW === */}
+      {view === 'dashboard' && (
+        <AccountingDashboard
+          accounts={accounts}
+          stats={dashboardStats}
+          onSelectAccount={goToAccount}
+          onCompose={() => setCompose({ to: '' })}
+        />
+      )}
+
       {/* === ACCOUNTS VIEW === */}
       {view === 'accounts' && (
+        <div className="flex items-center gap-1 rounded-lg border p-1 w-fit">
+          {[
+            { key: 'list', label: 'All Accounts' },
+            { key: 'territories', label: 'Territories' },
+          ].map(t => (
+            <button
+              key={t.key}
+              onClick={() => setAccountsTab(t.key)}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                accountsTab === t.key ? 'bg-[#005b5b] text-white' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {view === 'accounts' && accountsTab === 'list' && (
+        <AccountsListView
+          accounts={accounts}
+          accountOpenBalances={accountOpenBalances}
+          invoiceNumsByAccountId={invoiceNumsByAccountId}
+          repNameForAccount={repNameForAccount}
+          onAddAccount={() => setAddAccountOpen(true)}
+          onSelect={goToAccount}
+        />
+      )}
+
+      {view === 'accounts' && accountsTab === 'territories' && (
         <AccountsView
           accounts={accounts}
-          accountTotals={accountTotals}
           accountOpenBalances={accountOpenBalances}
           invoiceNumsByAccountId={invoiceNumsByAccountId}
           unmatchedSummary={unmatchedSummary}
@@ -1736,6 +1912,45 @@ function PaymentsTracker() {
         />
       )}
 
+      <ComposeDialog
+        open={Boolean(compose)}
+        onOpenChange={(v) => { if (!v) setCompose(null) }}
+        to={compose?.to || ''}
+        subject={compose?.subject || ''}
+        account={compose?.account}
+        accountName={compose?.accountName}
+        directory={emailDirectory}
+        templateVars={compose?.templateVars}
+        onSent={(record) => logEmail(record)}
+      />
+
+      <AccountEditDialog
+        open={addAccountOpen}
+        onOpenChange={setAddAccountOpen}
+        account={null}
+        isNew
+        territories={TERRITORIES}
+        reps={reps}
+        onSave={(patch) => {
+          const acct = createAccount(patch)
+          goToAccount(acct.id)
+        }}
+      />
+
+      {selectedAccount && (
+        <AccountEditDialog
+          open={editAccountOpen}
+          onOpenChange={setEditAccountOpen}
+          account={selectedAccount}
+          territories={TERRITORIES}
+          reps={reps}
+          territoryRepName={repNameForTerritory(selectedAccount.territory)}
+          isEdited={Boolean(accountOverrides[selectedAccount.id])}
+          onSave={(patch) => saveAccount(selectedAccount.id, patch)}
+          onReset={() => resetAccount(selectedAccount.id)}
+        />
+      )}
+
       {/* === ACCOUNT DETAIL VIEW === */}
       {view === 'account-detail' && selectedAccount && (
         <AccountDetailView
@@ -1745,7 +1960,23 @@ function PaymentsTracker() {
           brands={brands}
           invoices={invoices}
           lineItems={lineItems}
-          onBack={backToAccounts}
+          territoryRepName={repNameForAccount(selectedAccount)}
+          onEditAccount={() => setEditAccountOpen(true)}
+          onCompose={(payload) => setCompose({
+            account: selectedAccount,
+            accountName: selectedAccount.name,
+            templateVars: {
+              ...templateContext({
+                account: selectedAccount,
+                invoices: payload.invoices || [],
+                openBalance: payload.openBalance || 0,
+              }),
+              // Greet the actual person when we know their name.
+              contact_first: payload.contactName
+                || [selectedAccount.firstName, selectedAccount.lastName].filter(Boolean).join(' '),
+            },
+            to: payload.to,
+          })}
           onJumpToInvoice={(customer, num) => {
             setInvoiceDrillCustomer(customer)
             setInvoiceDrillHighlight(num)
@@ -2026,22 +2257,28 @@ function TerritoryTile({ territory, stats, onClick }) {
       }))
   }, [stats.openByBrand])
   return (
-    <Card onClick={onClick} className="cursor-pointer hover:border-[#005b5b] transition-colors">
-      <CardHeader className="pb-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <CardTitle className="text-base text-[#005b5b] truncate">{territory}</CardTitle>
-            <CardDescription className="text-xs">
-              {stats.accountCount} {stats.accountCount === 1 ? 'account' : 'accounts'} · {stats.openInvoiceCount} open · {stats.paidInvoiceCount} paid
-            </CardDescription>
-          </div>
-          <div className="text-right shrink-0">
-            <div className="text-xs text-muted-foreground">Open total</div>
-            <div className="font-bold text-[#005b5b]">{fmt(stats.openTotal)}</div>
+    <Card
+      onClick={onClick}
+      className="cursor-pointer shadow-sm hover:shadow-lg hover:-translate-y-0.5 hover:border-[#005b5b] transition-all overflow-hidden"
+    >
+      <div className="bg-muted/50 dark:bg-zinc-800/50 border-b px-5 py-3 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <CardTitle className="text-base text-[#005b5b] dark:text-[#00b3b3] truncate">{territory}</CardTitle>
+          <CardDescription className="text-xs">
+            {stats.accountCount} {stats.accountCount === 1 ? 'account' : 'accounts'} · {stats.openInvoiceCount} open · {stats.paidInvoiceCount} paid
+          </CardDescription>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-[10px] uppercase tracking-wide text-muted-foreground">Open total</div>
+          <div className={`text-xl font-bold tabular-nums ${
+            stats.openTotal > 0.005 ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+          }`}>
+            {fmt(stats.openTotal)}
           </div>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-3">
+      </div>
+      <div className="pt-4" />
+      <CardContent className="space-y-3 pt-0">
         <div className="flex items-center gap-4">
           <DonutChart data={donutData} size={110} strokeWidth={18} />
           <div className="flex-1 min-w-0 space-y-1">
@@ -2077,7 +2314,7 @@ function TerritoryTile({ territory, stats, onClick }) {
   )
 }
 
-function AccountsView({ accounts, accountTotals, accountOpenBalances, invoiceNumsByAccountId = {}, unmatchedSummary, fuzzyMatchedSummary = [], territoryStats = {}, search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
+function AccountsView({ accounts, accountOpenBalances, invoiceNumsByAccountId = {}, unmatchedSummary, fuzzyMatchedSummary = [], territoryStats = {}, search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
   const [unmatchedOpen, setUnmatchedOpen] = useState(false)
   const [fuzzyOpen, setFuzzyOpen] = useState(false)
   const fuzzyTotal = useMemo(
@@ -2163,7 +2400,7 @@ function AccountsView({ accounts, accountTotals, accountOpenBalances, invoiceNum
           onChange={(e) => onTerritoryChange(e.target.value)}
           className="h-9 px-3 rounded-md border border-input bg-transparent text-sm min-w-[260px]"
         >
-          <option value="all">All territories ({accounts.length})</option>
+          <option value="all">All territories</option>
           {territories.map(t => (
             <option key={t} value={t}>{t} ({accounts.filter(a => a.territory === t).length})</option>
           ))}
@@ -2305,29 +2542,41 @@ function AccountsView({ accounts, accountTotals, accountOpenBalances, invoiceNum
               <span className="text-xs text-muted-foreground">{grouped[terr].length} {grouped[terr].length === 1 ? 'account' : 'accounts'}</span>
             </button>
             {!isCollapsed && (
-              <div className="rounded-lg border overflow-hidden">
+              <div className="rounded-xl border shadow-sm overflow-hidden bg-card">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-muted/30 text-xs uppercase text-muted-foreground border-b">
-                      <th className="py-2 px-4 text-left font-medium">Account</th>
-                      <th className="py-2 px-4 text-left font-medium">Contact</th>
-                      <th className="py-2 px-4 text-left font-medium">Email</th>
-                      <th className="py-2 px-4 text-left font-medium">Phone</th>
-                      <th className="py-2 px-4 text-right font-medium">Open Balance</th>
+                    <tr className="bg-muted/60 dark:bg-zinc-800/60 text-[11px] uppercase tracking-wide text-muted-foreground border-b">
+                      <th className="py-2.5 px-4 text-left font-semibold">Account</th>
+                      <th className="py-2.5 px-4 text-left font-semibold">Contact</th>
+                      <th className="py-2.5 px-4 text-right font-semibold">Open Balance</th>
                     </tr>
                   </thead>
                   <tbody>
                     {grouped[terr].map((a) => {
                       const contact = [a.firstName, a.lastName].filter(Boolean).join(' ')
-                      const openBal = accountOpenBalances?.[a.id]
+                      const openBal = accountOpenBalances?.[a.id] || 0
                       return (
-                        <tr key={a.id} onClick={() => onSelect(a.id)} className="border-b last:border-0 cursor-pointer hover:bg-muted/30">
-                          <td className="py-2.5 px-4 font-medium">{a.name}</td>
-                          <td className="py-2.5 px-4 text-xs text-muted-foreground">{contact || '—'}</td>
-                          <td className="py-2.5 px-4 text-xs text-muted-foreground">{a.email || '—'}</td>
-                          <td className="py-2.5 px-4 text-xs text-muted-foreground">{a.phone || '—'}</td>
-                          <td className={`py-2.5 px-4 text-right ${openBal ? 'font-bold text-[#005b5b]' : 'text-muted-foreground'}`}>
-                            {openBal ? fmt(openBal) : '—'}
+                        <tr
+                          key={a.id}
+                          onClick={() => onSelect(a.id)}
+                          className="group border-b last:border-0 cursor-pointer odd:bg-muted/20 hover:bg-[#005b5b]/[0.06] dark:hover:bg-[#005b5b]/20 transition-colors"
+                        >
+                          <td className="py-3 px-4">
+                            <AccountName
+                              account={a}
+                              className="font-medium text-[#005b5b] dark:text-[#00b3b3] group-hover:underline"
+                            />
+                          </td>
+                          <td className="py-3 px-4">
+                            {contact && <div className="text-xs font-medium truncate">{contact}</div>}
+                            {a.email && <div className="text-xs text-muted-foreground truncate">{a.email}</div>}
+                            {a.phone && <div className="text-xs text-muted-foreground">{a.phone}</div>}
+                            {!contact && !a.email && !a.phone && <span className="text-xs text-muted-foreground">—</span>}
+                          </td>
+                          <td className={`py-3 px-4 text-right tabular-nums whitespace-nowrap ${
+                            openBal > 0.005 ? 'font-bold text-amber-700 dark:text-amber-400' : 'text-muted-foreground'
+                          }`}>
+                            {openBal > 0.005 ? fmt(openBal) : '—'}
                           </td>
                         </tr>
                       )
@@ -3812,7 +4061,7 @@ function InvoicesView({
 // =====================================================================
 // AccountDetailView — cross-rep, cross-brand history for one account
 // =====================================================================
-function AccountDetailView({ account, entries, reps, brands, invoices = [], lineItems = [], onBack, onJumpToInvoice }) {
+function AccountDetailView({ account, entries, reps, brands, invoices = [], lineItems = [], territoryRepName, onEditAccount, onCompose, onJumpToInvoice }) {
   // Match invoices for this account using the same fuzzy normalization as the
   // unmatched-invoices banner: strip "- Contact" suffixes, parens, punctuation.
   const accountInvoices = useMemo(() => {
@@ -3966,97 +4215,67 @@ function AccountDetailView({ account, entries, reps, brands, invoices = [], line
 
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={onBack}>
-        <ArrowLeft className="size-4 mr-1" /> Back to all accounts
-      </Button>
+      {/* Territory / rep strip + editable contacts */}
+      <AccountHeaderCard
+        account={account}
+        repName={territoryRepName}
+        onEdit={onEditAccount}
+        onCompose={onCompose && ((payload) => onCompose({
+          ...payload,
+          invoices: accountInvoices,
+          openBalance: accountStats.openBalance,
+        }))}
+      />
 
-      {/* Contact card */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <MapPin className="size-4 text-[#005b5b]" />
-            {account.territory || 'No territory'}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-            <div className="flex items-center gap-2">
-              <User className="size-4 text-muted-foreground" />
-              <span>{[account.firstName, account.lastName].filter(Boolean).join(' ') || '—'}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Mail className="size-4 text-muted-foreground" />
-              {account.email ? <a href={`mailto:${account.email}`} className="hover:text-[#005b5b]">{account.email}</a> : <span>—</span>}
-            </div>
-            {account.contactId && (
-              <div className="text-muted-foreground text-xs">Contact ID: {account.contactId}</div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Summary — invoice-derived KPIs when invoices are loaded, falls back
           to entry-derived numbers when not. */}
       {accountInvoices.length > 0 ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Total Sales</CardDescription>
-              <CardTitle className="text-2xl">{fmt(accountStats.totalSales)}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Open Balance</CardDescription>
-              <CardTitle className={`text-2xl ${accountStats.openBalance > 0 ? 'text-[#005b5b]' : ''}`}>{fmt(accountStats.openBalance)}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Invoices</CardDescription>
-              <CardTitle className="text-2xl">{accountStats.count.toLocaleString()}</CardTitle>
-              <div className="text-xs text-muted-foreground mt-1">
-                {accountStats.paidCount > 0 && <span className="text-emerald-700 dark:text-emerald-300">{accountStats.paidCount} paid</span>}
-                {accountStats.openCount > 0 && <span>{accountStats.paidCount > 0 && ' · '}<span className="text-[#005b5b]">{accountStats.openCount} open</span></span>}
-                {accountStats.partialCount > 0 && <span>{(accountStats.paidCount > 0 || accountStats.openCount > 0) && ' · '}<span className="text-amber-700 dark:text-amber-300">{accountStats.partialCount} partial</span></span>}
-              </div>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>First Invoice</CardDescription>
-              <CardTitle className="text-xl">{fmtUSDate(accountStats.firstInvoiceDate)}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Last Invoice</CardDescription>
-              <CardTitle className="text-xl">{fmtUSDate(accountStats.lastInvoiceDate)}</CardTitle>
-            </CardHeader>
-          </Card>
+        <div className="space-y-3">
+          {/* The two numbers that drive a collections call get the dark slabs. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <StatTile icon={DollarSign} tone="teal" label="Total Sales" value={fmt(accountStats.totalSales)} />
+            <StatTile
+              icon={accountStats.openBalance > 0.005 ? AlertTriangle : Check}
+              tone={accountStats.openBalance > 0.005 ? 'amber' : 'emerald'}
+              label="Open Balance"
+              value={fmt(accountStats.openBalance)}
+              hint={accountStats.openBalance > 0.005 ? 'outstanding' : 'paid in full'}
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <MiniStat
+              label="Invoices"
+              value={accountStats.count.toLocaleString()}
+              hint={
+                <>
+                  {accountStats.paidCount > 0 && <span className="text-emerald-700 dark:text-emerald-300">{accountStats.paidCount} paid</span>}
+                  {accountStats.openCount > 0 && <span>{accountStats.paidCount > 0 && ' · '}<span className="text-[#005b5b] dark:text-teal-300">{accountStats.openCount} open</span></span>}
+                  {accountStats.partialCount > 0 && <span>{(accountStats.paidCount > 0 || accountStats.openCount > 0) && ' · '}<span className="text-amber-700 dark:text-amber-300">{accountStats.partialCount} partial</span></span>}
+                </>
+              }
+            />
+            <MiniStat label="First Invoice" value={fmtUSDate(accountStats.firstInvoiceDate)} />
+            <MiniStat label="Last Invoice" value={fmtUSDate(accountStats.lastInvoiceDate)} />
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Entries</CardDescription>
-              <CardTitle className="text-2xl">{entryFallback.count}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Lifetime Paid</CardDescription>
-              <CardTitle className="text-2xl">{fmt(entryFallback.paid)}</CardTitle>
-            </CardHeader>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardDescription>Total Commission Earned</CardDescription>
-              <CardTitle className="text-2xl text-[#005b5b]">{fmt(entryFallback.commission)}</CardTitle>
-            </CardHeader>
-          </Card>
+          <StatTile icon={FileSpreadsheet} tone="zinc" label="Entries" value={entryFallback.count} />
+          <StatTile icon={Banknote} tone="teal" label="Lifetime Paid" value={fmt(entryFallback.paid)} />
+          <StatTile icon={Wallet} tone="emerald" label="Commission Earned" value={fmt(entryFallback.commission)} />
         </div>
       )}
+
+      {/* Contacts, notes, and to-dos for this account */}
+      <AccountCrmPanel
+        account={account}
+        onCompose={onCompose && ((payload) => onCompose({
+          ...payload,
+          invoices: accountInvoices,
+          openBalance: accountStats.openBalance,
+        }))}
+      />
 
       {/* Invoice list for this account */}
       <Card>
@@ -6578,4 +6797,12 @@ function ImportSalesModal({ open, onOpenChange, brands, accounts, reps, repForTe
   )
 }
 
-export default PaymentsTracker
+export default function PaymentsTracker() {
+  return (
+    <GmailProvider>
+      <CrmProvider>
+        <PaymentsTrackerInner />
+      </CrmProvider>
+    </GmailProvider>
+  )
+}

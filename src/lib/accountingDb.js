@@ -66,6 +66,32 @@ export async function revokeConnection(id) {
   if (error) throw error
 }
 
+// A connected rep's sales data (orders + the lookups needed to display and
+// price them). RLS grants accounting SELECT on a connected rep's rows; we
+// scope to the rep's user_id so we don't pull in the accounting user's own.
+export async function fetchRepSales(repId) {
+  const q = (table) => supabase.from(table).select('*').eq('user_id', repId)
+  const [orders, companies, clients, seasons, commissions] = await Promise.all([
+    q('orders'), q('companies'), q('clients'), q('seasons'), q('commissions'),
+  ])
+  for (const r of [orders, companies, clients, seasons, commissions]) {
+    if (r.error) throw r.error
+  }
+  return {
+    orders: orders.data ?? [],
+    companies: companies.data ?? [],
+    clients: clients.data ?? [],
+    seasons: seasons.data ?? [],
+    commissions: commissions.data ?? [],
+  }
+}
+
+// Override (or reset, with pct = null) the commission % on a connected rep's
+// sale. Goes through an edge function that re-checks the connection server-side.
+export async function updateRepCommission(orderId, commissionPct) {
+  return callFn('update-rep-commission', { orderId, commissionPct })
+}
+
 // The shareable link a rep clicks to accept.
 export function inviteLink(code) {
   const origin = typeof window !== 'undefined' ? window.location.origin : 'https://app.repcommish.com'

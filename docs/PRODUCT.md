@@ -46,6 +46,18 @@
 16. **Brand Admin Upload** - Brand admin selects rep → brand → account → season, drops PDF files. Files auto-match to existing orders or create new ones in rep's data space.
 17. **Rep Sharing Controls** - Rep can toggle sharing on/off per brand admin or revoke connection entirely from the Brand tab on CompanyDetail.
 
+### Commission Payout Request (rep → accounting)
+1. Rep's own **Commish Owed** is just sales x rate — it is NOT what's payable, because some accounts haven't paid their invoices.
+2. Accounting publishes each rep's **Available** figure with *Send Available to reps* on the accounting page — this is commission on invoices customers have actually paid, less what's already been paid out.
+3. The rep's Dashboard shows that as **Available to be paid**, with the as-of date. Until accounting publishes, there's no figure and no button.
+4. Rep clicks **Request Payout** (pre-filled with the available amount, capped to it) and adds an optional note.
+5. The request lands in the accountant's **Payout Requests** queue on Connected Reps.
+6. Accounting **approves** (the amount stays editable in case things moved since publishing), **rejects**, or later **marks paid**.
+7. The rep sees the status, the approved amount and the note back on their Dashboard.
+
+A rep can only request from an accountant they are actively connected to, and can hold only one open request per accountant at a time.
+
+
 ## Terminology
 
 | Term | Meaning |
@@ -110,6 +122,7 @@
 | AccountDetail (/app/accounts/:id) | Full account management: auto-detected logo, contact info, todos, auto-saving notes, order history reporting |
 | Companies (/app/companies) | Company management with commission %, logo upload, quick links in sidebar |
 | CompanyDetail (/app/companies/:id) | Tabbed view (Dashboard/Sales/Commission/Payments) scoped to a single company |
+| Accounting (/app/accounting) | Accounting's home (was /app/payments, which now redirects). Gmail connect + compose live here. Tabs: **Dashboard** (to-dos, quick notes, stats — the landing view), **Reps** (commission ledgers), **Accounts** (By Territory rollup + flat All Accounts list, drilling into an account page with invoices, contacts, notes, and to-dos), **Data Uploads** (QuickBooks invoices, line items, payments, WSR remittances). |
 | Reports (/app/reports) | Data export page with .xlsx and .pdf download for Accounts, Brands, Sales, Commissions, and Payments |
 | Admin (/app/admin) | Master admin page for managing user roles. Shows all users with role dropdowns. Only visible to master_admin. |
 | Invite (/invite/:code) | Public invite acceptance page. Validates invite code, accepts invite if logged in, redirects to login if not. |

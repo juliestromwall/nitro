@@ -100,7 +100,7 @@ function AppLayout() {
   const location = useLocation()
   // "Tony view" is the minimal single-purpose payments layout for brand-admin-style users.
   // Accounting users treat Payments as one of three normal pages, so they keep the full nav.
-  const isTonyView = location.pathname.startsWith('/app/payments') && !isAccounting
+  const isTonyView = (location.pathname.startsWith('/app/accounting') || location.pathname.startsWith('/app/payments')) && !isAccounting
   // The Payments page ("wallet") is accounting's tool. Reps (pro_rep/rep/sub_rep/
   // admin/manager) should not see it. Master admin keeps access as the app owner.
   const canSeePayments = isAccounting || userRole === 'master_admin'
@@ -281,7 +281,7 @@ function AppLayout() {
                 </NavLink>
               </>
             )}
-            {!isTonyView && (
+            {!isTonyView && !isAccounting && (
               <NavLink
                 to="/app/accounts"
                 end
@@ -300,8 +300,8 @@ function AppLayout() {
             )}
             {canSeePayments && (
               <NavLink
-                to="/app/payments"
-                title="Payments"
+                to="/app/accounting"
+                title={isAccounting ? 'Home' : 'Accounting'}
                 className={({ isActive }) =>
                   `flex items-center justify-center p-2 rounded-lg transition-colors ${
                     isActive
@@ -310,7 +310,7 @@ function AppLayout() {
                   }`
                 }
               >
-                <Wallet className="size-5" />
+                {isAccounting ? <Home className="size-5" /> : <Wallet className="size-5" />}
               </NavLink>
             )}
             {canManageReps && (
@@ -328,7 +328,7 @@ function AppLayout() {
                 <Users className="size-5" />
               </NavLink>
             )}
-            {!isTonyView && (
+            {!isTonyView && !isAccounting && (
               <NavLink
                 to="/app/reports"
                 end
@@ -398,12 +398,10 @@ function AppLayout() {
                 // Accounting users only have access to Payments, Accounts, and Reports.
                 // Everything else (including the Dashboard index) redirects to Payments.
                 <>
-                  <Route path="accounts" element={<Accounts />} />
-                  <Route path="accounts/:id" element={<AccountDetail />} />
-                  <Route path="reports" element={<Reports />} />
+                  <Route path="accounting" element={<PaymentsTracker />} />
                   <Route path="reps" element={<AccountingReps />} />
-                  <Route path="payments" element={<PaymentsTracker />} />
-                  <Route path="*" element={<Navigate to="/app/payments" replace />} />
+                  <Route path="payments" element={<Navigate to="/app/accounting" replace />} />
+                  <Route path="*" element={<Navigate to="/app/accounting" replace />} />
                 </>
               ) : (
                 <>
@@ -415,9 +413,10 @@ function AppLayout() {
                   <Route path="reports" element={<Reports />} />
                   <Route path="admin" element={<Admin />} />
                   <Route
-                    path="payments"
+                    path="accounting"
                     element={canSeePayments ? <PaymentsTracker /> : <Navigate to="/app" replace />}
                   />
+                  <Route path="payments" element={<Navigate to="/app/accounting" replace />} />
                   <Route
                     path="reps"
                     element={canManageReps ? <AccountingReps /> : <Navigate to="/app" replace />}

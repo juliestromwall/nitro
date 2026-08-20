@@ -1,4 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.38.0'
+import { gmailDwdConfigured, sendViaGmail } from '../_shared/gmail.ts'
+
+// Workspace domain whose users can send the report from their own Gmail
+// (via domain-wide delegation). Everyone else falls back to SendGrid.
+const GMAIL_SEND_DOMAIN = 'foundrydist.com'
 
 const supabaseUrl = Deno.env.get('SUPABASE_URL')!
 const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
@@ -81,6 +86,36 @@ Deno.serve(async (req) => {
         <hr style="margin: 24px 0 12px; border: none; border-top: 1px solid #e4e4e7;" />
         <p style="font-size: 12px; color: #a1a1aa;">Foundry Distribution • Commission report attached (PDF + Excel).</p>
       </div>`
+
+    // ── Preferred path: send AS the signed-in Foundry user via Gmail ──
+    // The send-as identity is the caller's *authenticated* email (never a
+    // request field), so an admin can only send from their own mailbox. The
+    // message lands in their Gmail Sent folder. Any failure falls through to
+    // SendGrid so a send is never lost.
+    const senderEmail = (caller.email || '').toLowerCase()
+    const senderName =
+      callerFull?.user_metadata?.full_name || callerFull?.user_metadata?.name || undefined
+    if (gmailDwdConfigured() && senderEmail.endsWith(`@${GMAIL_SEND_DOMAIN}`)) {
+      try {
+        await sendViaGmail({
+          from: senderEmail,
+          fromName: senderName,
+          to: repEmail,
+          toName: repName || undefined,
+          replyTo: senderEmail,
+          subject: subject || 'Your commission report',
+          html,
+          attachments: attachments.map((a) => ({
+            filename: a.filename,
+            type: a.type,
+            contentBase64: a.content,
+          })),
+        })
+        return json({ success: true, via: 'gmail', sender: senderEmail })
+      } catch (gmailErr) {
+        console.error('Gmail DWD send failed, falling back to SendGrid:', gmailErr)
+      }
+    }
 
     const sg = await fetch('https://api.sendgrid.com/v3/mail/send', {
       method: 'POST',

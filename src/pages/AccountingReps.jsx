@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Users, Copy, Check, Trash2, Plus, Link2, RefreshCw } from 'lucide-react'
+import { Users, Copy, Check, Trash2, Plus, Link2, RefreshCw, Receipt } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import RepSalesDialog from '@/components/accounting/RepSalesDialog'
+import PayoutRequestsPanel from '@/components/accounting/PayoutRequestsPanel'
 import { Input } from '@/components/ui/input'
 import {
   fetchConnections, fetchPendingInvites, fetchRepDetails,
@@ -38,6 +40,7 @@ function AccountingReps() {
   const [error, setError] = useState('')
   const [email, setEmail] = useState('')
   const [creating, setCreating] = useState(false)
+  const [salesRep, setSalesRep] = useState(null) // { id, name } whose sales dialog is open
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -172,6 +175,16 @@ function AccountingReps() {
                       sharing paused
                     </span>
                   )}
+                  {c.sharing_enabled && (
+                    <Button
+                      variant="outline" size="sm"
+                      onClick={() => setSalesRep({ id: c.rep_id, name: rep?.name || 'Rep' })}
+                      title="View sales & adjust commission"
+                    >
+                      <Receipt className="size-4" />
+                      <span className="ml-1 hidden sm:inline">View sales</span>
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" onClick={() => revoke(c.id)} title="Revoke" className="text-red-600 hover:text-red-700">
                     <Trash2 className="size-4" />
                   </Button>
@@ -181,6 +194,15 @@ function AccountingReps() {
           </div>
         )}
       </section>
+
+      <PayoutRequestsPanel repDetails={repDetails} onViewSales={setSalesRep} />
+
+      <RepSalesDialog
+        repId={salesRep?.id}
+        repName={salesRep?.name}
+        open={!!salesRep}
+        onOpenChange={(o) => { if (!o) setSalesRep(null) }}
+      />
     </div>
   )
 }

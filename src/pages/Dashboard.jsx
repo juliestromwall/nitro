@@ -7,6 +7,7 @@ import { useCompanies } from '@/context/CompanyContext'
 import { EXCLUDED_STAGES } from '@/lib/constants'
 import { useAccounts } from '@/context/AccountContext'
 import { useExchangeRates } from '@/hooks/useExchangeRate'
+import RequestPayoutCard from '@/components/payouts/RequestPayoutCard'
 
 const fmt = (value) =>
   new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value)
@@ -241,6 +242,12 @@ function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Commission payout request — only meaningful once an accountant is connected */}
+      <RequestPayoutCard
+        owed={showUSD ? brandData.totals.commissionOwed : brandData.totals.rawCommissionOwed}
+        seasonLabel={selectedCycle}
+      />
 
       {/* Brand Cards */}
       {brandData.rows.length === 0 ? (
