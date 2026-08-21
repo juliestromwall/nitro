@@ -1223,12 +1223,9 @@ function PaymentsTrackerInner() {
   }, [collectedCommission, selectedRepId, paymentEventsByInvoiceNum, paymentsByCust])
 
   // Reps have two QB account variants. Only the "- REP" account should hold
-  // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
-  // should not normally appear in QB data — when one shows up, it's flagged
-  // separately for QB cleanup (see customerSuffixAnomalies below).
+  // sample invoices (the source of "Owes Foundry").
   // REP suffix patterns seen: "- REP", "- REP1".
   const REP_SUFFIX_RE = /\s-\s+rep\d*\s*$/i
-  const CUSTOMER_SUFFIX_RE = /\s-\s+customer\s*$/i
   const owedByRep = useMemo(() => {
     const out = {}
     for (const rep of reps) {
@@ -1275,31 +1272,6 @@ function PaymentsTrackerInner() {
     return out
   }, [reps, invoices])
 
-  // "- CUSTOMER" invoices that match a known rep — these shouldn't be there.
-  // Surface in a banner so Tony can fix them in QB (move to the rep's REP
-  // account or reclassify). Grouped by QB customer name.
-  const customerSuffixAnomalies = useMemo(() => {
-    const groups = new Map()
-    for (const rep of reps) {
-      const parts = (rep.name || '').split(/\s+/).filter(Boolean)
-      if (parts.length < 2) continue
-      const first = parts[0].toLowerCase()
-      const last = parts[parts.length - 1].toLowerCase()
-      for (const inv of invoices) {
-        const c = (inv.customer || '').toLowerCase()
-        if (!CUSTOMER_SUFFIX_RE.test(c)) continue
-        if (!c.includes(first) || !c.includes(last)) continue
-        const key = inv.customer
-        if (!groups.has(key)) {
-          groups.set(key, { customer: inv.customer, repName: rep.name, count: 0, openBalance: 0 })
-        }
-        const g = groups.get(key)
-        g.count += 1
-        g.openBalance += inv.openBalance || 0
-      }
-    }
-    return Array.from(groups.values()).sort((a, b) => a.customer.localeCompare(b.customer))
-  }, [reps, invoices])
   // Per-rep summary. Earned + Paid Out are YTD figures (current calendar
   // year only). Available is the live amount Tony owes the rep right now,
   // anchored to ADJUSTMENT_ANCHOR (the date starting adjustments were set):
@@ -1594,7 +1566,6 @@ function PaymentsTrackerInner() {
   const [territoryModalOpen, setTerritoryModalOpen] = useState(false)
   const [importModalOpen, setImportModalOpen] = useState(false)
   const [salesImportOpen, setSalesImportOpen] = useState(false)
-  const [customerSuffixBannerOpen, setCustomerSuffixBannerOpen] = useState(true)
   const selectedAccount = accounts.find(a => a.id === selectedAccountId)
   const selectedAccountEntries = useMemo(
     () => remappedEntries.filter(e => e.accountId === selectedAccountId),
@@ -1927,45 +1898,6 @@ function PaymentsTrackerInner() {
               <Upload className="size-4 mr-1.5" /> Import Payments
             </Button>
           </div>
-          {customerSuffixAnomalies.length > 0 && (
-            <div className="mb-4 p-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="size-4 mt-0.5 text-amber-700 dark:text-amber-300 shrink-0" />
-                <div className="text-sm flex-1">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="font-medium text-amber-900 dark:text-amber-200">
-                      {customerSuffixAnomalies.length} rep {customerSuffixAnomalies.length === 1 ? 'account' : 'accounts'} with <code className="text-xs">- CUSTOMER</code> suffix in QB
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setCustomerSuffixBannerOpen(o => !o)}
-                      className="text-amber-800 dark:text-amber-300 hover:text-amber-900 text-xs underline shrink-0"
-                      aria-label={customerSuffixBannerOpen ? 'Minimize' : 'Expand'}
-                    >
-                      {customerSuffixBannerOpen ? 'Minimize' : 'Expand'}
-                    </button>
-                  </div>
-                  {customerSuffixBannerOpen && (
-                    <>
-                      <div className="text-amber-800 dark:text-amber-300/80 text-xs mt-0.5">
-                        Sample invoices should live under the rep's <code className="text-xs">- REP</code> account. These are excluded from "Owes Foundry" — clean up in QuickBooks and re-import.
-                      </div>
-                      <ul className="mt-2 space-y-0.5 text-xs text-amber-900 dark:text-amber-200">
-                        {customerSuffixAnomalies.map(a => (
-                          <li key={a.customer} className="flex justify-between gap-4">
-                            <span className="font-mono">{a.customer}</span>
-                            <span className="text-amber-800 dark:text-amber-300/80 shrink-0">
-                              {a.count} {a.count === 1 ? 'invoice' : 'invoices'} · open {fmt(a.openBalance)}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
           <div className="flex justify-end mb-4">
             {/* Push each rep's Available through to their own dashboard, so they
                 request payouts against our figure rather than their own maths. */}
