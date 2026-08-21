@@ -36,7 +36,8 @@
 //   - Partial payment: commissionAvailable = commission * (paidAmount / amount)
 
 import { lookupBrand } from './catalogs.js'
-import { REP_RATES, BRAND_DEFAULTS, CUSTOMER_OVERRIDES, RENTAL_SPLIT, CURRENT_SEASON } from './commissionRules.js'
+import { REP_RATES, BRAND_DEFAULTS, CUSTOMER_OVERRIDES, RENTAL_SPLIT, CURRENT_SEASON, ORDER_TYPE_RULES_EFFECTIVE, orderTypeRulesApply } from './commissionRules.js'
+import { ORDER_TYPE, isNonCommissionable } from './brightpearlOrders.js'
 import { REPS, REP_BRANDS } from './paymentsDemoData.js'
 
 // ─── Constants ────────────────────────────────────────────────────────
@@ -64,7 +65,7 @@ const GENERIC_SKU_NAME = 'generic sku'
 // `accountOpenBalances` and `AccountDetailView` use, otherwise the engine
 // will route different invoices than the on-screen account totals say.
 // Strips: contact suffix ("- Scott Moffatt"), parens, apostrophes, punctuation.
-const normCustomer = (s) => String(s || '')
+export const normCustomer = (s) => String(s || '')
   .toUpperCase()
   .replace(/['']/g, '')
   .replace(/\([^)]*\)/g, '')
@@ -78,7 +79,7 @@ function isExcluded(sku) { return EXCLUDED_SKU_NAMES.has(normSku(sku)) }
 function isDiscountLike(sku) { return DISCOUNT_LIKE_NAMES.has(normSku(sku)) }
 function isGenericSku(sku) { return normSku(sku) === GENERIC_SKU_NAME }
 
-function findAccount(invoiceCustomer, accountsByName) {
+export function findAccount(invoiceCustomer, accountsByName) {
   if (!invoiceCustomer) return null
   const n = normCustomer(invoiceCustomer)
   if (!n) return null
@@ -153,7 +154,14 @@ export function computeCommissions({
   accounts = [],
   repTerritories = {},
   season = '2025-26',
+  // Brightpearl order type per invoice number — { [invoiceNum]: 'prebook' |
+  // 'ats' | 'closeout' | 'promo' | 'warranty' | 'uncoded' }. Absent invoices are
+  // left alone entirely, so this is inert until the export is uploaded.
+  orderTypes = {},
+  // Forward-only cutoff; pass null to rate every line regardless of date.
+  orderTypeCutoff = ORDER_TYPE_RULES_EFFECTIVE,
 } = {}) {
+  const hasOrderTypes = orderTypes && Object.keys(orderTypes).length > 0
   // Index accounts by uppercase name for fast lookup
   const accountsByName = new Map()
   for (const a of accounts || []) {
@@ -188,6 +196,31 @@ export function computeCommissions({
     // and use `amount` only for transparency logging).
     const fraction = discountFractions[item.num] ?? 1
     const lineNet = amount != null ? amount * fraction : amount
+
+    // 0. Brightpearl order type. Promo and warranty orders earn no commission
+    //    at all; a Ref that doesn't follow the coding convention is flagged for
+    //    review rather than silently zeroed, so a mistyped Ref is visible
+    //    instead of quietly costing a rep. Closeout is a HALF-RATE rule, not an
+    //    exclusion — it rides on the entry and is applied with the season rule
+    //    (see combinedRateMultiplier) so the two can never stack.
+    //    Forward-only: lines paid before the cutoff keep their old treatment.
+    let isCloseout = false
+    if (hasOrderTypes && orderTypeRulesApply(invoice.date, orderTypeCutoff)) {
+      const orderType = orderTypes[invoice.num]
+      if (orderType && isNonCommissionable(orderType)) {
+        excluded.push({ invoiceNum: invoice.num, sku, amount, reason: `order-type-${orderType}` })
+        continue
+      }
+      if (orderType === ORDER_TYPE.UNCODED) {
+        entries.push(makeReviewEntry({
+          invoice, sku, lineNet,
+          reason: 'Brightpearl Ref does not follow the order-code convention — order type unknown',
+        }))
+        reviewCount++
+        continue
+      }
+      isCloseout = orderType === ORDER_TYPE.CLOSEOUT
+    }
 
     // 1. Excluded fee/shipping/etc — record but don't generate commission entry
     if (isExcluded(sku)) {
@@ -279,17 +312,20 @@ export function computeCommissions({
       if (override?.rentalAdamFullCut) {
         // Adam takes the full 10%, territory rep gets 0
         entries.push(makeCommissionEntry({
+          isCloseout,
           invoice, sku, brand: brandName, brandId, isRental: true, isOlderSeason,
           lineNet: lineNet, repId: ADAM_REP_ID,
           rate: split.adamFullCutRate, source: 'rental-adam-full',
         }))
       } else {
         entries.push(makeCommissionEntry({
+          isCloseout,
           invoice, sku, brand: brandName, brandId, isRental: true, isOlderSeason,
           lineNet: lineNet, repId: ADAM_REP_ID,
           rate: split.adamRate, source: 'rental-split',
         }))
         entries.push(makeCommissionEntry({
+          isCloseout,
           invoice, sku, brand: brandName, brandId, isRental: true, isOlderSeason,
           lineNet: lineNet, repId: territoryRepId,
           rate: split.territoryRate, source: 'rental-split',
@@ -319,6 +355,7 @@ export function computeCommissions({
         }
         const { repId, rate } = candidates[0]
         entries.push(makeCommissionEntry({
+          isCloseout,
           invoice, sku, brand: brandName, brandId, isOlderSeason,
           lineNet: shareNet, repId,
           rate, source: 'split-territory',
@@ -341,6 +378,7 @@ export function computeCommissions({
         continue
       }
       entries.push(makeCommissionEntry({
+        isCloseout,
         invoice, sku, brand: brandName, brandId, isOlderSeason,
         lineNet: lineNet, repId: override.repId, rate,
         source: override.rate != null ? 'customer-override-rate-and-route' : 'customer-override-route',
@@ -366,6 +404,7 @@ export function computeCommissions({
         continue
       }
       entries.push(makeCommissionEntry({
+        isCloseout,
         invoice, sku, brand: brandName, brandId, isOlderSeason,
         lineNet: lineNet, repId: candidates[0].repId, rate: override.rate,
         source: 'customer-override-rate',
@@ -401,6 +440,7 @@ export function computeCommissions({
     }
     const { repId, rate } = candidates[0]
     entries.push(makeCommissionEntry({
+      isCloseout,
       invoice, sku, brand: brandName, brandId, isOlderSeason,
       lineNet: lineNet, repId, rate, source: 'rep-rate',
     }))
@@ -509,7 +549,7 @@ function baseInvoiceFields(invoice) {
   }
 }
 
-function makeCommissionEntry({ invoice, sku, brand, brandId, isRental = false, isOlderSeason = false, lineNet, repId, rate, source }) {
+function makeCommissionEntry({ invoice, sku, brand, brandId, isRental = false, isOlderSeason = false, isCloseout = false, lineNet, repId, rate, source }) {
   // Commission is computed at BASE rate here. The older-season HALF-rate is no
   // longer applied in the engine — it's determined downstream per settlement
   // (payment) date, since "older" depends on when the line was paid, not on a
@@ -526,6 +566,10 @@ function makeCommissionEntry({ invoice, sku, brand, brandId, isRental = false, i
     skuSeason: lookupBrand(sku)?.season || null,   // for season-aware rating (step 3)
     isRental,
     isOlderSeason,
+    // Carried, not applied here — the half-rate lands downstream alongside the
+    // older-season rule so the two go through combinedRateMultiplier together
+    // and cannot stack into a quarter rate.
+    isCloseout,
     lineNet,
     repId,
     repName: repName(repId),

@@ -73,6 +73,58 @@ function withPaidDates(paidInvoices, paymentDates) {
   return paidInvoices.map(i => ({ ...i, paidOn: paymentDateFor(paymentDates, i.invoiceNum) }))
 }
 
+// Paid invoices, taken from the COLLECTED (cash-basis) events when we have them.
+//
+// Why not the invoice dataset: that route needs an invoice to clear two gates,
+// and both can fail while the rep is genuinely owed the money.
+//   1. splitInvoices keeps only status === 'Paid'. A date-filtered invoices
+//      export can still read "Open" for an invoice paid this week.
+//   2. applyPaidSince drops any invoice with no paidOn, and paidOn comes from
+//      the payment auto-matcher, which misses whenever its $5 amount tolerance
+//      can't bridge a credit memo (see the EVO/SI-127329 case).
+//
+// Steve Clare's 2026-08-12 statement is what this fixes: seven invoices earned
+// $612.50 through the collected path — the figure the Available total was built
+// from — yet every one was filtered out, so the PDF read "No paid invoices in
+// this period" directly beneath "Earned by brand $612.50". The total was right
+// and the evidence for it was blank, which is unverifiable for the rep.
+//
+// The collected report states the payment date and paid amount per invoice
+// outright, so nothing has to be inferred.
+function paidFromCollected(collectedEvents) {
+  return (collectedEvents || [])
+    .filter(ev => ev?.invoiceNum)
+    .map(ev => ({
+      invoiceNum: ev.invoiceNum,
+      customer: ev.customer || '',
+      amount: ev.paymentAmount || 0,
+      commission: ev.commissionForEvent || 0,
+      paidOn: ev.paymentDate || '',
+      paymentMethod: ev.paymentMethod || '',
+      lines: ev.lines || [],
+    }))
+    .sort((a, b) => toIsoDay(b.paidOn).localeCompare(toIsoDay(a.paidOn)))
+}
+
+/**
+ * The statement's "Paid invoices" section, from whichever source is available.
+ * Exported so the Steve-Clare regression is covered by a test rather than by
+ * eyeballing a generated PDF.
+ *
+ * @returns { invoices, groups, total }
+ */
+export function buildPaidSection({ byInvoice, collectedEvents, paymentDatesByInvoiceNum, paidSince } = {}) {
+  const dated = collectedEvents?.length
+    ? paidFromCollected(collectedEvents)
+    : withPaidDates(splitInvoices(byInvoice).paid, paymentDatesByInvoiceNum)
+  const invoices = applyPaidSince(dated, paidSince)
+  return {
+    invoices,
+    groups: groupPaidByCustomer(invoices),
+    total: invoices.reduce((sum, i) => sum + (i.commission || 0), 0),
+  }
+}
+
 // True when any commission line on the invoice is a NITRO Rental line.
 function isRentalInvoice(i) {
   return (i?.lines || []).some(l => l.isRental)
@@ -114,12 +166,13 @@ function groupOpenByCustomer(openInvoices) {
 
 // ─── PDF ──────────────────────────────────────────────────────────────
 
-export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [], anchor, paymentDatesByInvoiceNum, returnBase64 = false }) {
+export function exportRepReportPDF({ rep, summary, byInvoice, collectedEvents, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [], anchor, paymentDatesByInvoiceNum, returnBase64 = false }) {
   const safe = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0 }
-  const { paid, open } = splitInvoices(byInvoice)
-  const paidDated = withPaidDates(paid, paymentDatesByInvoiceNum)
-  const paidVisible = applyPaidSince(paidDated, paidSince)
-  const paidGrouped = groupPaidByCustomer(paidVisible)
+  // Only the OPEN half is still sourced here; paid comes from buildPaidSection.
+  const { open } = splitInvoices(byInvoice)
+  // One shared path for both exporters — see buildPaidSection.
+  const { invoices: paidVisible, groups: paidGrouped } =
+    buildPaidSection({ byInvoice, collectedEvents, paymentDatesByInvoiceNum, paidSince })
   const openGrouped = groupOpenByCustomer(open)
   const today = new Date().toISOString().slice(0, 10)
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' })
@@ -495,12 +548,13 @@ export function exportRepReportPDF({ rep, summary, byInvoice, payouts, paidSince
 
 // ─── XLSX ─────────────────────────────────────────────────────────────
 
-export function exportRepReportXLSX({ rep, summary, byInvoice, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [], anchor, paymentDatesByInvoiceNum, returnBase64 = false }) {
+export function exportRepReportXLSX({ rep, summary, byInvoice, collectedEvents, payouts, paidSince, territories, groupByCustomer = true, brandSubtotals = [], repAccountInvoices = [], anchor, paymentDatesByInvoiceNum, returnBase64 = false }) {
   const safe = summary || { earned: 0, paidOut: 0, available: 0, openCommission: 0 }
-  const { paid, open } = splitInvoices(byInvoice)
-  const paidDated = withPaidDates(paid, paymentDatesByInvoiceNum)
-  const paidVisible = applyPaidSince(paidDated, paidSince)
-  const paidGrouped = groupPaidByCustomer(paidVisible)
+  // Only the OPEN half is still sourced here; paid comes from buildPaidSection.
+  const { open } = splitInvoices(byInvoice)
+  // One shared path for both exporters — see buildPaidSection.
+  const { invoices: paidVisible, groups: paidGrouped } =
+    buildPaidSection({ byInvoice, collectedEvents, paymentDatesByInvoiceNum, paidSince })
   const openGrouped = groupOpenByCustomer(open)
   const today = new Date().toISOString().slice(0, 10)
   const sortedPayouts = [...(payouts || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''))

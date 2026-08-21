@@ -60,45 +60,48 @@ function mkEvent(drop, fields) {
     needsReview: !!fields.needsReview,
   }
 }
-// Event sourced from a matched settler transaction.
-const evFromSettler = (drop, s, windowEnd) =>
-  mkEvent(drop, { amount: s.amount, kind: s.kind, date: s.date || windowEnd, method: s.method, txnNum: s.txnNum })
+// Event sourced from a matched settler, for the `amount` drawn from it.
+const evFromSettler = (drop, s, amount, windowEnd) =>
+  mkEvent(drop, { amount, kind: s.kind, date: s.date || windowEnd, method: s.method, txnNum: s.txnNum })
 
 // Classify one balance drop (`drop.D`) against the customer's settler pool,
-// pushing one or more events onto `out`. Settlers are consumed (marked used).
+// pushing one or more events onto `out`. Settlers carry a running `remaining`
+// balance and are DRAWN DOWN — so a single payment can cover several invoices,
+// and any excess (e.g. a card service fee) stays as leftover balance.
 function classifyDrop(drop, pool, tol, out) {
   const D = drop.D
   const windowEnd = drop.windowEnd
-  const avail = () => pool.filter((s) => !s.used && onOrBefore(s.date, windowEnd))
+  const avail = () => pool.filter((s) => s.remaining > tol && onOrBefore(s.date, windowEnd))
 
-  // 1. A single settler explains the whole drop.
-  const single = avail().find((s) => near(s.amount, D, tol))
-  if (single) { single.used = true; out.push(evFromSettler(drop, single, windowEnd)); return }
-
-  // 2. All available cash payments sum to the drop (one invoice, several payments).
-  const cash = avail().filter((s) => s.kind === 'cash')
-  if (cash.length && sumNear(cash.map((s) => s.amount), D, tol)) {
-    for (const s of cash) { s.used = true; out.push(evFromSettler(drop, s, windowEnd)) }
+  // 1. A single settler whose remaining balance matches the drop exactly.
+  const single = avail().find((s) => near(s.remaining, D, tol))
+  if (single) {
+    const amt = Math.min(single.remaining, D)
+    single.remaining -= amt
+    out.push(evFromSettler(drop, single, amt, windowEnd))
     return
   }
 
-  // 3. Partial: consume cash (most recent first) without overshooting the drop,
-  //    then explain / classify the remainder.
+  // 2. Draw the drop from cash payments (most recent first), allowing PARTIAL
+  //    consumption — one payment can settle multiple invoices, and a payment
+  //    larger than the invoice (card fee, overpayment) leaves a balance behind.
   let rem = D
-  const consumed = []
-  for (const s of cash.sort((a, b) => dnum(b.date) - dnum(a.date))) {
+  for (const s of avail().filter((x) => x.kind === 'cash').sort((a, b) => dnum(b.date) - dnum(a.date))) {
     if (rem <= tol) break
-    if (s.amount <= rem + tol) { s.used = true; consumed.push(s); rem -= s.amount }
+    const amt = Math.min(s.remaining, rem)
+    if (amt > tol) { s.remaining -= amt; rem -= amt; out.push(evFromSettler(drop, s, amt, windowEnd)) }
   }
-  for (const s of consumed) out.push(evFromSettler(drop, s, windowEnd))
 
+  // 3. A credit memo for the remainder.
   if (rem > tol) {
-    // A credit memo for the remainder?
-    const credit = avail().find((s) => s.kind === 'credit' && near(s.amount, rem, tol))
-    if (credit) { credit.used = true; out.push(evFromSettler(drop, credit, windowEnd)); return }
-    // Unexplained. Baseline (pre-first-snapshot) remainder is 'prior' (can't be
-    // dated here); a drop observed BETWEEN snapshots with no payment is an
-    // overpayment draw-down → 'unapplied'.
+    const credit = avail().find((s) => s.kind === 'credit' && s.remaining >= rem - tol)
+    if (credit) { const amt = Math.min(credit.remaining, rem); credit.remaining -= amt; rem -= amt; out.push(evFromSettler(drop, credit, amt, windowEnd)) }
+  }
+
+  // 4. Still unexplained: baseline remainder is 'prior' (can't be dated here);
+  //    a drop observed BETWEEN snapshots with no payment is an overpayment
+  //    draw-down → 'unapplied'.
+  if (rem > tol) {
     const kind = drop.isBaseline ? 'prior' : 'unapplied'
     out.push(mkEvent(drop, { amount: rem, kind, date: windowEnd }))
   }
@@ -122,13 +125,14 @@ export function computeSettlementEvents({
     if (!isPayment && !isCredit) continue
     const cust = String(t.customer || '').trim()
     if (!settlersByCustomer.has(cust)) settlersByCustomer.set(cust, [])
+    const amtVal = Math.abs(Number(t.amount) || 0)
     settlersByCustomer.get(cust).push({
       date: t.date || '',
-      amount: Math.abs(Number(t.amount) || 0),
+      amount: amtVal,
+      remaining: amtVal,
       kind: isPayment ? 'cash' : 'credit',
       method: t.method || '',
       txnNum: t.num || '',
-      used: false,
     })
   }
 

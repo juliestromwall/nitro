@@ -4,7 +4,7 @@ import { brandLogo } from '@/lib/brandLogos'
 import { fetchConnectedRepProfiles } from '@/lib/payoutAvailability'
 import RepHeaderCard from '@/components/accounting/RepHeaderCard'
 import { useLocation } from 'react-router-dom'
-import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info, Clock, Tag } from 'lucide-react'
+import { ArrowLeft, ChevronRight, ChevronDown, Plus, Minus, DollarSign, Banknote, Wallet, Trash2, Pencil, Check, X, Search, MapPin, Mail, User, Upload, Map as MapIcon, FileSpreadsheet, AlertTriangle, Info, Clock, Tag, Truck } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -19,19 +19,36 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { useCompanies } from '@/context/CompanyContext'
 import JSZip from 'jszip'
-import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, TERRITORIES, STARTING_ADJUSTMENTS, ADJUSTMENT_ANCHOR, ADJUSTMENT_ANCHORS, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
-import { computeCommissions, aggregateByRep } from '@/lib/commissionEngine'
+import { REPS, BRANDS, REP_BRANDS, REP_TERRITORIES, RENTAL_REPS, RENTAL_RATES, ACCOUNTS, ENTRIES, PAYOUTS, TERRITORIES, STARTING_ADJUSTMENTS, ADJUSTMENT_ANCHOR, ADJUSTMENT_ANCHORS, LEDGER_PAID_SINCE_DEFAULT, EARNED_SNAPSHOTS } from '@/lib/paymentsDemoData'
+import { computeCommissions, aggregateByRep, normCustomer } from '@/lib/commissionEngine'
 import { lookupBrand } from '@/lib/catalogs'
 import { shouldIgnoreCustomer, isWsrPostPaymentCustomer } from '@/lib/customerIgnoreList'
+import { matchMemberToAccount } from '@/lib/wsrMatch'
 import { loadLineItems, saveLineItems as idbSaveLineItems, clearLineItems as idbClearLineItems } from '@/lib/lineItemsStore'
 import { loadPaymentsTx, savePaymentsTx as idbSavePaymentsTx, clearPaymentsTx as idbClearPaymentsTx } from '@/lib/paymentsStore'
 import { loadBpOverrides, mergeBpOverrides as idbMergeBpOverrides, clearBpOverrides as idbClearBpOverrides } from '@/lib/bpOverridesStore'
+import { loadBpOrders, mergeBpOrders as idbMergeBpOrders, clearBpOrders as idbClearBpOrders, omitBpOrders as idbOmitBpOrders, unomitBpOrder as idbUnomitBpOrder, orderTypeMap } from '@/lib/bpOrdersStore'
+import { parseBrightpearlOrders, ORDER_TYPE } from '@/lib/brightpearlOrders'
+import { ORDER_TYPE_RULES_EFFECTIVE } from '@/lib/commissionRules'
 import { loadWsrRemittances, addWsrRemittance as idbAddWsrRemittance, clearWsrRemittances as idbClearWsrRemittances } from '@/lib/wsrRemittanceStore'
 import { exportRepReportPDF, exportRepReportXLSX } from '@/lib/repReport'
 import { supabase } from '@/lib/supabase'
 import { pget, pset, pdel } from '@/lib/portalStore'
 import { recordBalanceSnapshots, loadBalanceSnapshots } from '@/lib/balanceSnapshotsStore'
 import { computeSettlementEvents } from '@/lib/settlementEngine'
+import { parseSalesDetail, mergeCollectedLines } from '@/lib/salesDetailParser'
+import { computeCollectedCommission } from '@/lib/collectedCommission'
+import { loadCollected, saveCollected, clearCollected } from '@/lib/collectedStore'
+import { parseArAging, openInvoicesFromAging } from '@/lib/arAgingParser'
+import { paymentMethodForEvent, paymentsByCustomer } from '@/lib/paymentMethod'
+import { matchPaymentsToInvoices } from '@/lib/paymentMatcher'
+import { loadArAging, saveArAging, clearArAging } from '@/lib/arAgingStore'
+import { loadEmailLog, saveEmailLog } from '@/lib/emailLog'
+import { loadSica, buildSicaResolver } from '@/lib/sica'
+import SicaScoreChip from '@/components/SicaScoreChip'
+import CollectionsView from './CollectionsView'
+import ShippingView from './ShippingView'
+import { loadShippingSnapshot, saveShippingSnapshot, clearShippingSnapshot, classifyShippingExport } from '@/lib/shippingStore'
 import { seasonOf, seasonRateMultiplier } from '@/lib/commissionRules'
 import { migrateLocalToServer } from '@/lib/portalMigrate'
 import { CrmProvider, useCrm } from '@/context/CrmContext'
@@ -286,10 +303,67 @@ function PaymentsTrackerInner() {
   // and a flat A-Z list.
   const [accountsTab, setAccountsTab] = useState('list') // 'list' | 'territories'
   const [selectedRepId, setSelectedRepId] = useState(null)
+  // Collected-commission source: the ACCUMULATED, de-duped parsed lines from the
+  // cash-basis "Sales by Customer Detail" uploads. Each weekly upload merges into
+  // this set by line fingerprint (mergeCollectedLines), so overlapping reports
+  // never double-count. Persisted to the shared portal store; drives Available.
+  const [collectedLines, setCollectedLines] = useState(null)
+  const collectedLinesRef = useRef(null)
+  const onCollectedLines = useCallback((newLines) => {
+    const merged = mergeCollectedLines(collectedLinesRef.current, newLines)
+    collectedLinesRef.current = merged
+    setCollectedLines(merged)
+    saveCollected(merged, { uploadedAt: new Date().toISOString() }).catch(() => {})
+  }, [])
+  const onClearCollected = useCallback(() => {
+    collectedLinesRef.current = null
+    setCollectedLines(null)
+    clearCollected().catch(() => {})
+  }, [])
+  useEffect(() => {
+    loadCollected().then(({ lines }) => {
+      if (lines) { collectedLinesRef.current = lines; setCollectedLines(lines) }
+    }).catch(() => {})
+  }, [])
+  // Open receivables from the A/R Aging Detail (snapshot; replaced each upload).
+  // Will drive "Pending (open invoices)" (next PR). Persisted to the portal store.
+  const [arAgingOpen, setArAgingOpen] = useState(null)
+  const [arAgingMeta, setArAgingMeta] = useState(null)
+  const [arAgingRows, setArAgingRows] = useState(null)   // full parsed rows → Collections
+  const onArAging = useCallback((open, meta, rows) => {
+    setArAgingOpen(open)
+    setArAgingMeta(meta || null)
+    setArAgingRows(Array.isArray(rows) ? rows : null)
+    saveArAging(open, meta, rows).catch(() => {})
+  }, [])
+  const onClearArAging = useCallback(() => {
+    setArAgingOpen(null)
+    setArAgingMeta(null)
+    setArAgingRows(null)
+    clearArAging().catch(() => {})
+  }, [])
+  useEffect(() => {
+    loadArAging().then(({ open, meta, rows }) => {
+      if (open) setArAgingOpen(open)
+      if (meta) setArAgingMeta(meta)
+      if (rows) setArAgingRows(rows)
+    }).catch(() => {})
+  }, [])
   // Rep ledger surfaces its export/email actions here so the buttons can live
   // in the page header row next to the "<Rep> — Commission Ledger" title.
   const [ledgerActions, setLedgerActions] = useState(null)
   const registerLedgerActions = useCallback((a) => setLedgerActions(a), [])
+  // When each rep was last emailed their report → "Last emailed …" note.
+  const [emailLog, setEmailLog] = useState({})
+  useEffect(() => { loadEmailLog().then(setEmailLog).catch(() => {}) }, [])
+  const onEmailSent = useCallback((repId) => {
+    if (!repId) return
+    setEmailLog((prev) => {
+      const next = { ...prev, [repId]: new Date().toISOString() }
+      saveEmailLog(next).catch(() => {})
+      return next
+    })
+  }, [])
   const [selectedBrandId, setSelectedBrandId] = useState(null)
   const [expandedPayouts, setExpandedPayouts] = useState({})
 
@@ -641,6 +715,87 @@ function PaymentsTrackerInner() {
     idbClearBpOverrides().catch(() => {})
   }
 
+  // Brightpearl order metadata (order type, SO number, PO) keyed by invoice.
+  // Drives the order-type commission rules: promo/warranty earn nothing,
+  // closeout earns half, off-convention Refs are flagged for review.
+  const [bpOrders, setBpOrdersState] = useState({})
+  const [bpOrdersMeta, setBpOrdersMetaState] = useState(null)
+  const [bpOmitted, setBpOmittedState] = useState({})
+  useEffect(() => {
+    loadBpOrders().then(({ orders, meta, omitted }) => {
+      setBpOrdersState(orders)
+      setBpOrdersMetaState(meta)
+      setBpOmittedState(omitted || {})
+    }).catch(() => {})
+  }, [])
+  const mergeBpOrdersState = async (byInvoice, meta) => {
+    const merged = await idbMergeBpOrders(byInvoice, meta)
+    setBpOrdersState(merged)
+    setBpOrdersMetaState(meta)
+  }
+  const clearBpOrdersState = () => {
+    setBpOrdersState({})
+    setBpOrdersMetaState(null)
+    setBpOmittedState({})
+    idbClearBpOrders().catch(() => {})
+  }
+  const omitBpOrdersState = async (invoiceNums) => {
+    const next = await idbOmitBpOrders(invoiceNums, new Date().toISOString())
+    setBpOmittedState(next)
+  }
+  const unomitBpOrderState = async (invoiceNum) => {
+    const next = await idbUnomitBpOrder(invoiceNum)
+    setBpOmittedState(next)
+  }
+  const bpOrderTypes = useMemo(() => orderTypeMap(bpOrders, bpOmitted), [bpOrders, bpOmitted])
+
+  // ── Warehouse shipping snapshot ─────────────────────────────────────────
+  // Two Brightpearl exports, uploaded one after the other. Which is which is
+  // decided by CONTENT (are the rows tagged Invoiced?) rather than filename,
+  // because these exports get renamed constantly. REPLACE, never merge: an
+  // order that moved from Printed to Invoiced this week must leave the open set.
+  const [shipSnapshot, setShipSnapshot] = useState({ openOrders: [], shipped: [] })
+  const [shipMeta, setShipMeta] = useState(null)
+  const [shipError, setShipError] = useState(null)
+  const [shipBusy, setShipBusy] = useState(false)
+  useEffect(() => {
+    loadShippingSnapshot().then(({ openOrders, shipped, meta }) => {
+      setShipSnapshot({ openOrders, shipped })
+      setShipMeta(meta)
+    }).catch(() => {})
+  }, [])
+  const handleShippingFile = async (file) => {
+    setShipError(null); setShipBusy(true)
+    try {
+      const text = await file.text()
+      // requireInvoice:false — open orders have no invoice number yet, and they
+      // are the whole point of the first two pipeline stages.
+      const { rows } = parseBrightpearlOrders(text, { requireInvoice: false })
+      if (!rows.length) throw new Error('No orders found in this file.')
+      const kind = classifyShippingExport(rows)
+      if (kind === 'shipped' && !rows.some((r) => r.taxDate)) {
+        throw new Error('This looks like the invoiced export but has no "Tax date" column — that column is the ship date. Re-export with it included.')
+      }
+      const next = { ...shipSnapshot, [kind === 'shipped' ? 'shipped' : 'openOrders']: rows }
+      const meta = {
+        ...(shipMeta || {}),
+        [kind === 'shipped' ? 'shippedFile' : 'openFile']: file.name,
+        uploadedAt: new Date().toISOString(),
+      }
+      setShipSnapshot(next); setShipMeta(meta)
+      await saveShippingSnapshot(next, meta)
+      recordUpload?.('shipping', file.name, 'replace', rows.length)
+    } catch (e) {
+      setShipError(e.message || 'Failed to read the Brightpearl export')
+    } finally { setShipBusy(false) }
+  }
+  // ShippingView asks for confirmation itself — the shared confirm dialog is
+  // scoped to InvoicesView and isn't reachable from here.
+  const clearShippingSnapshotState = () => {
+    setShipSnapshot({ openOrders: [], shipped: [] }); setShipMeta(null); setShipError(null)
+    clearShippingSnapshot().catch(() => {})
+  }
+
   // WSR ACH payment remittances — one upload per check. Dedupe by checkNumber.
   const [wsrRemittances, setWsrRemittancesState] = useState([])
   useEffect(() => {
@@ -694,6 +849,22 @@ function PaymentsTrackerInner() {
     return m
   }, [wsrInvoicePayments, bpOverrides])
 
+  // Robust fallback: recover memberId → account name straight from the accounts
+  // master list (the remittance Member ID is a word-prefix code of the account
+  // name). Works regardless of upload mode or BP overrides; only confident
+  // matches are kept, so unresolved members fall through rather than mis-route.
+  const wsrMemberToAccount = useMemo(() => {
+    const m = new Map()
+    for (const events of wsrInvoicePayments.values()) {
+      for (const ev of events) {
+        if (!ev.memberId || m.has(ev.memberId)) continue
+        const acct = matchMemberToAccount(ev.memberId, ACCOUNTS)
+        if (acct) m.set(ev.memberId, acct.name)
+      }
+    }
+    return m
+  }, [wsrInvoicePayments])
+
   // Apply BP overrides FIRST, then WSR member chain. Only swaps the
   // customer when the current value reads as a WSR-renamed token. Every
   // downstream consumer (engine, account balances, unmatched banner, etc.)
@@ -701,7 +872,8 @@ function PaymentsTrackerInner() {
   const invoices = useMemo(() => {
     const bpEmpty = !bpOverrides || Object.keys(bpOverrides).length === 0
     const chainEmpty = wsrMemberToCustomer.size === 0
-    if (bpEmpty && chainEmpty) return invoicesRaw
+    const acctEmpty = wsrMemberToAccount.size === 0
+    if (bpEmpty && chainEmpty && acctEmpty) return invoicesRaw
     return invoicesRaw.map(inv => {
       if (!isWsrPostPaymentCustomer(inv.customer)) return inv
       const bpName = bpOverrides?.[inv.num]
@@ -710,10 +882,29 @@ function PaymentsTrackerInner() {
       if (events?.length) {
         const chained = wsrMemberToCustomer.get(events[0].memberId)
         if (chained) return { ...inv, customer: chained }
+        const acctName = wsrMemberToAccount.get(events[0].memberId)
+        if (acctName) return { ...inv, customer: acctName }
       }
       return inv
     })
-  }, [invoicesRaw, bpOverrides, wsrInvoicePayments, wsrMemberToCustomer])
+  }, [invoicesRaw, bpOverrides, wsrInvoicePayments, wsrMemberToCustomer, wsrMemberToAccount])
+
+  // Same WSR recovery the invoices memo applies, exposed for the collected path:
+  // when a line's customer is a WSR-renamed token, recover the real member
+  // account (BP override → member→customer chain → member→account) so it routes.
+  const recoverWsrCustomer = useCallback((invoiceNum, customer) => {
+    if (!isWsrPostPaymentCustomer(customer)) return customer
+    const bpName = bpOverrides?.[invoiceNum]
+    if (bpName) return bpName
+    const events = wsrInvoicePayments.get(invoiceNum)
+    if (events?.length) {
+      const chained = wsrMemberToCustomer.get(events[0].memberId)
+      if (chained) return chained
+      const acctName = wsrMemberToAccount.get(events[0].memberId)
+      if (acctName) return acctName
+    }
+    return customer
+  }, [bpOverrides, wsrInvoicePayments, wsrMemberToCustomer, wsrMemberToAccount])
   const bpOverridesAppliedCount = useMemo(() => {
     if (!bpOverrides || Object.keys(bpOverrides).length === 0) return 0
     let count = 0
@@ -813,160 +1004,13 @@ function PaymentsTrackerInner() {
   //      Phase C — small subset of distinct payments sums to paid portion
   // Anything we can't resolve stays absent (strict no-manual-data policy).
   // ───────────────────────────────────────────────────────────────────
-  const paymentEventsByInvoiceNum = useMemo(() => {
-    const result = new Map()
-    const add = (num, ev) => {
-      if (!result.has(num)) result.set(num, [])
-      result.get(num).push(ev)
-    }
-    // 1. WSR remittance — push each line as an event.
-    for (const [num, events] of wsrInvoicePayments.entries()) {
-      for (const ev of events) add(num, { date: ev.checkDate, amount: ev.amountPaid || 0, source: 'wsr', method: 'WSR' })
-    }
-    if (!paymentsTx?.length || !invoices?.length) {
-      for (const arr of result.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-      return result
-    }
-    const norm = (s) => String(s || '')
-      .toUpperCase()
-      .replace(/['']/g, '')
-      .replace(/\([^)]*\)/g, '')
-      .replace(/\s+-\s.*$/, '')
-      .replace(/[^A-Z0-9 ]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-    const paymentsByCust = new Map()
-    for (const tx of paymentsTx) {
-      if (tx.type !== 'Payment') continue
-      if (!tx.customer || !tx.date) continue
-      const k = norm(tx.customer)
-      if (!paymentsByCust.has(k)) paymentsByCust.set(k, [])
-      paymentsByCust.get(k).push(tx)
-    }
-    for (const arr of paymentsByCust.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-    const invoicesByCust = new Map()
-    for (const inv of invoices) {
-      if (!inv.customer || !inv.num || !inv.amount) continue
-      const paidPortion = (inv.amount || 0) - (inv.openBalance || 0)
-      if (paidPortion <= 0.005) continue
-      if (result.has(inv.num)) continue   // WSR already covers this invoice
-      const k = norm(inv.customer)
-      if (!invoicesByCust.has(k)) invoicesByCust.set(k, [])
-      invoicesByCust.get(k).push({ ...inv, paidPortion })
-    }
-    for (const [custKey, invs] of invoicesByCust.entries()) {
-      const payments = paymentsByCust.get(custKey) || []
-      if (!payments.length) continue
-      invs.sort((a, b) => b.paidPortion - a.paidPortion)
-      const used = new Set()
-      // Phase A: single-payment match.
-      for (const inv of invs) {
-        const target = inv.paidPortion
-        let bestIdx = -1, bestDiff = Infinity
-        for (let i = 0; i < payments.length; i++) {
-          if (used.has(i)) continue
-          const diff = Math.abs((payments[i].amount || 0) - target)
-          if (diff <= 5 && diff < bestDiff) { bestIdx = i; bestDiff = diff }
-        }
-        if (bestIdx >= 0) {
-          const p = payments[bestIdx]
-          add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-single', method: p.method || '' })
-          used.add(bestIdx)
-        }
-      }
-      // Phase B: N identical installments sum to paid portion.
-      for (const inv of invs) {
-        if (result.has(inv.num)) continue
-        const target = inv.paidPortion
-        const byAmt = new Map()
-        for (let i = 0; i < payments.length; i++) {
-          if (used.has(i)) continue
-          const cents = Math.round((payments[i].amount || 0) * 100)
-          if (!byAmt.has(cents)) byAmt.set(cents, [])
-          byAmt.get(cents).push(i)
-        }
-        for (const [cents, indices] of byAmt) {
-          const amt = cents / 100
-          if (amt <= 0) continue
-          const n = Math.round(target / amt)
-          if (n < 2 || n > indices.length) continue
-          if (Math.abs(n * amt - target) > 5) continue
-          for (let j = 0; j < n; j++) {
-            const p = payments[indices[j]]
-            add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-installments', method: p.method || '' })
-            used.add(indices[j])
-          }
-          break
-        }
-      }
-      // Phase C: small subset of distinct payments summing to paid portion.
-      for (const inv of invs) {
-        if (result.has(inv.num)) continue
-        const target = inv.paidPortion
-        const available = []
-        for (let i = 0; i < payments.length; i++) if (!used.has(i)) available.push(i)
-        if (available.length === 0 || available.length > 12) continue
-        const n = available.length
-        let bestMask = 0, bestDiff = Infinity, bestCount = Infinity
-        for (let mask = 1; mask < (1 << n); mask++) {
-          let sum = 0, count = 0
-          for (let i = 0; i < n; i++) {
-            if (mask & (1 << i)) { sum += payments[available[i]].amount || 0; count++ }
-          }
-          const diff = Math.abs(sum - target)
-          if (diff <= 5 && (diff < bestDiff || (diff === bestDiff && count < bestCount))) {
-            bestMask = mask
-            bestDiff = diff
-            bestCount = count
-          }
-        }
-        if (bestMask) {
-          for (let i = 0; i < n; i++) {
-            if (bestMask & (1 << i)) {
-              const idx = available[i]
-              const p = payments[idx]
-              add(inv.num, { date: p.date, amount: p.amount || 0, source: 'auto-subset', method: p.method || '' })
-              used.add(idx)
-            }
-          }
-        }
-      }
-      // Phase D: one payment settles a GROUP of invoices (a single lump-sum
-      // check covering several invoices at once — the inverse of Phase C).
-      // Match an unused payment to a subset of still-unmatched invoices whose
-      // paid portions sum to the payment amount, then date each of those
-      // invoices to that payment. Without this, a customer who clears several
-      // invoices with one check leaves them all unmatched (no payment date),
-      // and their commission never flows into the rep's earned/available.
-      for (let pi = 0; pi < payments.length; pi++) {
-        if (used.has(pi)) continue
-        const payAmt = payments[pi].amount || 0
-        if (payAmt <= 0) continue
-        const open = invs.filter(inv => !result.has(inv.num))
-        if (open.length < 2 || open.length > 14) continue   // single-invoice case is Phase A's job
-        const m = open.length
-        let bestMask = 0, bestDiff = Infinity, bestCount = -1
-        for (let mask = 1; mask < (1 << m); mask++) {
-          let sum = 0, count = 0
-          for (let i = 0; i < m; i++) if (mask & (1 << i)) { sum += open[i].paidPortion; count++ }
-          if (count < 2) continue   // need 2+ invoices to be a "group"
-          const diff = Math.abs(sum - payAmt)
-          // Prefer the closest sum; break ties toward covering MORE invoices.
-          if (diff <= 5 && (diff < bestDiff || (diff === bestDiff && count > bestCount))) {
-            bestMask = mask; bestDiff = diff; bestCount = count
-          }
-        }
-        if (bestMask) {
-          for (let i = 0; i < m; i++) {
-            if (bestMask & (1 << i)) add(open[i].num, { date: payments[pi].date, amount: open[i].paidPortion, source: 'auto-group', method: payments[pi].method || '' })
-          }
-          used.add(pi)
-        }
-      }
-    }
-    for (const arr of result.values()) arr.sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-    return result
-  }, [paymentsTx, invoices, wsrInvoicePayments])
+  // Payment→invoice matching lives in src/lib/paymentMatcher.js so its phases
+  // can be tested — it decides which invoices show a payment date and method,
+  // and it feeds the rep statement.
+  const paymentEventsByInvoiceNum = useMemo(
+    () => matchPaymentsToInvoices({ paymentsTx, invoices, wsrInvoicePayments }),
+    [paymentsTx, invoices, wsrInvoicePayments],
+  )
 
   // Backwards-compatible single-date lookup — uses the LATEST event date.
   const paymentDatesByInvoiceNum = useMemo(() => {
@@ -1033,29 +1077,9 @@ function PaymentsTrackerInner() {
   // forward from their own date. Fixed cutoff (unlike a moving last-payout
   // date) so recording a payout doesn't erase earned commission — payouts
   // subtract via paidOutSinceAnchorByRep instead.
-  const earnedSinceAnchorByRep = useMemo(() => {
-    const out = {}
-    for (const rep of reps) {
-      const anchor = ADJUSTMENT_ANCHORS[rep.id] || ADJUSTMENT_ANCHOR
-      const agg = aggregatesByRep[rep.id]
-      if (!agg?.byInvoice) { out[rep.id] = 0; continue }
-      let earned = 0
-      for (const [invNum, inv] of Object.entries(agg.byInvoice)) {
-        const events = paymentEventsByInvoiceNum.get(invNum) || []
-        if (!events.length) continue
-        const fullAmount = inv.amount || 0
-        const fullCommission = inv.commission || 0
-        for (const ev of events) {
-          const pIso = toIsoDateAtParent(ev.date)
-          if (!pIso || pIso <= anchor) continue
-          const fraction = fullAmount > 0 ? (ev.amount || 0) / fullAmount : 0
-          earned += fullCommission * fraction
-        }
-      }
-      out[rep.id] = earned
-    }
-    return out
-  }, [reps, aggregatesByRep, paymentEventsByInvoiceNum])
+  // (The old amount-matcher earnedSinceAnchor was retired at the 2026-08-04
+  // collected promotion — Available now uses collected earned, settlement as the
+  // "was" comparison; see repSummary.)
 
   // ── SHADOW (payment-first preview) ──────────────────────────────────────
   // Settlement events from the Open Balance snapshots + payment/credit txns.
@@ -1125,6 +1149,79 @@ function PaymentsTrackerInner() {
     }
     return m
   }, [commissionPayouts])
+
+  // ── Collected commission → earned-since-anchor per rep ──────────────────────
+  // Route the ACCUMULATED, de-duped collected lines to reps (brand + rate +
+  // season + rental), then sum each rep's commission for payments dated strictly
+  // AFTER the anchor (same boundary as the settlement path). Drives Available.
+  // null when nothing uploaded yet → Available falls back to the settlement figure.
+  const collectedCommission = useMemo(() => {
+    if (!collectedLines) return null
+    // Recover WSR-renamed customers (QB lumps paid member invoices under "WSR")
+    // to the real member account so their commission routes to the right rep.
+    const lines = collectedLines.map(l => {
+      const recovered = recoverWsrCustomer(l.invoice, l.customer)
+      return recovered === l.customer ? l : { ...l, customer: recovered }
+    })
+    return computeCollectedCommission({
+      lines, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+      orderTypes: bpOrderTypes,
+    })
+  }, [collectedLines, recoverWsrCustomer, bpOrderTypes])
+  const collectedEarnedSinceAnchorByRep = useMemo(() => {
+    if (!collectedCommission) return null
+    const out = {}
+    for (const e of collectedCommission.entries) {
+      if (e.needsReview || !e.repId) continue
+      const anchor = ADJUSTMENT_ANCHORS[e.repId] || ADJUSTMENT_ANCHOR
+      const iso = toIsoDateAtParent(e.invoiceDate)   // = the payment date
+      if (!iso || iso <= anchor) continue            // safety: only post-anchor payments
+      out[e.repId] = (out[e.repId] || 0) + (e.commission || 0)
+    }
+    return out
+  }, [collectedCommission])
+
+  // Collected "payments received" events for the currently-open rep ledger:
+  // group that rep's collected commission entries by invoice into the same event
+  // shape the ledger's visiblePaymentEvents uses (amount = paymentAmount so the
+  // brand-subtotal fraction is 1). Drives the correct per-rep split in the table
+  // + "Earned by brand", replacing the settlement inference. null → old path.
+  // Payments indexed by customer, for the method fallback in repCollectedEvents
+  // when the invoice-level auto-match didn't resolve (credit memos push the
+  // payment outside its $5 tolerance — see paymentMethod.js).
+  const paymentsByCust = useMemo(() => paymentsByCustomer(paymentsTx, normCustomer), [paymentsTx])
+
+  const repCollectedEvents = useMemo(() => {
+    if (!collectedCommission || !selectedRepId) return null
+    const byInvoice = new Map()
+    for (const e of collectedCommission.entries) {
+      if (e.needsReview || e.repId !== selectedRepId) continue
+      let ev = byInvoice.get(e.invoiceNum)
+      if (!ev) {
+        ev = { invoiceNum: e.invoiceNum, customer: e.invoiceCustomer, paymentDate: e.invoiceDate, paymentMethod: '', eventSource: 'collected', status: '', paymentAmount: 0, commissionForEvent: 0, lines: [] }
+        byInvoice.set(e.invoiceNum, ev)
+      }
+      ev.paymentAmount += e.lineNet || 0
+      ev.commissionForEvent += e.commission || 0
+      ev.lines.push({ brand: e.brand, commission: e.commission || 0, lineNet: e.lineNet || 0, isRental: e.isRental, skuSeason: e.skuSeason })
+    }
+    const arr = [...byInvoice.values()]
+    for (const ev of arr) {
+      ev.amount = ev.paymentAmount
+      // How the money arrived (Check / Sky ACH / WSR …) isn't in the cash-basis
+      // report, so join it from the payments-transaction data by invoice number
+      // — the same source the legacy ledger path uses. Without this the method
+      // pill silently disappeared the moment a rep's ledger switched to the
+      // collected path, because it was hardcoded empty above.
+      ev.paymentMethod = paymentMethodForEvent({
+        invoiceEvents: paymentEventsByInvoiceNum?.get(ev.invoiceNum),
+        customerPayments: paymentsByCust?.get(normCustomer(ev.customer || '')),
+        paymentDate: ev.paymentDate,
+      })
+    }
+    return arr
+  }, [collectedCommission, selectedRepId, paymentEventsByInvoiceNum, paymentsByCust])
+
   // Reps have two QB account variants. Only the "- REP" account should hold
   // sample invoices (the source of "Owes Foundry"). A "- CUSTOMER" variant
   // should not normally appear in QB data — when one shows up, it's flagged
@@ -1217,6 +1314,66 @@ function PaymentsTrackerInner() {
   // Update starting adjustments + anchors in src/lib/paymentsDemoData.js →
   // STARTING_ADJUSTMENTS / ADJUSTMENT_ANCHOR (default) / ADJUSTMENT_ANCHORS
   // (per-rep override).
+  // Pending (open invoices) commission from the A/R Aging Detail: route the open
+  // receivables (open $ from aging) through the engine with the line-items brands,
+  // → per-rep openCommission. null when no aging loaded → Pending falls back to the
+  // invoices-dataset figure. Payment-first: aging is the authoritative open source.
+  const agingPendingByRep = useMemo(() => {
+    if (!arAgingOpen || !arAgingOpen.length) return null
+    const { entries } = computeCommissions({
+      invoices: arAgingOpen, lineItems, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+    })
+    const agg = aggregateByRep(entries)
+    const out = {}
+    for (const [repId, v] of Object.entries(agg)) out[repId] = v.openCommission || 0
+    return out
+  }, [arAgingOpen, lineItems])
+
+  // Coverage diagnostic for the aging → Pending pipeline. The aging carries no
+  // SKUs, so an open invoice only contributes to Pending if its line items are
+  // loaded (join is by invoice num). This surfaces exactly how many open invoices
+  // are covered vs. missing line items — so a line-items date-range gap (the usual
+  // cause of understated Pending) is visible instead of silent.
+  const agingCoverage = useMemo(() => {
+    if (!arAgingOpen || !arAgingOpen.length) return null
+    const liNums = new Set((lineItems || []).map((li) => String(li?.num ?? '').trim()).filter(Boolean))
+    let covered = 0, coveredOpen = 0, uncoveredOpen = 0
+    const uncoveredList = []
+    for (const inv of arAgingOpen) {
+      const bal = inv.openBalance || 0
+      if (liNums.has(String(inv.num ?? '').trim())) { covered++; coveredOpen += bal }
+      else { uncoveredOpen += bal; uncoveredList.push({ num: inv.num, customer: inv.customer, dueDate: inv.dueDate, openBalance: Math.round(bal * 100) / 100 }) }
+    }
+    // Biggest offenders first — the largest open balances are what move Pending.
+    uncoveredList.sort((a, b) => b.openBalance - a.openBalance)
+    const pendingTotal = agingPendingByRep ? Object.values(agingPendingByRep).reduce((s, n) => s + (n || 0), 0) : 0
+    return {
+      total: arAgingOpen.length,
+      covered, uncovered: uncoveredList.length,
+      coveredOpen: Math.round(coveredOpen * 100) / 100,
+      uncoveredOpen: Math.round(uncoveredOpen * 100) / 100,
+      pendingTotal: Math.round(pendingTotal * 100) / 100,
+      hasLineItems: liNums.size > 0,
+      uncoveredList,
+    }
+  }, [arAgingOpen, lineItems, agingPendingByRep])
+
+  // Persisted summary so the uploader can show what's loaded after a refresh
+  // (the upload panel's own result state is per-session and resets on reload).
+  const arAgingLoaded = useMemo(() => {
+    if (!arAgingOpen || !arAgingOpen.length) return null
+    return {
+      asOf: arAgingMeta?.asOf || null,
+      fileName: arAgingMeta?.fileName || null,
+      openCount: arAgingOpen.length,
+      openTotal: Math.round(arAgingOpen.reduce((s, o) => s + (o.openBalance || 0), 0) * 100) / 100,
+    }
+  }, [arAgingOpen, arAgingMeta])
+
+  const collectedLoaded = useMemo(() => (
+    collectedLines && collectedLines.length ? { lineCount: collectedLines.length } : null
+  ), [collectedLines])
+
   const repSummary = useMemo(() => {
     const out = {}
     for (const rep of reps) {
@@ -1224,47 +1381,30 @@ function PaymentsTrackerInner() {
       const earned = earnedYtdByRep[rep.id] || 0
       const paidOut = payoutsByRep[rep.id] || 0
       const startingAdjustment = STARTING_ADJUSTMENTS[rep.id] || 0
-      const earnedSinceAnchor = earnedSinceAnchorByRep[rep.id] || 0
       const paidOutSinceAnchor = paidOutSinceAnchorByRep[rep.id] || 0
       const shadowEarnedSinceAnchor = shadowEarnedSinceAnchorByRep[rep.id] || 0
+      const settlementAvailable = startingAdjustment + shadowEarnedSinceAnchor - paidOutSinceAnchor
+      // PROMOTED (2026-08-04): Available is driven by the COLLECTED report
+      // (cash-basis Sales by Customer Detail — read from QuickBooks, splits
+      // multi-invoice payments correctly) when one is loaded; otherwise it falls
+      // back to the payment-first settlement figure so the app still works.
+      const hasCollected = collectedEarnedSinceAnchorByRep != null
+      const collectedAvailable = startingAdjustment + (collectedEarnedSinceAnchorByRep?.[rep.id] || 0) - paidOutSinceAnchor
       out[rep.id] = {
         earned,
         paidOut,
-        available: startingAdjustment + earnedSinceAnchor - paidOutSinceAnchor,
-        // Shadow preview (payment-first + season-aware). Display-only.
-        shadowAvailable: startingAdjustment + shadowEarnedSinceAnchor - paidOutSinceAnchor,
-        openCommission: agg?.openCommission || 0,
+        available: hasCollected ? collectedAvailable : settlementAvailable,
+        // Pre-flip (settlement) figure, kept for the before/after comparison.
+        availableWas: settlementAvailable,
+        availableSource: hasCollected ? 'collected' : 'settlement',
+        // Pending from A/R aging when loaded, else the invoices-dataset figure.
+        openCommission: agingPendingByRep ? (agingPendingByRep[rep.id] || 0) : (agg?.openCommission || 0),
         totalCommission: agg?.totalCommission || 0,
         owesFoundry: owedByRep[rep.id] || 0,
       }
     }
     return out
-  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, earnedSinceAnchorByRep, shadowEarnedSinceAnchorByRep, paidOutSinceAnchorByRep, owedByRep])
-
-  // ── Baseline snapshot ───────────────────────────────────────────────────
-  // The earliest Open Balance snapshot asOf = the line we move forward from.
-  const [showBaseline, setShowBaseline] = useState(false)
-  const baselineDate = useMemo(() => {
-    let min = null
-    for (const points of Object.values(balanceSnapshots || {})) {
-      for (const p of (points || [])) {
-        const d = String(p?.asOf || '')
-        if (d && (!min || d < min)) min = d
-      }
-    }
-    return min
-  }, [balanceSnapshots])
-  const exportBaselineCSV = () => {
-    const rows = [['Rep', 'Preview Available (baseline)']]
-    for (const rep of reps) rows.push([rep.name, (repSummary[rep.id]?.shadowAvailable ?? 0).toFixed(2)])
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `baseline-${baselineDate ? baselineDate.slice(0, 10) : 'snapshot'}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
+  }, [reps, aggregatesByRep, earnedYtdByRep, payoutsByRep, shadowEarnedSinceAnchorByRep, collectedEarnedSinceAnchorByRep, agingPendingByRep, paidOutSinceAnchorByRep, owedByRep])
 
   // Match invoice customer names to account names, sum open balances per account.
   // Normalization strips contact suffixes (" - Bryce Firestone"), parens, punctuation.
@@ -1612,7 +1752,7 @@ function PaymentsTrackerInner() {
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-4 space-y-6">
       {/* Top-level tab bar (only on top-level views) */}
-      {(view === 'dashboard' || view === 'reps' || view === 'accounts' || view === 'invoices') && (
+      {(view === 'dashboard' || view === 'reps' || view === 'accounts' || view === 'collections' || view === 'shipping' || view === 'invoices') && (
         <div className="flex items-center gap-2 border-b">
           <button
             onClick={() => setView('dashboard')}
@@ -1642,6 +1782,22 @@ function PaymentsTrackerInner() {
             }`}
           >
             Reps
+          </button>
+          <button
+            onClick={() => setView('collections')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              view === 'collections' ? 'border-[#005b5b] text-[#005b5b]' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Collections
+          </button>
+          <button
+            onClick={() => setView('shipping')}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              view === 'shipping' ? 'border-[#005b5b] text-[#005b5b]' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Shipping
           </button>
           <button
             onClick={() => setView('invoices')}
@@ -1692,6 +1848,8 @@ function PaymentsTrackerInner() {
           {view === 'dashboard' && 'Dashboard'}
           {view === 'reps' && 'Rep Payments'}
           {view === 'accounts' && 'Accounts'}
+          {view === 'collections' && 'Collections'}
+          {view === 'shipping' && 'Shipping'}
           {view === 'invoices' && 'Uploads'}
           {view === 'rep-ledger' && `${selectedRep?.name} — Commission Ledger`}
           {view === 'brands' && `${selectedRep?.name}`}
@@ -1701,6 +1859,8 @@ function PaymentsTrackerInner() {
         {view === 'dashboard' && <p className="mt-2 text-muted-foreground">To-dos, notes, and where things stand today</p>}
         {view === 'reps' && <p className="mt-2 text-muted-foreground">Track commission payments for each rep</p>}
         {view === 'accounts' && <p className="mt-2 text-muted-foreground">Master account list</p>}
+        {view === 'collections' && <p className="mt-2 text-muted-foreground">Work the past-due list — aging, brands, and notes from your weekly A/R upload{arAgingMeta?.asOf ? ` (as of ${arAgingMeta.asOf})` : ''}</p>}
+        {view === 'shipping' && <p className="mt-2 text-muted-foreground">What the warehouse has packed and shipped each week, and what is still waiting to go out.</p>}
         {view === 'invoices' && <p className="mt-2 text-muted-foreground">Upload QuickBooks invoices, line items, and AR reports</p>}
         {view === 'brands' && <p className="mt-2 text-muted-foreground">Select a brand to view payment history</p>}
         {view === 'ledger' && (
@@ -1723,16 +1883,23 @@ function PaymentsTrackerInner() {
           </div>
         )}
         {view === 'rep-ledger' && ledgerActions && (
-          <div className="flex gap-2 shrink-0">
-            <Button variant="outline" size="sm" onClick={ledgerActions.pdf}>
-              <FileSpreadsheet className="size-4 mr-1.5" /> PDF
-            </Button>
-            <Button variant="outline" size="sm" onClick={ledgerActions.xlsx}>
-              <FileSpreadsheet className="size-4 mr-1.5" /> XLSX
-            </Button>
-            <Button size="sm" onClick={ledgerActions.email} className="bg-[#005b5b] hover:bg-[#004848]">
-              <Mail className="size-4 mr-1.5" /> Email
-            </Button>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={ledgerActions.pdf}>
+                <FileSpreadsheet className="size-4 mr-1.5" /> PDF
+              </Button>
+              <Button variant="outline" size="sm" onClick={ledgerActions.xlsx}>
+                <FileSpreadsheet className="size-4 mr-1.5" /> XLSX
+              </Button>
+              <Button size="sm" onClick={ledgerActions.email} className="bg-[#005b5b] hover:bg-[#004848]">
+                <Mail className="size-4 mr-1.5" /> Email
+              </Button>
+            </div>
+            <span className="text-[11px] text-muted-foreground">
+              {selectedRep && emailLog[selectedRep.id]
+                ? <>Last emailed {new Date(emailLog[selectedRep.id]).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}</>
+                : 'Not emailed yet'}
+            </span>
           </div>
         )}
       </div>
@@ -1798,45 +1965,6 @@ function PaymentsTrackerInner() {
                 </div>
               </div>
             </div>
-          )}
-          {baselineDate && (
-            <Card className="mb-6 border-[#005b5b]/40">
-              <CardHeader className="pb-3 cursor-pointer" onClick={() => setShowBaseline(v => !v)}>
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <CardTitle className="text-base">Baseline snapshot</CardTitle>
-                    <CardDescription>Preview (season-aware) Available per rep as of {baselineDate.slice(0, 10)} — the frozen starting point to move forward from</CardDescription>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); exportBaselineCSV() }}>Export CSV</Button>
-                    <span className="text-muted-foreground text-sm">{showBaseline ? '▲' : '▼'}</span>
-                  </div>
-                </div>
-              </CardHeader>
-              {showBaseline && (
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-muted-foreground text-left border-b">
-                          <th className="py-1.5 pr-4 font-medium">Rep</th>
-                          <th className="py-1.5 pr-4 font-medium text-right">Preview Available (freeze figure)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[...reps].sort((a, b) => (repSummary[b.id]?.shadowAvailable || 0) - (repSummary[a.id]?.shadowAvailable || 0)).map(rep => (
-                          <tr key={rep.id} className="border-b last:border-0">
-                            <td className="py-1.5 pr-4">{rep.name}</td>
-                            <td className="py-1.5 pr-4 text-right font-semibold tabular-nums">{fmt(repSummary[rep.id]?.shadowAvailable ?? 0)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-3">These figures become each rep's frozen starting adjustment; every anchor resets to {baselineDate.slice(0, 10)}, and commission is tracked forward from here on Open Balance settlements.</p>
-                </CardContent>
-              )}
-            </Card>
           )}
           <div className="flex justify-end mb-4">
             {/* Push each rep's Available through to their own dashboard, so they
@@ -1908,7 +2036,7 @@ function PaymentsTrackerInner() {
                             ? 'bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900'
                             : 'bg-muted/40 dark:bg-zinc-800/40 border'
                       }`}>
-                        <span className={`text-[11px] uppercase tracking-wide font-semibold ${
+                        <span className={`text-[11px] uppercase tracking-wide font-semibold inline-flex items-center gap-1 ${
                           summary.available > 0.005
                             ? 'text-white/70'
                             : summary.available < -0.005
@@ -1916,6 +2044,16 @@ function PaymentsTrackerInner() {
                               : 'text-muted-foreground'
                         }`}>
                           Available
+                          {summary.availableSource === 'collected' && (
+                            <span
+                              className={`text-[9px] uppercase font-semibold px-1 py-0.5 rounded ${
+                                summary.available > 0.005 ? 'bg-white/20 text-white' : 'bg-[#005b5b]/10 text-[#005b5b]'
+                              }`}
+                              title="Driven by the collected report (cash-basis Sales by Customer Detail)"
+                            >
+                              collected
+                            </span>
+                          )}
                         </span>
                         <span className={`text-lg font-bold tabular-nums ${
                           summary.available < -0.005 ? 'text-red-700 dark:text-red-400' : ''
@@ -1923,13 +2061,13 @@ function PaymentsTrackerInner() {
                           {fmt(summary.available)}
                         </span>
                       </div>
-                      {typeof summary.shadowAvailable === 'number' && Math.abs(summary.shadowAvailable - summary.available) > 0.005 && (
+                      {summary.availableSource === 'collected' && typeof summary.availableWas === 'number' && Math.abs(summary.available - summary.availableWas) > 0.005 && (
                         <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground" title="Payment-first + season-aware preview">Preview (season-aware)</span>
+                          <span className="text-muted-foreground" title="Available under the previous settlement-inference model, before the collected switch.">was (settlement)</span>
                           <span className="text-muted-foreground">
-                            {fmt(summary.shadowAvailable)}
-                            <span className={summary.shadowAvailable < summary.available ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
-                              ({summary.shadowAvailable < summary.available ? '−' : '+'}{fmt(Math.abs(summary.shadowAvailable - summary.available))})
+                            {fmt(summary.availableWas)}
+                            <span className={summary.available < summary.availableWas ? 'text-red-600 ml-1' : 'text-emerald-600 ml-1'}>
+                              ({summary.available < summary.availableWas ? '−' : '+'}{fmt(Math.abs(summary.available - summary.availableWas))})
                             </span>
                           </span>
                         </div>
@@ -2012,6 +2150,27 @@ function PaymentsTrackerInner() {
         />
       )}
 
+      {/* === COLLECTIONS VIEW === */}
+      {view === 'shipping' && (
+        <ShippingView
+          snapshot={shipSnapshot}
+          meta={shipMeta}
+          onPickFile={handleShippingFile}
+          onClear={clearShippingSnapshotState}
+          error={shipError}
+          busy={shipBusy}
+        />
+      )}
+
+      {view === 'collections' && (
+        <CollectionsView
+          agingRows={arAgingRows}
+          agingOpen={arAgingOpen}
+          accounts={accounts}
+          lineItems={lineItems}
+        />
+      )}
+
       {/* === INVOICES VIEW === */}
       {view === 'invoices' && (
         <InvoicesView
@@ -2037,12 +2196,33 @@ function PaymentsTrackerInner() {
           bpOverridesAppliedCount={bpOverridesAppliedCount}
           onMergeBpOverrides={mergeBpOverridesState}
           onClearBpOverrides={clearBpOverridesState}
+          bpOrders={bpOrders}
+          bpOrdersMeta={bpOrdersMeta}
+          bpOrderTypes={bpOrderTypes}
+          bpOmitted={bpOmitted}
+          onMergeBpOrders={mergeBpOrdersState}
+          onClearBpOrders={clearBpOrdersState}
+          onOmitBpOrders={omitBpOrdersState}
+          onUnomitBpOrder={unomitBpOrderState}
+          shipSnapshot={shipSnapshot}
+          shipMeta={shipMeta}
+          shipError={shipError}
+          shipBusy={shipBusy}
+          onPickShippingFile={handleShippingFile}
+          onClearShipping={clearShippingSnapshotState}
           wsrRemittances={wsrRemittances}
           wsrAttributedCount={wsrRemittanceAppliedCount}
           onAddWsrRemittance={addWsrRemittanceState}
           onClearWsrRemittances={clearWsrRemittancesState}
           uploadLog={uploadLog}
           recordUpload={recordUpload}
+          onCollectedLines={onCollectedLines}
+          onClearCollected={onClearCollected}
+          collectedLoaded={collectedLoaded}
+          onArAging={onArAging}
+          onClearArAging={onClearArAging}
+          arAgingLoaded={arAgingLoaded}
+          agingCoverage={agingCoverage}
           selectedCustomer={invoiceDrillCustomer}
           setSelectedCustomer={(c) => {
             setInvoiceDrillCustomer(c)
@@ -2133,10 +2313,13 @@ function PaymentsTrackerInner() {
           avatarUrl={repProfiles[selectedRep.id]?.avatar_url}
           aggregate={aggregatesByRep[selectedRep.id]}
           summary={repSummary[selectedRep.id]}
+          collectedEvents={repCollectedEvents}
           payouts={commissionPayouts.filter(p => p.repId === selectedRep.id)}
           repAccountInvoices={repAccountInvoicesByRep[selectedRep.id] || []}
           paymentDatesByInvoiceNum={paymentDatesByInvoiceNum}
           paymentEventsByInvoiceNum={paymentEventsByInvoiceNum}
+          settlementEventsByInvoiceNum={settlementEventsByInvoiceNum}
+          onEmailSent={onEmailSent}
           onAddPayout={() => openRecordPayout(selectedRep.id)}
           onEditPayout={openEditPayout}
           onDeletePayout={deleteCommissionPayout}
@@ -2492,6 +2675,13 @@ function TerritoryTile({ territory, stats, onClick }) {
 function AccountsView({ accounts, accountOpenBalances, invoiceNumsByAccountId = {}, unmatchedSummary, fuzzyMatchedSummary = [], territoryStats = {}, search, onSearchChange, territoryFilter, onTerritoryChange, onSelect }) {
   const [unmatchedOpen, setUnmatchedOpen] = useState(false)
   const [fuzzyOpen, setFuzzyOpen] = useState(false)
+  // SICA credit scores per account (same matcher + overrides as Collections).
+  // Loads independently; most accounts show "—" (SICA only covers retailers
+  // Foundry reports AR for). Coerce the account id to string to match the
+  // sica_account_matches key.
+  const [sica, setSica] = useState(null)
+  useEffect(() => { loadSica().then(setSica).catch(() => {}) }, [])
+  const resolveSica = useMemo(() => buildSicaResolver(sica), [sica])
   const fuzzyTotal = useMemo(
     () => (fuzzyMatchedSummary || []).reduce((s, f) => s + (f.total || 0), 0),
     [fuzzyMatchedSummary]
@@ -2722,6 +2912,7 @@ function AccountsView({ accounts, accountOpenBalances, invoiceNumsByAccountId = 
                   <thead>
                     <tr className="bg-muted/60 dark:bg-zinc-800/60 text-[11px] uppercase tracking-wide text-muted-foreground border-b">
                       <th className="py-2.5 px-4 text-left font-semibold">Account</th>
+                      <th className="py-2.5 px-4 text-left font-semibold">SICA</th>
                       <th className="py-2.5 px-4 text-left font-semibold">Contact</th>
                       <th className="py-2.5 px-4 text-right font-semibold">Open Balance</th>
                     </tr>
@@ -2742,6 +2933,7 @@ function AccountsView({ accounts, accountOpenBalances, invoiceNumsByAccountId = 
                               className="font-medium text-[#005b5b] dark:text-[#00b3b3] group-hover:underline"
                             />
                           </td>
+                          <td className="py-3 px-4"><SicaScoreChip retailer={resolveSica(String(a.id), a.name)} /></td>
                           <td className="py-3 px-4">
                             {contact && <div className="text-xs font-medium truncate">{contact}</div>}
                             {a.email && <div className="text-xs text-muted-foreground truncate">{a.email}</div>}
@@ -2827,6 +3019,7 @@ function InfoTip({ children }) {
 // Dropdown listing the CSV files uploaded for one dataset (newest first).
 function UploadHistoryMenu({ entries = [] }) {
   const sorted = [...entries].sort((a, b) => (b.uploadedAt || '').localeCompare(a.uploadedAt || ''))
+  const recent = sorted.slice(0, 5)   // show the 5 most recent filenames
   const fmtWhen = (iso) => { try { return new Date(iso).toLocaleString() } catch { return iso || '' } }
   return (
     <DropdownMenu>
@@ -2836,11 +3029,11 @@ function UploadHistoryMenu({ entries = [] }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-80 max-h-72 overflow-y-auto">
-        <DropdownMenuLabel>Uploaded files</DropdownMenuLabel>
+        <DropdownMenuLabel>{sorted.length > 5 ? '5 most recent files' : 'Uploaded files'}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {sorted.length === 0 ? (
-          <div className="px-2 py-2 text-xs text-muted-foreground">No uploads recorded yet.</div>
-        ) : sorted.map((e) => (
+        {recent.length === 0 ? (
+          <div className="px-2 py-2 text-xs text-muted-foreground">No uploads logged yet — files uploaded from here on will be listed.</div>
+        ) : recent.map((e) => (
           <div key={e.id} className="px-2 py-1.5">
             <div className="text-xs font-medium truncate" title={e.fileName}>{e.fileName || '(unnamed file)'}</div>
             <div className="text-[11px] text-muted-foreground flex flex-wrap gap-x-2">
@@ -2850,6 +3043,9 @@ function UploadHistoryMenu({ entries = [] }) {
             </div>
           </div>
         ))}
+        {sorted.length > 5 && (
+          <div className="px-2 py-1.5 text-[11px] text-muted-foreground border-t mt-1">+{sorted.length - 5} older upload{sorted.length - 5 === 1 ? '' : 's'}</div>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -2869,9 +3065,9 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
             <span className="text-muted-foreground inline-flex items-center gap-1">
               Line items:
               <InfoTip>
-                <p className="font-medium mb-1">Line items CSV</p>
-                <p>Per-invoice product detail (one row per SKU). Required for brand attribution — without it the engine can only credit commission at the invoice level, not split it across brands.</p>
-                <p className="mt-1 text-muted-foreground">Source: QuickBooks "Sales by Customer Type Detail" report.</p>
+                <p className="font-medium mb-1">Line items — what's on each invoice</p>
+                <p>Lists the products on every invoice so we know which brand earned each commission. It's what puts the right brand on the open invoices in your A/R Aging report, so "Pending" is correct.</p>
+                <p className="mt-1 text-muted-foreground">Upload weekly, covering the same dates as your A/R Aging report. From QuickBooks → "Sales by Customer Type Detail."</p>
               </InfoTip>
             </span>
             <span className="font-medium">{lineItems.length.toLocaleString()}</span>
@@ -2901,7 +3097,7 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
                 </span>
               </label>
               <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
-              {history.length > 0 && <UploadHistoryMenu entries={history} />}
+              <UploadHistoryMenu entries={history} />
             </>
           )}
         </div>
@@ -2921,14 +3117,14 @@ function LineItemsUploader({ lineItems, lineItemsMeta, itemsInvoiceCount, itemsE
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
       <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
-        Step 2 — Line Items CSV (optional)
+        Line items — what's on each invoice
         <InfoTip>
-          <p className="font-medium mb-1">Line items CSV</p>
-          <p>Per-invoice product detail (one row per SKU). Required for brand attribution — without it the engine can only credit commission at the invoice level, not split it across brands.</p>
-          <p className="mt-1 text-muted-foreground">Source: QuickBooks "Sales by Customer Type Detail" report.</p>
+          <p className="font-medium mb-1">Line items — what's on each invoice</p>
+          <p>Lists the products on every invoice so we know which brand earned each commission. It's what puts the right brand on the open invoices in your A/R Aging report, so "Pending" is correct.</p>
+          <p className="mt-1 text-muted-foreground">Upload weekly, covering the same dates as your A/R Aging report. From QuickBooks → "Sales by Customer Type Detail."</p>
         </InfoTip>
       </p>
-      <p className="text-sm text-muted-foreground mb-4">Enables brand attribution per invoice. Drop later if you only have the invoices file now.</p>
+      <p className="text-sm text-muted-foreground mb-4">Tells us the brand on each invoice — needed so "Pending" (from A/R Aging) shows the right brands. Upload it for the same date range as your aging report.</p>
       <label className="inline-flex">
         <input type="file" accept=".csv" className="hidden" onChange={pickHandler('replace')} />
         <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
@@ -2960,9 +3156,9 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
         <span className="text-muted-foreground inline-flex items-center gap-1">
           Payments:
           <InfoTip>
-            <p className="font-medium mb-1">QB Payments &amp; Credit Memos</p>
-            <p>Every payment event and credit memo over the export's date range. Drives the 3-phase auto-matcher that assigns payment dates to invoices, and powers credit-memo claw-back logic.</p>
-            <p className="mt-1 text-muted-foreground">Source: QuickBooks "Invoices &amp; Received Payments" report.</p>
+            <p className="font-medium mb-1">QuickBooks payments — supporting, optional</p>
+            <p>Not needed for commissions anymore. It corrects an invoice's paid / unpaid status in the rep ledger — useful when a QuickBooks export leaves off older invoices that were actually paid.</p>
+            <p className="mt-1 text-muted-foreground">Refresh once in a while, not weekly. From QuickBooks → "Invoices &amp; Received Payments."</p>
           </InfoTip>
         </span>
         <span className="font-medium">{transactions.length.toLocaleString()}</span>
@@ -2987,7 +3183,7 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
             <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
-          {history.length > 0 && <UploadHistoryMenu entries={history} />}
+          <UploadHistoryMenu entries={history} />
         </span>
         {lastImport && (
           <p className={`basis-full text-xs mt-1 ${lastImport.mode === 'append' ? 'text-[#005b5b]' : 'text-muted-foreground'}`}>
@@ -3004,14 +3200,14 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
       <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
-        Step 4 — QB Payments CSV (Invoices &amp; Received Payments)
+        QuickBooks payments (supporting — optional)
         <InfoTip>
-          <p className="font-medium mb-1">QB Payments &amp; Credit Memos</p>
-          <p>Every payment event and credit memo over the export's date range. Drives the 3-phase auto-matcher that assigns payment dates to invoices, and powers credit-memo claw-back logic.</p>
-          <p className="mt-1 text-muted-foreground">Source: QuickBooks "Invoices &amp; Received Payments" report.</p>
+          <p className="font-medium mb-1">QuickBooks payments — supporting, optional</p>
+          <p>Not needed for commissions anymore. It corrects an invoice's paid / unpaid status in the rep ledger — useful when a QuickBooks export leaves off older invoices that were actually paid.</p>
+          <p className="mt-1 text-muted-foreground">Refresh once in a while, not weekly. From QuickBooks → "Invoices &amp; Received Payments."</p>
         </InfoTip>
       </p>
-      <p className="text-sm text-muted-foreground mb-4">Captures every payment event + credit memo over a date range. Used for commission-timing audits and three-way reconciliation against invoices + AR.</p>
+      <p className="text-sm text-muted-foreground mb-4">Optional. Keeps invoice paid/unpaid status accurate in the rep ledger. Not used for the commission math anymore — refresh occasionally.</p>
       <label className="inline-flex">
         <input type="file" accept=".csv" className="hidden" onChange={pickHandler('replace')} />
         <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
@@ -3019,6 +3215,285 @@ function PaymentsTxUploader({ transactions, meta, byType, onPickFile, onClear, e
         </span>
       </label>
       <p className="text-xs text-muted-foreground mt-3">Expected columns: Date, Transaction type, Memo/Description, Transaction number, Amount</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
+function CollectedReportUploader({ result, loaded, error, syncing, onPickFile, onClear, history = [] }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+  // Persisted state restored on refresh (the per-upload `result` is per-session).
+  if (!result && loaded) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          Collected:
+          <InfoTip>
+            <p className="font-medium mb-1">Money collected — the main commission source</p>
+            <p>What QuickBooks actually collected each week, line by line — this is what reps get paid on. Splits multi-invoice payments correctly instead of guessing. Adds up week over week (no double-counting).</p>
+            <p className="mt-1 text-muted-foreground">File: QuickBooks <b>"Sales by Customer Detail"</b> report, run on <b>cash basis</b>.</p>
+          </InfoTip>
+        </span>
+        <span className="text-muted-foreground">{(loaded.lineCount || 0).toLocaleString()} collected lines accumulated</span>
+        <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">Loaded (saved)</span>
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Add report</span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
+        </span>
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+
+  if (result) {
+    const totalsOk = result.grandOk !== false && result.mismatches === 0
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          Collected:
+          <InfoTip>
+            <p className="font-medium mb-1">Money collected — the main commission source</p>
+            <p>What QuickBooks actually collected each week, line by line — this is what reps get paid on. Splits multi-invoice payments correctly instead of guessing.</p>
+            <p className="mt-1 text-muted-foreground">File: QuickBooks <b>"Sales by Customer Detail"</b> report. Upload weekly. Must be run on <b>cash basis</b> (accrual shows what was invoiced, not paid).</p>
+          </InfoTip>
+        </span>
+        {result.period && <span className="font-medium">{result.period}</span>}
+        <span className="text-muted-foreground">{result.lineCount.toLocaleString()} lines · {result.customers.toLocaleString()} customers</span>
+        <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full ${totalsOk ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
+          {totalsOk ? `Totals match QBO ${money(result.grandParsed)}` : `Total mismatch (${result.mismatches})`}
+        </span>
+        {Object.keys(result.byBrand || {}).length > 0 && (
+          <span className="flex items-center gap-1.5 flex-wrap">
+            {Object.entries(result.byBrand).map(([b, v]) => (
+              <span key={b} className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+                {b} <span className="text-muted-foreground">{money(v)}</span>
+              </span>
+            ))}
+          </span>
+        )}
+        {result.reviewCount > 0 && (
+          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">{result.reviewCount} to review</span>
+        )}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
+        </span>
+        <p className="basis-full text-xs mt-1 text-[#005b5b]">
+          Saved &amp; accumulated — {result.lineCount.toLocaleString()} lines from this report merged into the collected set (de-duped by line, so overlapping reports don't double-count).
+        </p>
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Money collected — the main commission source
+        <InfoTip>
+          <p className="font-medium mb-1">Money collected — the main commission source</p>
+          <p>What QuickBooks actually collected each week, line by line — this is what reps get paid on. Splits multi-invoice payments correctly instead of guessing.</p>
+          <p className="mt-1 text-muted-foreground">File: QuickBooks <b>"Sales by Customer Detail"</b> report. Upload weekly. Must be run on <b>cash basis</b> (accrual shows what was invoiced, not paid).</p>
+        </InfoTip>
+      </p>
+      <p className="text-sm text-muted-foreground mb-4">The main commission upload. Reads what was actually collected on each line, matches it to a brand, and adds it up. Checked against the report's own totals. Run it on cash basis.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> {syncing ? 'Processing…' : 'Choose Sales by Customer Detail'}
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected: Transaction date, Type, Num, Product/Service, Description, Qty, Sales price, Amount</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
+// Shows the per-rep commission computed from the uploaded cash-basis report —
+// the payoff of the whole collected pipeline (multi-invoice payments split
+// correctly). Computed on-read from the parse, so it works before any deploy.
+function CollectedCommissionPanel({ result }) {
+  if (!result?.commissionRows) return null
+  const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const rows = result.commissionRows
+  if (!rows.length) return null
+  return (
+    <div className="rounded-lg border bg-card">
+      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b">
+        <div className="min-w-0">
+          <h3 className="text-sm font-semibold">Commission from collected — by rep</h3>
+          <p className="text-xs text-muted-foreground">Computed from {result.period || 'this period'} · what each rep is owed on cash actually collected</p>
+        </div>
+        <div className="text-right shrink-0">
+          <div className="text-lg font-bold tabular-nums text-[#005b5b]">{money(result.commissionTotal)}</div>
+          <div className="text-[11px] text-muted-foreground">total commission</div>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-xs uppercase text-muted-foreground bg-muted/30">
+              <th className="py-2 px-4 text-left font-medium">Rep</th>
+              <th className="py-2 px-4 text-right font-medium">Collected (commissionable)</th>
+              <th className="py-2 px-4 text-right font-medium">Commission</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.repId} className="border-b last:border-0">
+                <td className="py-2 px-4 font-medium">{r.repName}</td>
+                <td className="py-2 px-4 text-right tabular-nums text-muted-foreground whitespace-nowrap">{money(r.base)}</td>
+                <td className="py-2 px-4 text-right font-bold tabular-nums text-[#005b5b] whitespace-nowrap">{money(r.commission)}</td>
+              </tr>
+            ))}
+            <tr className="bg-muted/40 font-semibold">
+              <td className="py-2 px-4">Total</td>
+              <td className="py-2 px-4"></td>
+              <td className="py-2 px-4 text-right tabular-nums text-[#005b5b] whitespace-nowrap">{money(result.commissionTotal)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      {result.commissionReview > 0 && (
+        <p className="px-4 py-2 text-xs text-amber-700 border-t bg-amber-50/60">
+          {result.commissionReview} line{result.commissionReview === 1 ? '' : 's'} couldn't be routed (unknown SKU, unmatched customer, or a Brightpearl Ref with no order code) — excluded from the totals above.
+        </p>
+      )}
+    </div>
+  )
+}
+
+function ArAgingUploader({ result, loaded, coverage, error, onPickFile, onClear, history = [] }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const money = (n) => '$' + (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  const [showUncovered, setShowUncovered] = useState(false)
+  // Show the compact panel when a report is loaded — either from THIS session's
+  // upload (`result`, carries the to-the-penny validation) or persisted from a
+  // prior session (`loaded`, restored on refresh so there's proof it's loaded).
+  const summary = result || loaded
+  if (summary) {
+    const fresh = !!result
+    const totalsOk = result ? (result.grandOk !== false && result.mismatches === 0) : null
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          A/R Aging:
+          <InfoTip>
+            <p className="font-medium mb-1">Unpaid invoices — drives "Pending"</p>
+            <p>What customers still owe. Gives each rep their "Pending" number — the commission they'll earn once these invoices are paid. The brands come from your line-items upload.</p>
+            <p className="mt-1 text-muted-foreground">Upload weekly. It's a snapshot — each upload replaces the last. From QuickBooks → "A/R Aging Detail."</p>
+          </InfoTip>
+        </span>
+        {summary.asOf && <span className="font-medium">as of {summary.asOf}</span>}
+        <span className="text-muted-foreground">{(summary.openCount || 0).toLocaleString()} open invoices · {money(summary.openTotal)}</span>
+        {fresh
+          ? <span className={`text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full ${totalsOk ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-700'}`}>
+              {totalsOk ? `Totals match QBO ${money(result.grandOpen)}` : `Total mismatch (${result.mismatches})`}
+            </span>
+          : <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-800">Loaded (saved)</span>}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">Replace</span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
+        </span>
+        {/* Coverage diagnostic — how many open invoices carry line-item detail
+            (the join that lets them contribute to Pending). Surfaces a line-items
+            date-range gap instead of silently understating Pending. */}
+        {coverage && (
+          <div className="basis-full text-xs mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+            {!coverage.hasLineItems ? (
+              <span className="text-amber-700 inline-flex items-center gap-1">
+                <AlertTriangle className="size-3.5" /> No line items loaded — Pending can't be computed. Upload the line-items report (Step&nbsp;3).
+              </span>
+            ) : (
+              <>
+                <span className="text-emerald-700 font-medium">{coverage.covered.toLocaleString()} of {coverage.total.toLocaleString()} open invoices have line-item detail</span>
+                <span className="text-muted-foreground">→ {money(coverage.pendingTotal)} pending commission</span>
+                {coverage.uncovered > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowUncovered((v) => !v)}
+                    className="text-amber-700 inline-flex items-center gap-1 hover:text-amber-900 hover:underline cursor-pointer"
+                    aria-expanded={showUncovered}
+                  >
+                    <AlertTriangle className="size-3.5" /> {coverage.uncovered.toLocaleString()} missing line items ({money(coverage.uncoveredOpen)} open) won't count — likely outside the line-items date range
+                    {showUncovered ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+        {/* Drill-down: the exact open invoices with no line items, biggest first —
+            so it's clear which ones need coverage (usually a wider line-items export). */}
+        {coverage && showUncovered && coverage.uncovered > 0 && (
+          <div className="basis-full mt-1 rounded-md border bg-amber-50/50 overflow-hidden">
+            <div className="max-h-64 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-amber-100/80 text-amber-900">
+                  <tr className="text-left">
+                    <th className="py-1.5 px-3 font-semibold">Invoice</th>
+                    <th className="py-1.5 px-3 font-semibold">Customer</th>
+                    <th className="py-1.5 px-3 font-semibold">Due date</th>
+                    <th className="py-1.5 px-3 font-semibold text-right">Open balance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {coverage.uncoveredList.map((u, i) => (
+                    <tr key={`${u.num}-${i}`} className="border-t border-amber-200/60">
+                      <td className="py-1.5 px-3 font-medium whitespace-nowrap">{u.num || '—'}</td>
+                      <td className="py-1.5 px-3">{u.customer}</td>
+                      <td className="py-1.5 px-3 whitespace-nowrap tabular-nums text-muted-foreground">{u.dueDate || '—'}</td>
+                      <td className="py-1.5 px-3 text-right tabular-nums font-medium whitespace-nowrap">{money(u.openBalance)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="px-3 py-1.5 text-[11px] text-amber-800 border-t border-amber-200 bg-amber-100/40">
+              Re-export line items through {loaded?.asOf || result?.asOf || 'the aging date'} so these invoices get their brands and count toward Pending.
+            </p>
+          </div>
+        )}
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Unpaid invoices — A/R Aging Detail
+        <InfoTip>
+          <p className="font-medium mb-1">Unpaid invoices — drives "Pending"</p>
+          <p>What customers still owe. Gives each rep their "Pending" number — the commission they'll earn once these invoices are paid. The brands come from your line-items upload.</p>
+          <p className="mt-1 text-muted-foreground">Upload weekly. It's a snapshot — each upload replaces the last. From QuickBooks → "A/R Aging Detail."</p>
+        </InfoTip>
+      </p>
+      <p className="text-sm text-muted-foreground mb-4">Nets credits, excludes REP accounts, validated against the report's own totals.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> Choose A/R Aging Detail
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected: Date, Transaction type, Num, Customer, Due date, Amount, Open balance</p>
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
     </div>
   )
@@ -3034,9 +3509,9 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
         <span className="text-muted-foreground inline-flex items-center gap-1">
           BP overrides:
           <InfoTip>
-            <p className="font-medium mb-1">Brightpearl invoice→customer mapping</p>
-            <p>Recovers the original customer name on invoices that QuickBooks renamed to bare "WSR" when a clearing-house payment hit. Without this, WSR-member invoices can't route to the right rep.</p>
-            <p className="mt-1 text-muted-foreground">Upload one file per territory — mappings merge, they don't replace.</p>
+            <p className="font-medium mb-1">Brightpearl name fixes — one-off</p>
+            <p>Puts the real customer name back on invoices that QuickBooks renamed to plain "WSR" when a group payment came in, so the commission reaches the right rep.</p>
+            <p className="mt-1 text-muted-foreground">Only needed occasionally. Upload one file per territory — they add up, they don't overwrite.</p>
           </InfoTip>
         </span>
         <span className="font-medium">{total.toLocaleString()}</span>
@@ -3053,7 +3528,7 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
             </span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
-          {history.length > 0 && <UploadHistoryMenu entries={history} />}
+          <UploadHistoryMenu entries={history} />
         </span>
         {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Merged {lastImport.added.toLocaleString()} mappings from {lastImport.fileName} ({total} total stored).</p>}
         {error && <p className="basis-full text-sm text-red-600">{error}</p>}
@@ -3064,14 +3539,14 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
       <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
-        Step 5 — BP invoice overrides (one-off backfill)
+        Brightpearl name fixes (one-off)
         <InfoTip>
-          <p className="font-medium mb-1">Brightpearl invoice→customer mapping</p>
-          <p>Recovers the original customer name on invoices that QuickBooks renamed to bare "WSR" when a clearing-house payment hit. Without this, WSR-member invoices can't route to the right rep.</p>
-          <p className="mt-1 text-muted-foreground">Upload one file per territory — mappings merge, they don't replace.</p>
+          <p className="font-medium mb-1">Brightpearl name fixes — one-off</p>
+          <p>Puts the real customer name back on invoices that QuickBooks renamed to plain "WSR" when a group payment came in, so the commission reaches the right rep.</p>
+          <p className="mt-1 text-muted-foreground">Only needed occasionally. Upload one file per territory — they add up, they don't overwrite.</p>
         </InfoTip>
       </p>
-      <p className="text-sm text-muted-foreground mb-4">Brightpearl export with original customer names per invoice. Recovers WSR-renamed invoices so they route to the right rep. Upload one file per territory; mappings accumulate.</p>
+      <p className="text-sm text-muted-foreground mb-4">Occasional fix. Restores the real customer name on invoices QuickBooks relabeled "WSR," so they route to the right rep. One file per territory; they accumulate.</p>
       <label className="inline-flex">
         <input type="file" accept=".csv" className="hidden" onChange={pick} />
         <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
@@ -3079,6 +3554,254 @@ function BpOverridesUploader({ overrides, meta, appliedCount, onPickFile, onClea
         </span>
       </label>
       <p className="text-xs text-muted-foreground mt-3">Expected columns: Invoice, Customer (other columns ignored)</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
+// Brightpearl order export — the source of each invoice's ORDER TYPE.
+// Brightpearl's "2027 Booking" tag is overwritten with "Invoiced" at invoicing
+// and no history is kept, so the durable signal is the Ref code (NB/AB = pre-book,
+// NIS/AIS = ATS, NCO/NC = closeout, NP/AP = promo, NW/AW = warranty).
+function BpOrdersUploader({ orders, meta, orderTypes, omitted = {}, onOmit, onUnomit, onPickFile, onClear, error, lastImport, history = [] }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const [showUncoded, setShowUncoded] = useState(false)
+  const total = orders ? Object.keys(orders).length : 0
+  const tally = (t) => Object.values(orderTypes || {}).filter((x) => x === t).length
+  // The actual review queue: orders whose Ref carries no code, so the engine
+  // can't tell what they are. Listed here (rather than only counted) because
+  // the fix is to correct the Ref in Brightpearl — which needs the invoice
+  // number, the customer, and the offending Ref in front of you.
+  // Split the uncoded set: still-open ones nag in the review queue; dismissed
+  // ones are kept visible (collapsed) so a wrong call can be undone.
+  const allUncoded = useMemo(() => Object.values(orders || {})
+    .filter((r) => r?.orderType === ORDER_TYPE.UNCODED)
+    .sort((a, b) => (b.paid || 0) - (a.paid || 0)), [orders])
+  const uncodedRows = useMemo(() => allUncoded.filter((r) => !omitted?.[r.invoice]), [allUncoded, omitted])
+  const omittedRows = useMemo(() => allUncoded.filter((r) => omitted?.[r.invoice]), [allUncoded, omitted])
+  const blurb = (
+    <>
+      <p className="font-medium mb-1">Brightpearl order types</p>
+      <p>Tells the engine what KIND of order each invoice came from. Promo and warranty earn no commission, closeout earns half rate, pre-book and ATS earn full.</p>
+      <p className="mt-1 text-muted-foreground">Read from the Ref code (NB/AB pre-book, NIS/AIS ATS, NCO closeout, NP/AP promo, NW warranty). Refs that don't follow the convention are flagged for review, never silently zeroed.</p>
+      <p className="mt-1 text-muted-foreground">Applies to payments from {ORDER_TYPE_RULES_EFFECTIVE} onward — earlier commission is left as settled.</p>
+    </>
+  )
+  if (total > 0) {
+    const uncoded = tally(ORDER_TYPE.UNCODED)
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <FileSpreadsheet className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          BP order types:
+          <InfoTip>{blurb}</InfoTip>
+        </span>
+        <span className="font-medium">{total.toLocaleString()}</span>
+        <span className="text-muted-foreground">invoices typed</span>
+        <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+          {tally(ORDER_TYPE.CLOSEOUT)} closeout · {tally(ORDER_TYPE.PROMO) + tally(ORDER_TYPE.WARRANTY)} no-commission
+        </span>
+        {uncoded > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowUncoded((v) => !v)}
+            className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700 hover:bg-amber-500/25 cursor-pointer"
+          >
+            {uncoded} need review {showUncoded ? '▲' : '▼'}
+          </button>
+        )}
+        {meta && <span className="text-xs text-muted-foreground">• {meta.fileName}</span>}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">
+              <Upload className="size-3.5" /> Merge another file
+            </span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
+        </span>
+        {lastImport && <p className="basis-full text-xs text-muted-foreground mt-1">Merged {lastImport.added.toLocaleString()} orders from {lastImport.fileName} ({total} total stored).</p>}
+        {showUncoded && uncodedRows.length > 0 && (
+          <div className="basis-full mt-2 border-t pt-2">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <p className="text-xs text-muted-foreground">
+                These invoices earn no commission until their Ref is corrected in Brightpearl to the
+                <span className="font-medium"> {'US - <CODE>-<YEAR>'} </span>
+                convention (e.g. <span className="font-mono">US - NB-2027 PO#1234</span>). They are flagged, not zeroed.
+                <span className="block mt-0.5">Reviewed one and it genuinely earns nothing? <span className="font-medium">Omit</span> it — it stops asking, and stays undoable below.</span>
+              </p>
+              {uncodedRows.length > 0 && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs shrink-0"
+                  onClick={() => onOmit?.(uncodedRows.map((r) => r.invoice))}
+                >
+                  Omit all {uncodedRows.length}
+                </Button>
+              )}
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  <tr className="border-b">
+                    <th className="text-left font-semibold py-1">Invoice</th>
+                    <th className="text-left font-semibold py-1">SO</th>
+                    <th className="text-left font-semibold py-1">Customer</th>
+                    <th className="text-left font-semibold py-1">Ref as entered</th>
+                    <th className="text-right font-semibold py-1">Collected</th>
+                    <th className="py-1"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {uncodedRows.map((r) => (
+                    <tr key={r.invoice} className="border-b last:border-0">
+                      <td className="py-1 font-semibold tabular-nums whitespace-nowrap">{r.invoice}</td>
+                      <td className="py-1 tabular-nums text-muted-foreground">{r.orderId || '—'}</td>
+                      <td className="py-1 truncate max-w-[16rem]">{r.customer || '—'}</td>
+                      <td className="py-1 font-mono text-[11px] text-muted-foreground truncate max-w-[18rem]">{r.ref || '(blank)'}</td>
+                      <td className="py-1 text-right tabular-nums">{r.paid ? fmt(r.paid) : '—'}</td>
+                      <td className="py-1 text-right">
+                        <button
+                          type="button"
+                          onClick={() => onOmit?.([r.invoice])}
+                          className="text-[10px] uppercase font-semibold text-muted-foreground hover:text-foreground px-1.5 py-0.5 rounded border border-input hover:bg-muted"
+                        >
+                          Omit
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {uncodedRows.length === 0 && (
+                    <tr><td colSpan={6} className="py-2 text-center text-muted-foreground">Nothing left to review.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            {omittedRows.length > 0 && (
+              <details className="mt-2">
+                <summary className="text-xs text-muted-foreground cursor-pointer">
+                  {omittedRows.length} omitted after review — earn no commission
+                </summary>
+                <table className="w-full text-xs mt-1">
+                  <tbody>
+                    {omittedRows.map((r) => (
+                      <tr key={r.invoice} className="border-b last:border-0 text-muted-foreground">
+                        <td className="py-1 tabular-nums whitespace-nowrap">{r.invoice}</td>
+                        <td className="py-1 truncate max-w-[14rem]">{r.customer || '—'}</td>
+                        <td className="py-1 font-mono text-[11px] truncate max-w-[16rem]">{r.ref || '(blank)'}</td>
+                        <td className="py-1 text-right tabular-nums">{r.paid ? fmt(r.paid) : '—'}</td>
+                        <td className="py-1 text-right">
+                          <button
+                            type="button"
+                            onClick={() => onUnomit?.(r.invoice)}
+                            className="text-[10px] uppercase font-semibold hover:text-foreground px-1.5 py-0.5 rounded border border-input hover:bg-muted"
+                          >
+                            Undo
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            )}
+          </div>
+        )}
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Brightpearl order types
+        <InfoTip>{blurb}</InfoTip>
+      </p>
+      <p className="text-sm text-muted-foreground mb-4">Tells the engine what kind of order each invoice came from. Promo and warranty earn nothing, closeout earns half rate. Export invoiced sales orders from Brightpearl; files accumulate.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> Choose Brightpearl Orders CSV
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected columns: Order ID, Invoice, Ref (Order Notes optional)</p>
+      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+    </div>
+  )
+}
+
+// Warehouse shipping snapshot — the two Brightpearl exports behind the Shipping
+// tab. Two files, uploaded one after the other; which is which is decided by
+// CONTENT (are the rows tagged Invoiced?), not filename.
+function ShippingUploader({ snapshot, meta, onPickFile, onClear, error, busy, history = [] }) {
+  const pick = (e) => { if (e.target.files?.[0]) { onPickFile(e.target.files[0]); e.target.value = '' } }
+  const openN = snapshot?.openOrders?.length || 0
+  const shipN = snapshot?.shipped?.length || 0
+  const blurb = (
+    <>
+      <p className="font-medium mb-1">Warehouse shipping</p>
+      <p>Two Brightpearl order exports taken the same day: every order EXCEPT invoiced, and the invoiced orders WITH the Tax date column.</p>
+      <p className="mt-1 text-muted-foreground">Tax date is the ship date. &ldquo;Date created&rdquo; is when the order was written — for a pre-book that is months earlier, so it must not be used.</p>
+      <p className="mt-1 text-muted-foreground">Each upload REPLACES its half. An order that moved from Printed to Invoiced has to leave the open set.</p>
+    </>
+  )
+  if (openN || shipN) {
+    return (
+      <div className="rounded-md border border-dashed px-3 py-2 text-sm flex flex-wrap items-center gap-3">
+        <Truck className="size-4 text-muted-foreground shrink-0" />
+        <span className="text-muted-foreground inline-flex items-center gap-1">
+          Shipping snapshot:
+          <InfoTip>{blurb}</InfoTip>
+        </span>
+        <span className="font-medium">{(openN + shipN).toLocaleString()}</span>
+        <span className="text-muted-foreground">orders</span>
+        <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-[#005b5b]/10 text-[#005b5b]">
+          {openN.toLocaleString()} open · {shipN.toLocaleString()} invoiced
+        </span>
+        {!shipN && (
+          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700">
+            invoiced export still needed
+          </span>
+        )}
+        {!openN && (
+          <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-700">
+            open-orders export still needed
+          </span>
+        )}
+        {meta?.openFile && <span className="text-xs text-muted-foreground">• {meta.openFile}</span>}
+        {meta?.shippedFile && <span className="text-xs text-muted-foreground">• {meta.shippedFile}</span>}
+        <span className="ml-auto flex items-center gap-2">
+          <label className="inline-flex">
+            <input type="file" accept=".csv" className="hidden" onChange={pick} disabled={busy} />
+            <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1">
+              <Upload className="size-3.5" /> {busy ? 'Reading…' : 'Upload export'}
+            </span>
+          </label>
+          <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
+          <UploadHistoryMenu entries={history} />
+        </span>
+        {error && <p className="basis-full text-sm text-red-600">{error}</p>}
+      </div>
+    )
+  }
+  return (
+    <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
+      <Truck className="size-10 mx-auto text-muted-foreground mb-3" />
+      <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
+        Warehouse shipping
+        <InfoTip>{blurb}</InfoTip>
+      </p>
+      <p className="text-sm text-muted-foreground mb-4">Drives the Shipping tab: what is packed, what has shipped, and what is still waiting. Upload both Brightpearl exports — every order except invoiced, then the invoiced ones with the Tax date column.</p>
+      <label className="inline-flex">
+        <input type="file" accept=".csv" className="hidden" onChange={pick} />
+        <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
+          <Upload className="size-4" /> Choose a Brightpearl export
+        </span>
+      </label>
+      <p className="text-xs text-muted-foreground mt-3">Expected columns: Order ID, Ref, Status, Total — plus Tax date on the invoiced export</p>
       {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
     </div>
   )
@@ -3093,9 +3816,9 @@ function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, 
         <span className="text-muted-foreground inline-flex items-center gap-1">
           WSR remittances:
           <InfoTip>
-            <p className="font-medium mb-1">WSR ACH remittance forms</p>
-            <p>Each xlsx breaks a single WSR ACH payment down by member: invoice number, member ID, gross, admin fee, and net paid. Gives WSR-member invoices their correct paid date and amount.</p>
-            <p className="mt-1 text-muted-foreground">One file per check — re-uploading a check number replaces the prior copy.</p>
+            <p className="font-medium mb-1">WSR payment breakdowns</p>
+            <p>When the WSR buying group pays with one ACH, QuickBooks lumps it under "WSR." This form splits that payment back to each member — which invoice, how much — so the commission reaches the right rep.</p>
+            <p className="mt-1 text-muted-foreground">Upload each check's form as it arrives. Re-uploading the same check number replaces the old copy.</p>
           </InfoTip>
         </span>
         <span className="font-medium">{remittances.length}</span>
@@ -3117,7 +3840,7 @@ function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, 
             </span>
           </label>
           <Button variant="ghost" size="sm" onClick={onClear} className="text-muted-foreground h-7 text-xs">Clear</Button>
-          {history.length > 0 && <UploadHistoryMenu entries={history} />}
+          <UploadHistoryMenu entries={history} />
         </span>
         {lastImport && (
           <p className="basis-full text-xs text-muted-foreground mt-1">
@@ -3132,14 +3855,14 @@ function WsrRemittanceUploader({ remittances, latest, totalInvoices, totalPaid, 
     <div className="rounded-lg border-2 border-dashed border-muted-foreground/30 py-12 px-6 text-center">
       <FileSpreadsheet className="size-10 mx-auto text-muted-foreground mb-3" />
       <p className="text-sm font-medium mb-1 inline-flex items-center gap-1.5">
-        Step 6 — WSR ACH payments (per-check remittance)
+        WSR payment breakdowns
         <InfoTip>
-          <p className="font-medium mb-1">WSR ACH remittance forms</p>
-          <p>Each xlsx breaks a single WSR ACH payment down by member: invoice number, member ID, gross, admin fee, and net paid. Gives WSR-member invoices their correct paid date and amount.</p>
-          <p className="mt-1 text-muted-foreground">One file per check — re-uploading a check number replaces the prior copy.</p>
+          <p className="font-medium mb-1">WSR payment breakdowns</p>
+          <p>When the WSR buying group pays with one ACH, QuickBooks lumps it under "WSR." This form splits that payment back to each member — which invoice, how much — so the commission reaches the right rep.</p>
+          <p className="mt-1 text-muted-foreground">Upload each check's form as it arrives. Re-uploading the same check number replaces the old copy.</p>
         </InfoTip>
       </p>
-      <p className="text-sm text-muted-foreground mb-4">Upload each WSR Additional Remittance Form xlsx. Gives us per-invoice attribution (member, gross, admin fee, net) within a lump WSR ACH payment so individual WSR-member invoices get correct payment dates and amounts.</p>
+      <p className="text-sm text-muted-foreground mb-4">Splits a lump WSR group payment back to each member (which invoice, how much) so those invoices reach the right rep with the correct paid date. Upload each check's Remittance Form as it arrives.</p>
       <label className="inline-flex">
         <input type="file" accept=".xlsx,.xls" className="hidden" onChange={pick} />
         <span className="inline-flex items-center px-3 py-1.5 text-sm font-medium rounded-md border border-input bg-background hover:bg-muted cursor-pointer gap-1.5">
@@ -3160,9 +3883,12 @@ function InvoicesView({
   lineItems, lineItemsMeta, onSaveLineItems, onAppendLineItems, onClearLineItems, lineItemsStorageError, lastLineItemsImport,
   paymentsTx = [], paymentsTxMeta, onSavePaymentsTx, onClearPaymentsTx,
   bpOverrides = {}, bpOverridesMeta, bpOverridesAppliedCount = 0, onMergeBpOverrides, onClearBpOverrides,
+  bpOrders = {}, bpOrdersMeta, bpOrderTypes = {}, bpOmitted = {}, onMergeBpOrders, onClearBpOrders, onOmitBpOrders, onUnomitBpOrder,
+  shipSnapshot, shipMeta, shipError, shipBusy, onPickShippingFile, onClearShipping,
   wsrRemittances = [], wsrAttributedCount = 0, onAddWsrRemittance, onClearWsrRemittances,
   selectedCustomer, setSelectedCustomer, highlightNum, clearHighlight,
-  uploadLog = [], recordUpload,
+  uploadLog = [], recordUpload, onCollectedLines, onClearCollected, collectedLoaded,
+  onArAging, onClearArAging, arAgingLoaded, agingCoverage,
 }) {
   // Per-dataset upload histories for the "N files" dropdowns.
   const historyFor = (dataset) => uploadLog.filter(e => e.dataset === dataset)
@@ -3639,6 +4365,102 @@ function InvoicesView({
     return m
   }, [paymentsTx])
 
+  // ===== Commission — collected (cash-basis "Sales by Customer Detail") =====
+  // Parses the report client-side (validated to the penny), then lifts its lines
+  // to the parent, which merges them (de-duped) into the accumulated collected set
+  // and persists via the shared portal store. This panel shows THIS upload's stats.
+  const [collectedResult, setCollectedResult] = useState(null)
+  const [collectedError, setCollectedError] = useState(null)
+  const [collectedSyncing, setCollectedSyncing] = useState(false)
+  const handleCollectedFile = async (file) => {
+    setCollectedError(null); setCollectedResult(null); setCollectedSyncing(true)
+    try {
+      // Read the CSV as raw text — the report's row structure (leading blank
+      // column, MM/DD/YYYY dates) is what the parser keys on, and routing it
+      // through XLSX coerces dates to serials and breaks it.
+      const csv = await file.text()
+      const result = parseSalesDetail(csv)
+      if (!result.customers.length) {
+        throw new Error('No customer lines found — is this the cash-basis "Sales by Customer Detail" report?')
+      }
+      // Compute per-rep commission on-read (rep routing + season half-rate) —
+      // this is the payoff: what each rep is owed from what was actually collected.
+      const commission = computeCollectedCommission({
+        lines: result.lines, accounts: ACCOUNTS, repTerritories: REP_TERRITORIES, season: '2025-26',
+        orderTypes: bpOrderTypes,
+      })
+      const repRows = {}
+      for (const e of commission.entries) {
+        if (e.needsReview || !e.repId) continue
+        const r = repRows[e.repId] || (repRows[e.repId] = { repId: e.repId, repName: e.repName, base: 0, commission: 0 })
+        r.base += e.lineNet || 0
+        r.commission += e.commission || 0
+      }
+      const commissionRows = Object.values(repRows)
+        .map(r => ({ ...r, base: Math.round(r.base * 100) / 100, commission: Math.round(r.commission * 100) / 100 }))
+        .sort((a, b) => b.commission - a.commission)
+      const commissionTotal = Math.round(commissionRows.reduce((s, r) => s + r.commission, 0) * 100) / 100
+      const commissionReview = commission.entries.filter(e => e.needsReview).length
+
+      // Lift the parsed lines up to the parent, which merges them (de-duped by
+      // line fingerprint) into the accumulated set that drives Available. The
+      // panel below still shows THIS upload's per-rep commission for confirmation.
+      // Accumulate + persist through the parent (onCollectedLines →
+      // collectedStore → the shared portal_data KV). No edge function or deploy
+      // needed — it uses the same live store as the other uploads.
+      onCollectedLines?.(result.lines)
+
+      setCollectedResult({
+        fileName: file.name,
+        period: result.meta.period,
+        grandParsed: result.totals.grandParsed,
+        grandReported: result.totals.grandReported,
+        valid: result.validation.ok,
+        grandOk: result.validation.grandOk,
+        mismatches: result.validation.mismatches.length,
+        byBrand: result.totals.byBrand,
+        customers: result.customers.length,
+        lineCount: result.lines.length,
+        reviewCount: result.review.length,
+        commissionRows,
+        commissionTotal,
+        commissionReview,
+      })
+      recordUpload?.('collected', file.name, 'replace', result.lines.length)
+    } catch (e) {
+      setCollectedError(e.message || 'Failed to parse the Sales by Customer Detail report')
+    } finally {
+      setCollectedSyncing(false)
+    }
+  }
+
+  // ===== A/R Aging Detail (open receivables → Pending) =====
+  const [arAgingResult, setArAgingResult] = useState(null)
+  const [arAgingError, setArAgingError] = useState(null)
+  const handleArAgingFile = async (file) => {
+    setArAgingError(null); setArAgingResult(null)
+    try {
+      const parsed = parseArAging(await file.text())
+      if (!parsed.rows.length) throw new Error('No aging rows found — is this the "A/R Aging Detail" report?')
+      const open = openInvoicesFromAging(parsed)
+      // Full rows (every type + bucket, incl. credits) power the Collections worklist.
+      onArAging?.(open, { asOf: parsed.meta.asOf, fileName: file.name }, parsed.rows)
+      setArAgingResult({
+        fileName: file.name,
+        asOf: parsed.meta.asOf,
+        grandOpen: parsed.totals.grandOpen,
+        grandReported: parsed.totals.grandReported,
+        grandOk: parsed.validation.grandOk,
+        mismatches: parsed.validation.mismatches.length,
+        openCount: open.length,
+        openTotal: Math.round(open.reduce((s, o) => s + o.openBalance, 0) * 100) / 100,
+      })
+      recordUpload?.('ar_aging', file.name, 'replace', parsed.rows.length)
+    } catch (e) {
+      setArAgingError(e.message || 'Failed to parse the A/R Aging Detail report')
+    }
+  }
+
   // ===== BP invoice override CSV =====
   const [bpError, setBpError] = useState(null)
   const [lastBpImport, setLastBpImport] = useState(null)
@@ -3674,6 +4496,33 @@ function InvoicesView({
     setConfirmAction({
       message: 'This action will clear all uploaded BP invoice overrides, are you sure you want to proceed?',
       onConfirm: () => { onClearBpOverrides(); setBpError(null); setLastBpImport(null) },
+    })
+  }
+
+  // ===== Brightpearl order export (order types) =====
+  const [bpOrdersError, setBpOrdersError] = useState(null)
+  const [lastBpOrdersImport, setLastBpOrdersImport] = useState(null)
+  const handleBpOrdersFile = async (file) => {
+    setBpOrdersError(null)
+    try {
+      const text = await file.text()
+      const { byInvoice, counts, skipped } = parseBrightpearlOrders(text)
+      const added = Object.keys(byInvoice).length
+      if (added === 0) {
+        throw new Error(skipped > 0
+          ? `No invoiced orders found — all ${skipped} rows are still open (no invoice number yet).`
+          : 'No orders found in this file.')
+      }
+      const meta = { fileName: file.name, uploadedAt: new Date().toISOString(), counts, rowCount: added }
+      await onMergeBpOrders(byInvoice, meta)
+      setLastBpOrdersImport({ fileName: file.name, added, totalAfter: Object.keys({ ...bpOrders, ...byInvoice }).length })
+      recordUpload?.('bp_orders', file.name, 'merge', added)
+    } catch (e) { setBpOrdersError(e.message || 'Failed to parse Brightpearl order export') }
+  }
+  const clearBpOrdersConfirm = () => {
+    setConfirmAction({
+      message: 'This action will clear all uploaded Brightpearl order types, are you sure you want to proceed?',
+      onConfirm: () => { onClearBpOrders(); setBpOrdersError(null); setLastBpOrdersImport(null) },
     })
   }
 
@@ -3934,7 +4783,7 @@ function InvoicesView({
           }`}
         >
           <FileSpreadsheet className="size-12 mx-auto text-muted-foreground mb-3" />
-          <p className="text-sm font-medium mb-1">Step 1 — Invoices CSV</p>
+          <p className="text-sm font-medium mb-1">Invoices list (supporting data — optional)</p>
           <p className="text-sm text-muted-foreground mb-4">Drag and drop your CSV file here, or</p>
           <label className="inline-flex">
             <input type="file" accept=".csv" className="hidden" onChange={(e) => handleFile(e.target.files?.[0])} />
@@ -3962,16 +4811,84 @@ function InvoicesView({
 
   return (
     <div className="space-y-4">
+      {/* ─── Section A: commission uploads (do these weekly) ─── */}
+      <div className="pt-1">
+        <h3 className="text-sm font-semibold text-[#005b5b]">Commission uploads — do these each week</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">These decide what every rep gets paid. Hover the info icon on each for what it is and when to upload it.</p>
+      </div>
+
+      <CollectedReportUploader
+        result={collectedResult}
+        loaded={collectedLoaded}
+        error={collectedError}
+        syncing={collectedSyncing}
+        onPickFile={handleCollectedFile}
+        onClear={() => {
+          setCollectedResult(null); setCollectedError(null)
+          if (collectedLoaded) setConfirmAction({
+            message: 'Clear all accumulated collected-commission lines? This drives each rep’s Available — you’ll need to re-upload the Sales by Customer Detail reports.',
+            onConfirm: () => onClearCollected?.(),
+          })
+        }}
+        history={historyFor('collected')}
+      />
+
+      <CollectedCommissionPanel result={collectedResult} />
+
+      <LineItemsUploader
+        lineItems={lineItems}
+        lineItemsMeta={lineItemsMeta}
+        itemsInvoiceCount={itemsInvoiceCount}
+        itemsError={itemsError || lineItemsStorageError}
+        lastImport={lastLineItemsImport}
+        onPickFile={handleItemsFile}
+        onClear={clearLineItems}
+        history={historyFor('line_items')}
+        compact
+      />
+
+      <ArAgingUploader
+        result={arAgingResult}
+        loaded={arAgingLoaded}
+        coverage={agingCoverage}
+        error={arAgingError}
+        onPickFile={handleArAgingFile}
+        onClear={() => {
+          setArAgingResult(null); setArAgingError(null)
+          if (arAgingLoaded) onClearArAging?.()
+        }}
+        history={historyFor('ar_aging')}
+      />
+
+      <WsrRemittanceUploader
+        remittances={wsrRemittances}
+        latest={latestWsrRemittance}
+        totalInvoices={wsrInvoiceCount}
+        totalPaid={wsrTotalPaid}
+        wsrAttributedCount={wsrAttributedCount}
+        onPickFile={handleWsrFile}
+        onClear={clearWsrRemittancesConfirm}
+        error={wsrError}
+        lastImport={lastWsrImport}
+        history={historyFor('wsr')}
+      />
+
+      {/* ─── Section B: supporting data (optional) ─── */}
+      <div className="pt-4">
+        <h3 className="text-sm font-semibold text-muted-foreground">Supporting data — optional</h3>
+        <p className="text-xs text-muted-foreground mt-0.5">Not used for the commission math anymore. Keeps the customer account pages, open-balance totals, and invoice paid/unpaid status current. Refresh occasionally.</p>
+      </div>
+
       {/* Invoices uploader */}
       <div className="rounded-lg border border-input bg-background p-4">
         <div className="flex items-start justify-between gap-3 mb-2">
           <div>
             <h3 className="font-semibold inline-flex items-center gap-1.5">
-              Invoices CSV
+              Invoices list <span className="text-xs font-normal text-muted-foreground">(supporting — optional)</span>
               <InfoTip>
-                <p className="font-medium mb-1">Invoices CSV</p>
-                <p>The core data source — every QuickBooks invoice (SI) and credit memo (SC) we track for commission attribution.</p>
-                <p className="mt-1 text-muted-foreground">Append merges new invoices into what's already loaded; Replace wipes and reloads from scratch.</p>
+                <p className="font-medium mb-1">Invoices list — supporting, optional</p>
+                <p>Not needed for commissions anymore. Powers the customer account pages, open-balance totals, and the "Owes Foundry" section for reps' personal orders.</p>
+                <p className="mt-1 text-muted-foreground">Refresh now and then to keep those views current. Append adds new invoices; Replace reloads from scratch.</p>
               </InfoTip>
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -3999,7 +4916,7 @@ function InvoicesView({
               </span>
             </label>
             <Button variant="ghost" size="sm" onClick={clearInvoices} className="text-muted-foreground">Clear</Button>
-            {historyFor('invoices').length > 0 && <UploadHistoryMenu entries={historyFor('invoices')} />}
+            <UploadHistoryMenu entries={historyFor('invoices')} />
           </div>
         </div>
         {lastInvoicesImport && (
@@ -4158,19 +5075,6 @@ function InvoicesView({
         </div>
       )}
 
-      {/* Line items uploader / status */}
-      <LineItemsUploader
-        lineItems={lineItems}
-        lineItemsMeta={lineItemsMeta}
-        itemsInvoiceCount={itemsInvoiceCount}
-        itemsError={itemsError || lineItemsStorageError}
-        lastImport={lastLineItemsImport}
-        onPickFile={handleItemsFile}
-        onClear={clearLineItems}
-        history={historyFor('line_items')}
-        compact
-      />
-
       <PaymentsTxUploader
         transactions={paymentsTx}
         meta={paymentsTxMeta}
@@ -4193,17 +5097,28 @@ function InvoicesView({
         history={historyFor('bp_overrides')}
       />
 
-      <WsrRemittanceUploader
-        remittances={wsrRemittances}
-        latest={latestWsrRemittance}
-        totalInvoices={wsrInvoiceCount}
-        totalPaid={wsrTotalPaid}
-        wsrAttributedCount={wsrAttributedCount}
-        onPickFile={handleWsrFile}
-        onClear={clearWsrRemittancesConfirm}
-        error={wsrError}
-        lastImport={lastWsrImport}
-        history={historyFor('wsr')}
+      <BpOrdersUploader
+        orders={bpOrders}
+        meta={bpOrdersMeta}
+        orderTypes={bpOrderTypes}
+        omitted={bpOmitted}
+        onOmit={onOmitBpOrders}
+        onUnomit={onUnomitBpOrder}
+        onPickFile={handleBpOrdersFile}
+        onClear={clearBpOrdersConfirm}
+        error={bpOrdersError}
+        lastImport={lastBpOrdersImport}
+        history={historyFor('bp_orders')}
+      />
+
+      <ShippingUploader
+        snapshot={shipSnapshot}
+        meta={shipMeta}
+        onPickFile={onPickShippingFile}
+        onClear={onClearShipping}
+        error={shipError}
+        busy={shipBusy}
+        history={historyFor('shipping')}
       />
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -4637,7 +5552,7 @@ function PortalMigrateButton() {
 // =====================================================================
 // EmailReportModal — email the rep's PDF + XLSX report from accounting@
 // =====================================================================
-function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
+function EmailReportModal({ open, onOpenChange, rep, exportArgs, onSent }) {
   const [to, setTo] = useState('')
   const [subject, setSubject] = useState('')
   const [message, setMessage] = useState('')
@@ -4664,22 +5579,43 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
     try {
       const pdf = exportRepReportPDF({ ...exportArgs, returnBase64: true })
       const xlsx = exportRepReportXLSX({ ...exportArgs, returnBase64: true })
-      const { data, error: fnError } = await supabase.functions.invoke('email-rep-report', {
-        body: {
-          repName: rep?.name || '',
-          repEmail: to.trim(),
-          subject: subject.trim() || 'Your commission report',
-          message,
-          pdfBase64: pdf.base64, pdfFilename: pdf.filename,
-          xlsxBase64: xlsx.base64, xlsxFilename: xlsx.filename,
-        },
-      })
-      if (fnError) throw new Error(fnError.message || 'Send failed')
-      if (data?.error) throw new Error(data.error)
+      // Direct fetch with a generous timeout instead of supabase.functions.invoke:
+      // sending (token exchange + Gmail upload with attachments) can run past the
+      // client's default 15s abort, which otherwise reads as the opaque
+      // "Failed to send a request to the Edge Function". Also surfaces the
+      // function's real error from the response body.
+      const base = import.meta.env.VITE_SUPABASE_URL
+      const anon = import.meta.env.VITE_SUPABASE_ANON_KEY
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token || anon
+      const controller = new AbortController()
+      const timer = setTimeout(() => controller.abort(), 120000)
+      let res
+      try {
+        res = await fetch(`${base}/functions/v1/email-rep-report`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', apikey: anon, Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            repName: rep?.name || '',
+            repEmail: to.trim(),
+            subject: subject.trim() || 'Your commission report',
+            message,
+            pdfBase64: pdf.base64, pdfFilename: pdf.filename,
+            xlsxBase64: xlsx.base64, xlsxFilename: xlsx.filename,
+          }),
+          signal: controller.signal,
+        })
+      } finally { clearTimeout(timer) }
+      let body = {}
+      try { body = await res.json() } catch { /* non-JSON response */ }
+      if (!res.ok) throw new Error(body.error || `Send failed (${res.status})`)
       setStatus('sent')
+      onSent?.(rep?.id)
     } catch (e) {
       setStatus('error')
-      setError(e?.message || 'Failed to send. Please try again.')
+      setError(e?.name === 'AbortError'
+        ? 'The send timed out. The email may still go through — check the rep’s inbox, or try again.'
+        : (e?.message || 'Failed to send. Please try again.'))
     }
   }
 
@@ -4739,9 +5675,27 @@ function EmailReportModal({ open, onOpenChange, rep, exportArgs }) {
 // =====================================================================
 // RepLedgerView — per-rep commission ledger (the 3 monthly-report sections)
 // =====================================================================
-function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
-  const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, shadowAvailable: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
-  const byInvoice = aggregate?.byInvoice || {}
+function RepLedgerView({ rep, avatarUrl, aggregate, summary, collectedEvents, payouts, repAccountInvoices = [], paymentDatesByInvoiceNum, paymentEventsByInvoiceNum, settlementEventsByInvoiceNum, onEmailSent, onAddPayout, onEditPayout, onDeletePayout, territories, anchor, onRegisterActions }) {
+  const safeSummary = summary || { earned: 0, paidOut: 0, available: 0, availableWas: 0, openCommission: 0, totalCommission: 0, owesFoundry: 0 }
+  // Correct each invoice's paid status/openBalance from the settlement engine —
+  // the payment data is the source of truth. A date-filtered invoices export can
+  // omit an older invoice that was PAID this week (so it still reads "Open"),
+  // but its settlement events (from the payments snapshot) show it settled.
+  const byInvoice = useMemo(() => {
+    const raw = aggregate?.byInvoice || {}
+    const out = {}
+    for (const [k, inv] of Object.entries(raw)) {
+      const evs = settlementEventsByInvoiceNum?.get(inv.invoiceNum) || []
+      let settled = 0
+      for (const e of evs) if (e.kind === 'cash' || e.kind === 'unapplied' || e.kind === 'prior') settled += e.amount || 0
+      if (settled <= 0.005) { out[k] = inv; continue }
+      const amt = inv.amount || 0
+      const openBalance = Math.max(0, Math.round((amt - settled) * 100) / 100)
+      const status = amt > 0 && settled + 0.005 >= amt ? 'Paid' : 'Partial'
+      out[k] = { ...inv, status, openBalance }
+    }
+    return out
+  }, [aggregate, settlementEventsByInvoiceNum])
 
   // Split rep's invoices by status. Partials qualify as "paid" for this
   // section because the received portion is real earned commission; they
@@ -4792,7 +5746,10 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
     }
     return best
   }, [payouts])
-  const defaultSince = lastPayoutDate || anchor
+  // Open at the baseline (7/21) until the rep gets a payout AFTER it — then
+  // default to "since last payout" (what's accrued since they were last paid).
+  // Pre-baseline payouts don't pull the view back before the freeze.
+  const defaultSince = lastPayoutDate > LEDGER_PAID_SINCE_DEFAULT ? lastPayoutDate : LEDGER_PAID_SINCE_DEFAULT
   const [paidSince, setPaidSince] = useState(() => defaultSince)
   const [hasPaidSinceTouched, setHasPaidSinceTouched] = useState(false)
   useEffect(() => {
@@ -4813,11 +5770,28 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
   // asking "what's owed since X" and we can't honestly place an undated
   // row on either side of X, so we hide them and surface a count below.
   const visiblePaymentEvents = useMemo(() => {
+    // Collected model (read from QuickBooks): use the pre-built per-invoice events
+    // for this rep, filtered by the Since date. Correctly splits multi-invoice
+    // payments; no "unmatched date" fallback needed.
+    if (collectedEvents) {
+      return collectedEvents
+        .filter(ev => {
+          if (!paidSince) return true
+          const iso = toIsoDate(ev.paymentDate)
+          return iso && iso >= paidSince
+        })
+        .sort((a, b) => (b.paymentDate || '').localeCompare(a.paymentDate || ''))
+    }
     const out = []
     for (const inv of paidInvoices) {
       const fullAmount = inv.amount || 0
       const fullCommission = inv.commission || 0
-      const events = paymentEventsByInvoiceNum?.get(inv.invoiceNum) || []
+      // Prefer settlement events (cash/unapplied — dated, with method); fall
+      // back to the matcher for invoices with no snapshot history yet.
+      const settle = settlementEventsByInvoiceNum?.get(inv.invoiceNum)
+      const events = settle && settle.length
+        ? settle.filter(e => e.kind === 'cash' || e.kind === 'unapplied').map(e => ({ date: e.date, amount: e.amount, method: e.method, source: e.kind }))
+        : (paymentEventsByInvoiceNum?.get(inv.invoiceNum) || [])
       if (events.length === 0) {
         if (paidSince) continue
         const paidPortion = fullAmount - (inv.openBalance || 0)
@@ -4854,18 +5828,22 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
       return (b.paymentDate || '').localeCompare(a.paymentDate || '')
     })
     return out
-  }, [paidInvoices, paymentEventsByInvoiceNum, paidSince])
-  // Count of paid invoices with no matched events, so we can show a nudge
+  }, [collectedEvents, paidInvoices, settlementEventsByInvoiceNum, paymentEventsByInvoiceNum, paidSince])
+  // Count of paid invoices with no dated events, so we can show a nudge
   // when the Since filter is hiding them.
   const unmatchedHiddenCount = useMemo(() => {
+    if (collectedEvents) return 0   // collected events all carry a payment date
     if (!paidSince) return 0
     let n = 0
     for (const inv of paidInvoices) {
-      const events = paymentEventsByInvoiceNum?.get(inv.invoiceNum) || []
-      if (events.length === 0) n++
+      const settle = settlementEventsByInvoiceNum?.get(inv.invoiceNum)
+      const hasDated = settle && settle.length
+        ? settle.some(e => e.kind === 'cash' || e.kind === 'unapplied')
+        : (paymentEventsByInvoiceNum?.get(inv.invoiceNum) || []).length > 0
+      if (!hasDated) n++
     }
     return n
-  }, [paidInvoices, paymentEventsByInvoiceNum, paidSince])
+  }, [collectedEvents, paidInvoices, settlementEventsByInvoiceNum, paymentEventsByInvoiceNum, paidSince])
   // Alias for existing downstream consumers (brand subtotals, totals).
   const visiblePaidInvoices = visiblePaymentEvents
 
@@ -5032,6 +6010,12 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
   const exportArgs = {
     rep, summary: safeSummary, byInvoice, payouts, paidSince, territories, groupByCustomer,
     brandSubtotals, repAccountInvoices, anchor, paymentDatesByInvoiceNum,
+    // The collected (cash-basis) events are the authoritative record of WHICH
+    // invoices were paid and when — the same source the Available total is
+    // built from. Without them the statement's paid-invoice section is gated on
+    // invoice status plus the payment auto-matcher, and can come back empty
+    // while the summary above it reports real earnings.
+    collectedEvents,
   }
 
   // Surface the export/email actions to the page header. Handlers read the
@@ -5053,7 +6037,7 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
       {/* Rep header — editable details + note log */}
       <RepHeaderCard rep={rep} territories={territories} avatarUrl={avatarUrl} />
 
-      <EmailReportModal open={emailOpen} onOpenChange={setEmailOpen} rep={rep} exportArgs={exportArgs} />
+      <EmailReportModal open={emailOpen} onOpenChange={setEmailOpen} rep={rep} exportArgs={exportArgs} onSent={onEmailSent} />
 
       {/* Summary cards: the three pieces of info Tony's monthly report needs */}
       <div className={`grid grid-cols-1 sm:grid-cols-2 ${safeSummary.owesFoundry > 0 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4`}>
@@ -5069,18 +6053,17 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
           <CardHeader className="pb-2">
             <CardDescription className="flex items-center gap-1.5 text-[11px] uppercase tracking-wide font-semibold text-white/70">
               <Wallet className="size-3.5" />Available to collect
+              {safeSummary.availableSource === 'collected' && <span className="text-[9px] uppercase font-semibold px-1 py-0.5 rounded bg-white/20 text-white" title="Driven by the collected report (cash-basis Sales by Customer Detail)">collected</span>}
             </CardDescription>
             <CardTitle className="text-3xl tabular-nums text-white">{fmt(safeSummary.available)}</CardTitle>
-            {typeof safeSummary.shadowAvailable === 'number' && (() => {
-              const delta = safeSummary.shadowAvailable - safeSummary.available
+            {safeSummary.availableSource === 'collected' && typeof safeSummary.availableWas === 'number' && Math.abs(safeSummary.available - safeSummary.availableWas) > 0.005 && (() => {
+              const delta = safeSummary.available - safeSummary.availableWas
               return (
-                <div className="mt-1 text-xs text-white/60" title="Payment-first + season-aware preview. Not yet the number you pay on.">
-                  Preview: <span className="font-semibold text-white">{fmt(safeSummary.shadowAvailable)}</span>
-                  {Math.abs(delta) > 0.005 && (
-                    <span className={delta < 0 ? 'text-red-200 ml-1' : 'text-emerald-200 ml-1'}>
-                      ({delta < 0 ? '−' : '+'}{fmt(Math.abs(delta))})
-                    </span>
-                  )}
+                <div className="mt-1 text-xs text-white/60" title="Available under the previous settlement-inference model, before the collected switch.">
+                  was (settlement) <span className="font-semibold text-white">{fmt(safeSummary.availableWas)}</span>
+                  <span className={delta < 0 ? 'text-red-200 ml-1' : 'text-emerald-200 ml-1'}>
+                    ({delta < 0 ? '−' : '+'}{fmt(Math.abs(delta))})
+                  </span>
                 </div>
               )
             })()}
@@ -5293,6 +6276,9 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
                                                 {(ev.lines || []).some(l => l.isRental) && (
                                                   <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>
                                                 )}
+                                                {(ev.lines || []).some(l => l.skuSeason && seasonRateMultiplier(l.skuSeason, seasonOf(ev.paymentDate)) < 1) && (
+                                                  <span title="Contains past-season product — commission paid at the reduced (half) rate" className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-yellow-200 text-yellow-900">Reduced rate</span>
+                                                )}
                                               </div>
                                             )}
                                           </td>
@@ -5366,6 +6352,9 @@ function RepLedgerView({ rep, avatarUrl, aggregate, summary, payouts, repAccount
                               ))}
                               {(ev.lines || []).some(l => l.isRental) && (
                                 <span className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">Rental</span>
+                              )}
+                              {(ev.lines || []).some(l => l.skuSeason && seasonRateMultiplier(l.skuSeason, seasonOf(ev.paymentDate)) < 1) && (
+                                <span title="Contains past-season product — commission paid at the reduced (half) rate" className="text-[10px] uppercase font-semibold px-1.5 py-0.5 rounded-full bg-yellow-200 text-yellow-900">Reduced rate</span>
                               )}
                             </div>
                           )}
